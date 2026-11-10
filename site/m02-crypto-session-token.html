@@ -1,0 +1,1380 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M02 · Crypto, Session &amp; Token</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<main class="content">
+
+<div class="page-head">
+  <div class="breadcrumb"><a href="index.html">Lộ trình</a> / Module 02</div>
+  <h1>Module 02 — Cryptography, Session, Token &amp; HTTP Auth Schemes</h1>
+  <p class="lead">Những nền tảng mật mã học <b>tối thiểu</b> để đọc được token, chữ ký số, certificate và HTTPS; cộng với cách một ứng dụng <b>ghi nhớ</b> rằng bạn đã đăng nhập (session, cookie, token) và cách client <b>trình</b> credential cho API (Basic, Bearer, API key).</p>
+  <div class="meta-row">
+    <span class="chip">⏱ Full 2 giờ · Core 1.5 giờ</span>
+    <span class="chip">📥 Input: <a href="m01-fundamentals.html">Module 01</a>, đọc được HTTP header</span>
+    <span class="chip">➡️ Tiếp theo: <a href="m03-oauth-oidc.html">Module 03 — OAuth/OIDC</a></span>
+  </div>
+</div>
+
+<div class="keypoints"><div class="kp-title">Sau bài này bạn sẽ</div><ul>
+<li>Phân biệt chắc chắn <b>encryption ≠ hash ≠ digital signature ≠ HMAC ≠ password hashing</b> — và biết khi nào dùng cái nào.</li>
+<li>Biết vì sao <b>không được</b> lưu mật khẩu bằng <code>SHA-256(password)</code>, và cấu hình password hashing theo khuyến nghị OWASP hiện hành.</li>
+<li>Hiểu <b>cookie ≠ session</b>, stateful vs stateless, và ý nghĩa từng thuộc tính cookie (<code>HttpOnly</code>, <code>Secure</code>, <code>SameSite</code>…).</li>
+<li>Phân biệt <b>access token / ID token / refresh token</b>; đọc được một JWT và biết API phải <b>kiểm tra những gì</b> trước khi tin nó.</li>
+<li>Mô tả vòng đời token: refresh rotation, reuse detection, key rotation, introspection, revocation.</li>
+<li>Đọc được header <code>Authorization</code> / <code>WWW-Authenticate</code>; so sánh API key, Basic, Bearer và OAuth Client Credentials.</li>
+</ul></div>
+
+<div class="callout info"><span class="callout-title">🎯 Mục tiêu module</span>
+Đọc được một JWT mẫu, giải thích API xác minh token như thế nào, và mô tả vòng đời cơ bản của session/token. Module này là “bảng chữ cái” cho <a href="m03-oauth-oidc.html">OAuth/OIDC ở Module 03</a>.</div>
+
+<h2 id="input">Input trước module</h2>
+<ul>
+<li>Hoàn thành <a href="m01-fundamentals.html">Module 01</a> (Identity, AuthN vs AuthZ, IdP/RP/AS/RS).</li>
+<li>Đọc được HTTP request/response và header (ví dụ <code>Cookie</code>, <code>Set-Cookie</code>, <code>Authorization</code>).</li>
+<li>Biết sơ bộ HTTPS là “HTTP chạy trên kênh được mã hóa”.</li>
+</ul>
+<div class="callout example"><span class="callout-title">💡 Ví dụ xuyên suốt: tiếp tục hệ thống “Kaopiz HR”</span>
+<ul>
+<li><b>hr-web</b>: web app ASP.NET Core mà nhân viên An dùng trên trình duyệt (dùng <b>session cookie</b>).</li>
+<li><b>hr-api</b>: Web API trả dữ liệu bảng lương (nhận <b>Bearer access token</b>).</li>
+<li><b>Keycloak</b> realm <code>kaopiz</code> tại <code>https://sso.kaopiz.local/realms/kaopiz</code>: Identity Provider + Authorization Server cấp token.</li>
+<li><b>payroll-batch</b>: job chạy đêm gọi hr-api (service-to-service, không có người dùng).</li>
+</ul>
+Mật khẩu ví dụ của An: <code>Kaopiz2026</code> (chỉ để minh họa!).</div>
+
+<!-- ===================================================== -->
+<h2 id="crypto">A. Cryptography essentials <span class="badge must">Must</span></h2>
+<p>Bạn <b>không cần</b> biết toán học bên trong AES hay RSA. Bạn cần biết mỗi công cụ <b>giải quyết bài toán gì</b>, vì hầu hết lỗi bảo mật trong authentication đến từ việc dùng sai công cụ (ví dụ “mã hóa” mật khẩu thay vì hash, hoặc tưởng JWT đã ký là bí mật).</p>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Thuật ngữ</th><th>Nghĩa</th></tr></thead>
+<tbody>
+<tr><td><b>Plaintext</b> (bản rõ)</td><td>Dữ liệu gốc, ai cũng đọc được. Ví dụ: <code>Lương tháng 11: 30.000.000</code>.</td></tr>
+<tr><td><b>Ciphertext</b> (bản mã)</td><td>Dữ liệu sau khi mã hóa, nhìn như rác nếu không có key. Ví dụ: <code>9f3a…c1</code>.</td></tr>
+<tr><td><b>Encryption / Decryption</b> (mã hóa / giải mã)</td><td>Biến plaintext ↔ ciphertext bằng <b>key</b>. Mục tiêu chính: <b>confidentiality</b> (tính bí mật) — chỉ người có key đọc được.</td></tr>
+<tr><td><b>Key</b> (khóa)</td><td>Giá trị bí mật (hoặc cặp giá trị) điều khiển thuật toán. Thuật toán thường công khai; <b>bí mật nằm ở key</b>.</td></tr>
+<tr><td><b>Integrity</b> (toàn vẹn) / <b>Authenticity</b> (xác thực nguồn gốc)</td><td>Dữ liệu không bị sửa / dữ liệu đúng là do bên được kỳ vọng tạo ra.</td></tr>
+</tbody></table></div>
+
+<h3 id="symmetric-asymmetric">Symmetric vs Asymmetric</h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+<b>Symmetric</b> giống chiếc két sắt có <b>một chìa</b>: ai có chìa thì vừa khóa vừa mở được — nên phải trao chìa cho người kia một cách bí mật.
+<b>Asymmetric</b> giống <b>hộp thư có khe</b>: ai cũng nhét thư vào được (public key), nhưng chỉ chủ hộp có chìa mở (private key).</div>
+<ul>
+<li><b>Symmetric encryption</b> (mã hóa đối xứng): <b>cùng một secret key</b> để mã hóa và giải mã. Nhanh, dùng cho dữ liệu lớn. Ví dụ: <b>AES</b> (Advanced Encryption Standard). Khó khăn: làm sao chia sẻ key an toàn cho bên kia?</li>
+<li><b>Asymmetric cryptography</b> (mật mã bất đối xứng / mật mã khóa công khai): mỗi bên có <b>cặp khóa</b> — <b>public key</b> (công khai, phát cho ai cũng được) và <b>private key</b> (giữ tuyệt mật). Dữ liệu mã hóa bằng public key chỉ giải được bằng private key tương ứng. Ví dụ: <b>RSA</b>, <b>ECC</b> (Elliptic-Curve Cryptography — ví dụ ECDSA, ECDH). Chậm hơn nhiều so với symmetric.</li>
+<li>Thực tế (ví dụ TLS) dùng <b>cả hai</b>: asymmetric để xác thực và thỏa thuận key, rồi symmetric (AES) để mã hóa dữ liệu thật.</li>
+</ul>
+<div class="diagram">
+<pre class="mermaid">
+flowchart LR
+  subgraph SYM["Symmetric (AES)"]
+    direction LR
+    P1["Plaintext"] -->|"mã hóa bằng K"| C1["Ciphertext"]
+    C1 -->|"giải mã bằng CÙNG K"| P1b["Plaintext"]
+  end
+  subgraph ASYM["Asymmetric (RSA / ECC)"]
+    direction LR
+    P2["Plaintext"] -->|"mã hóa bằng PUBLIC key<br/>của người nhận"| C2["Ciphertext"]
+    C2 -->|"chỉ PRIVATE key<br/>của người nhận giải được"| P2b["Plaintext"]
+  end
+</pre>
+<div class="caption">Symmetric: một key dùng chung (vấn đề là phân phối key). Asymmetric: cặp key, public key phát công khai được.</div>
+</div>
+
+<h3 id="hashing">Hashing (hàm băm)</h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Hash giống <b>dấu vân tay</b> của dữ liệu: cùng một người luôn cho cùng một vân tay, vân tay rất ngắn, nhưng <b>từ vân tay không dựng lại được cả con người</b>. Giới hạn của phép so sánh: “vân tay” của dữ liệu ngắn (như mật khẩu) có thể bị <b>đoán thử</b> — xem phần password hashing.</div>
+<ul>
+<li><b>Hash function</b> là hàm <b>một chiều</b>: nhận dữ liệu bất kỳ độ dài → trả về <b>digest</b> (giá trị băm) độ dài cố định. Ví dụ <b>SHA-256</b> luôn trả về 256 bit (64 ký tự hex).</li>
+<li>Cùng input → luôn cùng digest. Đổi 1 ký tự → digest thay đổi hoàn toàn (thử ở widget bên dưới).</li>
+<li><b>Không có key</b>, không “giải mã” được. Vì vậy <b>hash không phải encryption</b>.</li>
+<li>Dùng để: kiểm tra toàn vẹn file (checksum), làm thành phần trong chữ ký số/HMAC, lưu dấu của dữ liệu bí mật có entropy cao (ví dụ API key).</li>
+</ul>
+<pre data-title="Ví dụ SHA-256 (hex)"><code class="language-plaintext">SHA-256("Kaopiz2026") = 66dbbd5e77ce5ccf8d35ec6e9c178b6b94d181de3da88432c79f550ad6c9b99d
+SHA-256("kaopiz2026") = 8f297dcdca7f4903b0f31123d3a53d9135de1e551d8c745eb3d8571791341332
+                         ↑ chỉ khác chữ K hoa/thường → digest khác hoàn toàn</code></pre>
+
+<h3 id="password-hashing">Password hashing và Salt <span class="badge must">Must</span></h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+SHA-256 được thiết kế để <b>nhanh</b> — GPU có thể thử hàng tỷ mật khẩu mỗi giây. Password hashing cố tình làm việc băm <b>chậm và tốn RAM</b>, như một ổ khóa phải xoay 2 giây mới mở: người dùng thật không thấy phiền (chỉ mở một lần), còn kẻ đoán mò thử hàng tỷ lần thì kiệt sức. <b>Salt</b> giống việc mỗi người dùng có một “gia vị” riêng trộn vào trước khi băm, nên hai người cùng mật khẩu vẫn ra hai kết quả khác nhau.</div>
+
+<p><b>Vì sao <code>SHA-256(password)</code> không đủ?</b></p>
+<ol>
+<li><b>Quá nhanh</b> → brute-force/dictionary attack (thử lần lượt các mật khẩu phổ biến) rất rẻ khi DB bị lộ.</li>
+<li><b>Không có salt</b> → cùng mật khẩu cho cùng hash: kẻ tấn công thấy ngay ai dùng chung mật khẩu, và dùng được <b>bảng tính sẵn</b> (precomputed table / rainbow table) cho các mật khẩu phổ biến.</li>
+<li>Mật khẩu người dùng có <b>entropy thấp</b> (dễ đoán) — khác với API key ngẫu nhiên 256 bit.</li>
+</ol>
+
+<p><b>Password hashing</b> dùng thuật toán chuyên dụng — <b>chậm có chủ đích</b>, có tham số chi phí (work factor) điều chỉnh được, và tích hợp salt:</p>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Thứ tự ưu tiên (OWASP)</th><th>Thuật toán</th><th>Tham số tối thiểu khuyến nghị</th><th>Ghi chú</th></tr></thead>
+<tbody>
+<tr><td>1</td><td><b>Argon2id</b></td><td>m = 19 MiB (19456 KiB), t = 2, p = 1<br/><span class="small muted">(tương đương: 46 MiB/t=1; 12 MiB/t=3; 9 MiB/t=4; 7 MiB/t=5 — cùng p=1)</span></td><td>Lựa chọn mặc định cho hệ thống mới. Tốn RAM → khó tăng tốc bằng GPU/ASIC.</td></tr>
+<tr><td>2</td><td><b>scrypt</b></td><td>N = 2<sup>17</sup> (128 MiB), r = 8, p = 1</td><td>Khi không có Argon2id.</td></tr>
+<tr><td>3</td><td><b>PBKDF2</b></td><td>HMAC-SHA256: <b>600.000</b> vòng · HMAC-SHA512: <b>220.000</b> vòng</td><td>Khi cần tuân thủ FIPS-140. (PBKDF2-HMAC-SHA1: 1.400.000 vòng, chỉ cho hệ thống cũ.)</td></tr>
+<tr><td>4</td><td><b>bcrypt</b></td><td>work factor ≥ 10</td><td>Chỉ cho hệ thống legacy. Đa số cài đặt <b>chỉ dùng 72 byte đầu</b> của mật khẩu.</td></tr>
+</tbody></table></div>
+<p class="small muted">Nguồn: <a href="https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html">OWASP Password Storage Cheat Sheet</a> (kiểm tra 11/2026). Con số là <b>mức tối thiểu</b>; hãy tăng tới mức server của bạn chịu được và đo thời gian thực tế.</p>
+
+<ul>
+<li><b>Salt</b>: giá trị <b>ngẫu nhiên, riêng cho từng password hash</b>, lưu <b>cùng</b> hash (không cần giữ bí mật). Mục đích: chống dùng bảng hash tính sẵn và làm hai mật khẩu giống nhau ra hash khác nhau.</li>
+<li><b>Pepper</b> (tùy chọn, defense-in-depth): một secret <b>dùng chung</b> cho mọi mật khẩu, lưu <b>ngoài</b> DB (vault/HSM). Không thay thế salt.</li>
+<li>Không bao giờ lưu plaintext, không “mã hóa” mật khẩu (encryption đảo ngược được — lộ key là lộ hết), không tự chế thuật toán.</li>
+</ul>
+
+<div class="diagram">
+<pre class="mermaid">
+flowchart TD
+  subgraph REG["Đăng ký / đổi mật khẩu"]
+    direction TB
+    PW1["Mật khẩu: Kaopiz2026"] --> KDF1["Argon2id / PBKDF2<br/>(chậm có chủ đích)"]
+    S1["Salt ngẫu nhiên 16 byte<br/>(sinh mới cho mỗi user)"] --> KDF1
+    KDF1 --> DB[("DB lưu:<br/>thuật toán + tham số + salt + hash")]
+  end
+  subgraph LOGIN["Đăng nhập"]
+    direction TB
+    PW2["Mật khẩu người dùng gõ"] --> KDF2["Cùng thuật toán + tham số"]
+    DB -->|"đọc salt + tham số"| KDF2
+    KDF2 --> CMP{"So sánh hash<br/>(constant-time)"}
+    DB -->|"đọc hash đã lưu"| CMP
+    CMP -->|"khớp"| OK["✅ Đăng nhập"]
+    CMP -->|"không khớp"| NO["❌ Từ chối"]
+  end
+</pre>
+<div class="caption">Server không bao giờ “giải mã” mật khẩu — nó băm lại input với cùng salt/tham số rồi so sánh.</div>
+</div>
+
+<p><b>Trong ASP.NET Core</b>, đừng tự viết — dùng <code>PasswordHasher&lt;TUser&gt;</code> của ASP.NET Core Identity. Định dạng V3 hiện tại dùng <b>PBKDF2 với HMAC-SHA512</b>, salt 128 bit, subkey 256 bit, và <code>IterationCount</code> mặc định <b>100.000</b>. Mức này <b>thấp hơn</b> khuyến nghị OWASP hiện hành cho PBKDF2-HMAC-SHA512 (220.000), nên hãy cấu hình lại:</p>
+<pre data-title="Program.cs — PasswordHasher của ASP.NET Core Identity"><code class="language-csharp">using Microsoft.AspNetCore.Identity;
+
+// Tăng số vòng PBKDF2 (V3 dùng HMAC-SHA512) theo OWASP: &gt;= 220.000
+builder.Services.Configure&lt;PasswordHasherOptions&gt;(o =&gt;
+{
+    o.IterationCount = 220_000;   // đo thời gian đăng nhập trên server thật rồi điều chỉnh
+});
+
+// --- Dùng trực tiếp (ví dụ trong một app không dùng full Identity) ---
+var hasher = new PasswordHasher&lt;AppUser&gt;();
+string stored = hasher.HashPassword(user, "Kaopiz2026");
+// stored = chuỗi Base64 chứa: version marker, PRF, iteration count, salt, subkey
+
+var result = hasher.VerifyHashedPassword(user, stored, inputPassword);
+switch (result)
+{
+    case PasswordVerificationResult.Success:
+        break;                                   // đăng nhập OK
+    case PasswordVerificationResult.SuccessRehashNeeded:
+        // Hash cũ dùng tham số yếu hơn (ít vòng hơn, PRF cũ...) → băm lại và lưu
+        user.PasswordHash = hasher.HashPassword(user, inputPassword);
+        await db.SaveChangesAsync();
+        break;
+    default:
+        return Results.Unauthorized();
+}</code></pre>
+<div class="callout tip"><span class="callout-title">✅ Nâng cấp tham số không cần bắt user đổi mật khẩu</span>
+Vì hash lưu kèm tham số, khi bạn tăng <code>IterationCount</code>, các hash cũ vẫn verify được và trả về <code>SuccessRehashNeeded</code> → băm lại ngay lúc user đăng nhập thành công. Nếu cần Argon2id trong .NET, phải dùng thư viện bên thứ ba (BCL không có sẵn Argon2) — chọn thư viện được bảo trì tốt.</div>
+
+<div class="widget" id="hash-demo"><div class="w-title">🧪 Hash demo — SHA-256 chạy ngay trên trình duyệt của bạn</div>
+<p class="small muted">Tính bằng <code>crypto.subtle.digest</code> (Web Crypto API); không gửi gì lên mạng.</p>
+<label class="small">Chuỗi A</label>
+<input type="text" id="hashA" value="Kaopiz2026">
+<label class="small">Chuỗi B (thử đổi đúng 1 ký tự)</label>
+<input type="text" id="hashB" value="kaopiz2026">
+<div class="btn-row"><button class="btn" id="hashRun">Tính SHA-256</button><button class="btn ghost" id="hashSalt">Thêm salt ngẫu nhiên vào A</button></div>
+<div class="out" id="hashOut">Bấm “Tính SHA-256”.</div>
+</div>
+<div class="callout warn"><span class="callout-title">⚠️ Demo này cũng cho thấy vì sao SHA-256 đơn thuần không đủ cho mật khẩu</span>
+Trình duyệt của bạn tính SHA-256 gần như tức thì — kẻ tấn công với GPU tính được <b>hàng tỷ</b> lần mỗi giây. Nếu DB lộ <code>66dbbd5e…</code>, chỉ cần thử danh sách mật khẩu phổ biến là ra <code>Kaopiz2026</code>. Thêm salt chặn được bảng tính sẵn, nhưng <b>không làm chậm</b> việc đoán từng user — vì vậy cần Argon2id/scrypt/PBKDF2 với work factor cao.</div>
+
+<h3 id="signature">Digital signature (chữ ký số) <span class="badge must">Must</span></h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Giống <b>con dấu niêm phong</b> của công ty trên văn bản: ai cũng <b>đọc được</b> văn bản và kiểm tra con dấu có thật không (bằng public key), nhưng chỉ người giữ con dấu (private key) mới đóng được. Chữ ký <b>không che</b> nội dung — nó chỉ chứng minh “ai tạo ra” và “không bị sửa”.</div>
+<ul>
+<li><b>Ký</b>: người gửi băm dữ liệu rồi dùng <b>private key</b> tạo chữ ký.</li>
+<li><b>Verify</b>: người nhận dùng <b>public key</b> của người gửi kiểm tra chữ ký khớp với dữ liệu.</li>
+<li>Đảm bảo <b>integrity</b> (sửa 1 byte → verify thất bại) và <b>authenticity</b> theo mô hình khóa (chỉ người giữ private key ký được). <b>Không</b> đảm bảo confidentiality.</li>
+<li>Ứng dụng trong auth: JWT ký RS256/ES256 (<a href="#jwt">mục E</a>), SAML assertion (<a href="m04-saml.html#saml-validation">M04</a>), certificate (<a href="#pki">PKI</a>), passkey (<a href="m05-enterprise-passwordless.html#webauthn">M05</a>).</li>
+</ul>
+<div class="diagram">
+<pre class="mermaid">
+flowchart LR
+  subgraph SIGN["Bên phát hành (Keycloak) - KÝ"]
+    direction TB
+    D1["Dữ liệu<br/>(header.payload)"] --> H1["Hash SHA-256"]
+    H1 --> SG["Ký bằng PRIVATE key"]
+    SG --> SIG["Chữ ký"]
+  end
+  subgraph VERIFY["Bên nhận (hr-api) - VERIFY"]
+    direction TB
+    D2["Dữ liệu nhận được"] --> V["Verify bằng PUBLIC key<br/>(lấy từ JWKS)"]
+    SIG2["Chữ ký nhận được"] --> V
+    V -->|"hợp lệ"| OK["✅ Đúng nguồn, không bị sửa"]
+    V -->|"sai"| BAD["❌ Từ chối"]
+  end
+  SIG -.->|"gửi kèm dữ liệu"| SIG2
+  D1 -.->|"gửi đi, ai cũng đọc được"| D2
+</pre>
+<div class="caption">Private key không bao giờ rời Keycloak; hr-api chỉ cần public key. Dữ liệu đi kèm vẫn là plaintext.</div>
+</div>
+<pre data-title="RSA sign/verify trong .NET"><code class="language-csharp">using System.Security.Cryptography;
+using System.Text;
+
+byte[] data = Encoding.UTF8.GetBytes("{\"sub\":\"an.nv\",\"role\":\"employee\"}");
+
+using RSA issuerKey = RSA.Create(2048);                       // private + public
+byte[] signature = issuerKey.SignData(data, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+
+// Bên nhận chỉ có public key
+using RSA verifier = RSA.Create();
+verifier.ImportSubjectPublicKeyInfo(issuerKey.ExportSubjectPublicKeyInfo(), out _);
+bool ok = verifier.VerifyData(data, signature, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+// ok == true. Sửa 1 byte trong data → ok == false</code></pre>
+
+<h3 id="hmac">HMAC <span class="badge nice">Nice</span></h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+HMAC giống <b>mật khẩu chung giữa hai người bạn</b> gắn vào cuối thư: người nhận kiểm tra được thư từ bạn mình và không bị sửa. Nhưng vì <b>cả hai cùng biết</b> secret, người nhận cũng có thể tự tạo “thư hợp lệ” — nên HMAC không chứng minh được với bên thứ ba ai là người viết.</div>
+<ul>
+<li><b>HMAC</b> (Hash-based Message Authentication Code, RFC 2104): <code>HMAC(secret key, message)</code> → tag. Bên nhận có cùng key tính lại và so sánh.</li>
+<li>Đảm bảo integrity + authenticity giữa <b>hai bên cùng giữ secret</b>. Khác chữ ký bất đối xứng: <b>không có non-repudiation</b> (chống chối bỏ) và mọi bên verify được cũng <b>ký được</b>.</li>
+<li>Ví dụ: JWT <code>HS256</code> = HMAC-SHA256; webhook signature (GitHub, Stripe…); một số cơ chế ký request API.</li>
+<li>Hệ quả quan trọng: nếu dùng <code>HS256</code> cho access token, <b>mọi API</b> cần secret để verify → API nào cũng có thể <b>tự phát hành</b> token. Với nhiều API, dùng chữ ký bất đối xứng (RS256/ES256) an toàn hơn.</li>
+</ul>
+<pre data-title="Verify webhook HMAC-SHA256"><code class="language-csharp">byte[] expected = HMACSHA256.HashData(webhookSecret, requestBodyBytes);
+byte[] received = Convert.FromHexString(signatureHeaderValue);
+// So sánh constant-time để không lộ thông tin qua thời gian phản hồi
+bool valid = CryptographicOperations.FixedTimeEquals(expected, received);</code></pre>
+
+<h3 id="pki">Certificate, X.509, CA và PKI <span class="badge should">Should</span></h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Public key chỉ là một dãy số — làm sao biết nó <b>thật sự</b> thuộc về <code>sso.kaopiz.local</code>? Certificate giống <b>căn cước công dân</b>: ghi “public key này thuộc về tên miền này”, và được <b>cơ quan cấp</b> (CA) đóng dấu. Bạn tin căn cước vì bạn tin cơ quan cấp.</div>
+<ul>
+<li><b>Certificate / X.509</b>: chứng thư theo định dạng X.509, gắn <b>public key</b> với <b>danh tính/thuộc tính</b> (subject, tên miền trong SAN — Subject Alternative Name), có thời hạn (<code>notBefore</code>/<code>notAfter</code>), và được <b>CA ký</b>.</li>
+<li><b>CA</b> (Certificate Authority — tổ chức cấp chứng thư): ký certificate cho người khác. Có <b>Root CA</b> (tự ký, được cài sẵn trong trust store của OS/trình duyệt) và <b>Intermediate CA</b>.</li>
+<li><b>PKI</b> (Public Key Infrastructure — hạ tầng khóa công khai): toàn bộ CA, chính sách, quy trình cấp phát, gia hạn, thu hồi certificate.</li>
+<li><b>Trust chain</b> (chuỗi tin cậy): leaf certificate ← ký bởi Intermediate ← ký bởi Root có trong trust store.</li>
+<li>Khi kiểm tra certificate: chữ ký chuỗi hợp lệ tới một root tin cậy; <b>còn hạn</b>; tên miền khớp; mục đích sử dụng phù hợp; <b>chưa bị thu hồi</b> (revocation — qua CRL hoặc OCSP; mức hỗ trợ khác nhau tùy CA/trình duyệt).</li>
+</ul>
+<div class="diagram">
+<pre class="mermaid">
+flowchart TD
+  ROOT["🏛 Root CA<br/>(tự ký, có sẵn trong trust store)"] -->|"ký"| INT["Intermediate CA"]
+  INT -->|"ký"| LEAF["Leaf certificate<br/>CN/SAN = sso.kaopiz.local<br/>+ public key của server"]
+  LEAF -->|"server gửi leaf + intermediate<br/>trong TLS handshake"| CLIENT["Trình duyệt / HttpClient"]
+  CLIENT -->|"1. verify chữ ký từng mắt xích<br/>2. root có trong trust store?<br/>3. còn hạn, đúng tên miền, chưa thu hồi?"| DEC{"Tin cậy?"}
+  DEC -->|"có"| OK["✅ Tiếp tục kết nối"]
+  DEC -->|"không"| ERR["❌ Lỗi certificate"]
+</pre>
+<div class="caption">Chain of trust: bạn tin leaf vì tin intermediate, tin intermediate vì tin root đã cài sẵn.</div>
+</div>
+<div class="callout warn"><span class="callout-title">⚠️ Lỗi kinh điển trong .NET</span>
+Đừng “sửa” lỗi certificate bằng <code>ServerCertificateCustomValidationCallback = (_, _, _, _) =&gt; true</code>. Làm vậy là tắt toàn bộ việc xác thực server → mở cửa cho tấn công man-in-the-middle. Với CA nội bộ, hãy cài root CA nội bộ vào trust store của máy.</div>
+
+<h3 id="tls">TLS/HTTPS và mTLS <span class="badge should">Should</span></h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+TLS giống <b>xe chở tiền bọc thép</b> giữa trình duyệt và server: kiểm tra giấy tờ tài xế (certificate của server) trước khi lên xe, và không ai nhìn trộm hay tráo hàng trên đường. Nhưng tới nơi rồi thì hàng (token, mật khẩu) vẫn là hàng thật — TLS không bảo vệ dữ liệu <b>sau khi</b> đến server hay trong log.</div>
+<ul>
+<li><b>TLS</b> (Transport Layer Security) bảo vệ <b>kênh truyền</b>: xác thực <b>server</b> bằng certificate, bảo vệ bí mật và toàn vẹn dữ liệu khi truyền. <b>HTTPS</b> = HTTP chạy trên TLS.</li>
+<li><b>mTLS</b> (mutual TLS): <b>client cũng</b> trình certificate → server xác thực được client. Hay dùng cho service-to-service, và trong OAuth để ràng buộc token với certificate của client (RFC 8705).</li>
+<li>Mọi cơ chế ở trang này (cookie, Basic, Bearer, API key) đều <b>giả định có TLS</b>. Không có TLS, ai nghe lén được mạng là lấy được credential.</li>
+</ul>
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  participant C as Client (payroll-batch)
+  participant S as Server (hr-api)
+  C->>S: ClientHello
+  S-->>C: ServerHello + certificate của server
+  C->>C: Verify chain, hạn, tên miền
+  opt Chỉ khi mTLS
+    S-->>C: CertificateRequest
+    C->>S: Certificate của client + chứng minh giữ private key
+    S->>S: Verify certificate client theo CA tin cậy
+  end
+  Note over C,S: Thỏa thuận key phiên, từ đây dữ liệu mã hóa bằng symmetric key
+  C->>S: GET /payroll (đã mã hóa trong kênh TLS)
+</pre>
+<div class="caption">Sơ đồ đơn giản hóa (TLS 1.3 gộp nhiều bước). Điểm chính: TLS thường chỉ xác thực server; mTLS xác thực cả hai phía.</div>
+</div>
+
+<!-- ===================================================== -->
+<h2 id="hash-vs-encryption">B. Những phân biệt quan trọng <span class="badge must">Must</span></h2>
+<p>Đây là <b>Deliverable 1</b>. Hãy tự điền trước khi đọc bảng.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Khái niệm</th><th>Mục đích chính</th><th>Key</th><th>Có khôi phục dữ liệu gốc?</th><th>Ví dụ trong auth</th></tr></thead>
+<tbody>
+<tr><td><b>Encryption</b></td><td>Bảo mật nội dung (confidentiality)</td><td>Symmetric key hoặc cặp public/private</td><td><b>Có</b>, nếu có key phù hợp</td><td>TLS, JWE, mã hóa cookie của ASP.NET Core (Data Protection)</td></tr>
+<tr><td><b>Hash</b></td><td>Tạo digest để đối chiếu/kiểm tra toàn vẹn</td><td>Không có key</td><td><b>Không</b> (một chiều)</td><td>Checksum, lưu hash của API key</td></tr>
+<tr><td><b>Digital Signature</b></td><td>Xác minh nguồn gốc + toàn vẹn; chống chối bỏ</td><td>Private key ký, public key verify</td><td>Không phải cơ chế mã hóa — dữ liệu vẫn đọc được</td><td>JWT RS256/ES256, SAML assertion, certificate</td></tr>
+<tr><td><b>HMAC</b></td><td>Xác minh thông điệp bằng shared secret</td><td>Một secret dùng chung</td><td><b>Không</b></td><td>JWT HS256, chữ ký webhook</td></tr>
+<tr><td><b>Password hashing</b></td><td>Lưu/kiểm tra mật khẩu an toàn hơn</td><td>Không có key (có salt, có thể có pepper)</td><td><b>Không</b>, và cố tình chậm</td><td>Argon2id, PBKDF2 trong ASP.NET Core Identity</td></tr>
+</tbody></table></div>
+<div class="callout tip"><span class="callout-title">🧭 Mẹo nhớ nhanh</span>
+Muốn <b>giấu</b> → encryption. Muốn <b>kiểm tra không bị sửa</b> → hash/HMAC/signature. Muốn người khác <b>kiểm tra được mà không thể giả mạo</b> → signature. Muốn <b>lưu mật khẩu</b> → password hashing, không bao giờ encryption.</div>
+
+<!-- ===================================================== -->
+<h2 id="session-cookie">C. Session, Cookie và Stateful/Stateless <span class="badge must">Must</span></h2>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+HTTP “mất trí nhớ”: mỗi request là một lần gặp mới. <b>Session</b> giống việc gửi áo khoác ở <b>quầy giữ đồ</b>: quầy giữ áo (trạng thái ở server), bạn cầm <b>tấm thẻ số</b> (session ID). <b>Cookie</b> là cái <b>túi áo</b> trình duyệt dùng để cất tấm thẻ đó và tự động đưa ra mỗi lần quay lại quầy.</div>
+
+<h3 id="cookie-vs-session">Cookie ≠ Session</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>Khái niệm</th><th>Là gì</th><th>Nằm ở đâu</th></tr></thead>
+<tbody>
+<tr><td><b>Session</b></td><td>Trạng thái đăng nhập/hoạt động mà ứng dụng quản lý (ai đang đăng nhập, từ lúc nào, giỏ hàng…).</td><td>Thường ở server (memory, Redis, DB) — hoặc được đóng gói mã hóa trong cookie.</td></tr>
+<tr><td><b>Session ID</b></td><td>Giá trị ngẫu nhiên dùng để <b>tham chiếu</b> tới session ở server.</td><td>Thường gửi qua cookie.</td></tr>
+<tr><td><b>Cookie</b></td><td>Cơ chế của trình duyệt để <b>lưu và tự động gửi</b> dữ liệu nhỏ theo domain/path và chính sách cookie.</td><td>Trình duyệt (header <code>Set-Cookie</code> ↓, <code>Cookie</code> ↑).</td></tr>
+</tbody></table></div>
+<ul>
+<li>Cookie <b>không đồng nghĩa</b> session: cookie còn dùng cho ngôn ngữ, theme, tracking… Session ID chỉ là <b>một cách dùng</b> cookie.</li>
+<li>Session cũng không bắt buộc dùng cookie (có thể truyền qua header), nhưng với web app trên trình duyệt, cookie là cách phổ biến và an toàn nhất khi cấu hình đúng.</li>
+<li>Vì trình duyệt <b>tự động gửi cookie</b> theo quy tắc, một trang độc hại có thể khiến trình duyệt gửi request kèm cookie của bạn → nguồn gốc của <b>CSRF</b> (Cross-Site Request Forgery), xem <a href="m06-authz-security.html#csrf">M06</a>.</li>
+</ul>
+
+<h3 id="stateful-stateless">Stateful vs Stateless</h3>
+<ul>
+<li><b>Stateful</b>: server lưu trạng thái phiên. Request chỉ mang session ID; server tra cứu. Ưu: thu hồi tức thì (xóa session). Nhược: cần store dùng chung khi scale nhiều instance.</li>
+<li><b>Stateless</b>: request tự mang đủ thông tin đã được bảo vệ (ví dụ JWT ký, hoặc cookie chứa ticket mã hóa). Server không cần tra session cho <b>mỗi</b> request. Nhược: khó thu hồi trước hạn.</li>
+<li>“Stateless” <b>không có nghĩa</b> là không có state nào: vẫn cần trạng thái cho refresh token, revocation list, risk, audit, policy.</li>
+</ul>
+
+<h4>Login session-based (stateful, web app truyền thống)</h4>
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  participant B as Browser
+  participant W as hr-web (server)
+  participant S as Session store (Redis/DB)
+  B->>W: POST /login (username + password)
+  W->>W: Verify password hash
+  W->>S: Tạo session mới: sid=7f3k... user=57, login_at
+  W-->>B: 302 + Set-Cookie: __Host-hr_sid=7f3k...#59; HttpOnly#59; Secure#59; SameSite=Lax
+  B->>W: GET /payroll (Cookie: __Host-hr_sid=7f3k...)
+  W->>S: Tra cứu sid
+  S-->>W: user=57, còn hiệu lực
+  W-->>B: 200 trang bảng lương
+  B->>W: POST /logout
+  W->>S: XÓA session sid=7f3k...
+  W-->>B: Set-Cookie xóa cookie (Max-Age=0)
+</pre>
+<div class="caption">Session-based: cookie chỉ chứa tham chiếu; trạng thái thật ở server → logout/thu hồi có hiệu lực ngay.</div>
+</div>
+
+<h4>Login token-based (API + Bearer token)</h4>
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  participant C as Client app (SPA/desktop)
+  participant AS as Keycloak (Authorization Server)
+  participant API as hr-api (Resource Server)
+  C->>AS: Đăng nhập (flow OAuth/OIDC, chi tiết ở M03)
+  AS-->>C: access_token (JWT, 5 phút) + refresh_token
+  C->>API: GET /payroll/57 + Authorization: Bearer eyJ...
+  API->>API: Verify chữ ký bằng public key (JWKS đã cache), iss, aud, exp, scope
+  API-->>C: 200 dữ liệu
+  Note over API: Không tra session cho mỗi request, không gọi AS mỗi lần
+  C->>API: Request sau khi token hết hạn
+  API-->>C: 401 + WWW-Authenticate: Bearer error=invalid_token
+  C->>AS: Dùng refresh_token xin access token mới
+</pre>
+<div class="caption">Token-based: token tự mang claims đã ký → API kiểm tra cục bộ. Đổi lại, token đã phát hành khó thu hồi trước hạn (xem <a href="#token-lifecycle">mục F</a>).</div>
+</div>
+
+<h3 id="cookie-attributes">Thuộc tính cookie cần biết</h3>
+<p>Server đặt cookie bằng header <code>Set-Cookie</code>. Ví dụ thật từ hr-web sau khi An đăng nhập:</p>
+<pre data-title="HTTP response"><code class="language-plaintext">HTTP/1.1 302 Found
+Location: /payroll
+Set-Cookie: __Host-hr_sid=7f3kQx9…b2; Path=/; Secure; HttpOnly; SameSite=Lax
+Set-Cookie: hr_lang=vi; Path=/; Max-Age=31536000; SameSite=Lax</code></pre>
+<p>Ở các request sau, trình duyệt <b>tự động</b> gửi:</p>
+<pre data-title="HTTP request"><code class="language-plaintext">GET /payroll HTTP/1.1
+Host: hr.kaopiz.local
+Cookie: __Host-hr_sid=7f3kQx9…b2; hr_lang=vi</code></pre>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Thuộc tính</th><th>Tác dụng</th><th>Khuyến nghị cho cookie đăng nhập</th></tr></thead>
+<tbody>
+<tr><td><code>HttpOnly</code></td><td>JavaScript <b>không đọc được</b> cookie (<code>document.cookie</code> không thấy). Giảm thiệt hại khi bị XSS (Cross-Site Scripting) đánh cắp cookie.</td><td><b>Luôn bật.</b> Lưu ý: XSS vẫn có thể <i>gửi request</i> thay người dùng — HttpOnly không chống XSS hoàn toàn.</td></tr>
+<tr><td><code>Secure</code></td><td>Chỉ gửi cookie qua HTTPS.</td><td><b>Luôn bật.</b></td></tr>
+<tr><td><code>SameSite</code></td><td>Kiểm soát việc gửi cookie trong request <b>cross-site</b> (từ site khác khởi tạo). Giá trị: <code>Strict</code>, <code>Lax</code>, <code>None</code> — xem bảng dưới.</td><td><code>Lax</code> (cân bằng) hoặc <code>Strict</code>. Luôn đặt <b>tường minh</b>.</td></tr>
+<tr><td><code>Domain</code></td><td>Không đặt → cookie <b>host-only</b> (chỉ gửi cho đúng host đã set). Đặt <code>Domain=kaopiz.local</code> → gửi cho <b>mọi subdomain</b>.</td><td><b>Không đặt</b> nếu không cần chia sẻ — đặt Domain là <i>mở rộng</i> phạm vi, không phải thu hẹp.</td></tr>
+<tr><td><code>Path</code></td><td>Chỉ gửi cookie cho URL bắt đầu bằng path này.</td><td><code>Path=/</code>. Path <b>không phải</b> ranh giới bảo mật giữa các app cùng host.</td></tr>
+<tr><td><code>Expires</code> / <code>Max-Age</code></td><td>Không có → <b>session cookie</b> (mất khi đóng trình duyệt — nhưng tính năng “khôi phục phiên” của trình duyệt có thể giữ lại). Có → <b>persistent cookie</b>. Nếu có cả hai, <code>Max-Age</code> được ưu tiên.</td><td>Cookie đăng nhập thường không persistent, trừ “remember me”. Thời hạn cookie ≠ thời hạn session ở server.</td></tr>
+</tbody></table></div>
+
+<div class="table-wrap"><table>
+<thead><tr><th>SameSite</th><th>Gửi cookie khi…</th><th>Hệ quả</th></tr></thead>
+<tbody>
+<tr><td><code>Strict</code></td><td>Chỉ request <b>same-site</b>. Kể cả khi người dùng bấm link từ email/site khác sang, cookie <b>không</b> được gửi ở request đầu.</td><td>Chống CSRF mạnh nhất; nhưng người dùng đến từ link ngoài sẽ thấy như “chưa đăng nhập” ở trang đầu tiên.</td></tr>
+<tr><td><code>Lax</code></td><td>Same-site, <b>cộng</b> điều hướng top-level bằng method an toàn (vd. bấm link → GET). <b>Không</b> gửi với POST cross-site, iframe, ảnh, fetch từ site khác.</td><td>Lựa chọn cân bằng cho cookie đăng nhập. Chặn phần lớn CSRF dạng form POST.</td></tr>
+<tr><td><code>None</code></td><td>Mọi ngữ cảnh, kể cả cross-site. <b>Bắt buộc kèm <code>Secure</code></b>, nếu không trình duyệt từ chối.</td><td>Chỉ dùng khi thật sự cần (iframe nhúng, một số flow SSO kiểu POST cross-site). Phải có biện pháp chống CSRF khác.</td></tr>
+</tbody></table></div>
+<div class="callout info"><span class="callout-title">ℹ️ “Site” khác “origin”</span>
+<b>Origin</b> = scheme + host + port. <b>Site</b> = scheme + <i>registrable domain</i> (ví dụ <code>kaopiz.com</code>). Vì vậy <code>hr.kaopiz.com</code> và <code>api.kaopiz.com</code> là <b>cross-origin</b> nhưng <b>same-site</b> → SameSite <b>không</b> bảo vệ bạn khỏi một subdomain khác bị chiếm. Nếu không đặt SameSite, các trình duyệt nhân Chromium mặc định coi như <code>Lax</code>, nhưng hành vi giữa các trình duyệt không hoàn toàn đồng nhất → luôn đặt tường minh.</div>
+<div class="callout tip"><span class="callout-title">✅ Cookie prefix</span>
+Tên bắt đầu bằng <code>__Host-</code> buộc trình duyệt chỉ chấp nhận cookie khi có <code>Secure</code>, <code>Path=/</code> và <b>không có</b> <code>Domain</code> → cookie bị “khóa” vào đúng host. <code>__Secure-</code> chỉ yêu cầu <code>Secure</code>. Đây là cách rẻ để chống việc subdomain khác ghi đè cookie đăng nhập.</div>
+
+<pre data-title="Program.cs — cấu hình cookie authentication (ASP.NET Core)"><code class="language-csharp">using Microsoft.AspNetCore.Authentication.Cookies;
+
+builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
+    .AddCookie(o =&gt;
+    {
+        o.Cookie.Name = "__Host-hr_auth";
+        o.Cookie.HttpOnly = true;
+        o.Cookie.SecurePolicy = CookieSecurePolicy.Always;   // Secure
+        o.Cookie.SameSite = SameSiteMode.Lax;
+        o.Cookie.Path = "/";                                 // __Host- yêu cầu Path=/ và không Domain
+        o.ExpireTimeSpan = TimeSpan.FromMinutes(30);         // hết hạn nếu không hoạt động...
+        o.SlidingExpiration = true;                          // ...được gia hạn khi người dùng còn hoạt động (idle timeout)
+        o.LoginPath = "/account/login";
+    });</code></pre>
+<p class="small muted">Lưu ý: cookie authentication mặc định của ASP.NET Core là <b>stateless</b> — cookie chứa “authentication ticket” được mã hóa bằng Data Protection, không phải session ID. Muốn thu hồi phía server, cấu hình <code>SessionStore</code> (<code>ITicketStore</code>) để cookie chỉ còn mang khóa tham chiếu, hoặc kiểm tra security stamp/phiên ở <code>OnValidatePrincipal</code>.</p>
+
+<!-- ===================================================== -->
+<h2 id="session-management">C.1. Session management <span class="badge should">Should</span></h2>
+<p>Có session rồi, cần quản lý nó an toàn suốt vòng đời: tạo → dùng → nâng quyền → hết hạn → hủy.</p>
+
+<h3 id="session-id">Session ID phải ngẫu nhiên và do framework sinh</h3>
+<ul>
+<li>Session ID phải <b>không đoán được</b>: sinh bằng bộ sinh số ngẫu nhiên an toàn mật mã (CSPRNG), đủ dài (OWASP khuyến nghị tối thiểu 64 bit entropy).</li>
+<li><b>Không tự chế</b> (ví dụ <code>userId + timestamp</code>, GUID tăng dần, MD5(username)) — dùng cơ chế của framework.</li>
+<li>Không đưa session ID lên URL (lộ qua log, lịch sử, header <code>Referer</code>).</li>
+</ul>
+
+<h3 id="session-fixation">Session fixation</h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Kẻ gian đưa cho bạn một <b>tấm thẻ giữ đồ mà hắn đã chụp ảnh số thẻ</b>. Bạn dùng thẻ đó để gửi áo (đăng nhập). Hắn mang ảnh số thẻ ra quầy và lấy áo của bạn. Cách chống: <b>đổi thẻ mới</b> ngay khi bạn gửi đồ quý (đăng nhập/nâng quyền).</div>
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  participant A as Attacker
+  participant V as Victim (An)
+  participant W as Web app (lỗi)
+  A->>W: Mở trang, nhận sid=ABC (chưa đăng nhập)
+  A->>V: Lừa An dùng sid=ABC (link/cookie injection)
+  V->>W: Đăng nhập với Cookie sid=ABC
+  W-->>V: OK, KHÔNG đổi sid, sid=ABC giờ là phiên của An
+  A->>W: Request với Cookie sid=ABC
+  W-->>A: 200, Attacker đang là An
+  Note over W: Cách sửa: sau login thành công cấp sid MỚI và hủy sid cũ
+</pre>
+<div class="caption">Luôn cấp session ID mới sau login thành công và sau khi thay đổi quyền (ví dụ nâng lên admin, bật chế độ sudo).</div>
+</div>
+
+<h3 id="timeouts">Idle timeout và absolute timeout</h3>
+<div class="grid cols-2">
+<div class="card"><span class="icon">💤</span><h4>Idle timeout</h4><p>Session hết hạn khi <b>không hoạt động</b> trong X phút. Giảm rủi ro máy bỏ quên không khóa. Trong ASP.NET Core: <code>ExpireTimeSpan</code> + <code>SlidingExpiration = true</code>.</p></div>
+<div class="card"><span class="icon">⏳</span><h4>Absolute timeout</h4><p>Session hết hạn sau thời gian <b>tối đa</b> (ví dụ 8 giờ) <b>dù vẫn hoạt động</b>. Giới hạn thời gian kẻ trộm dùng được session bị đánh cắp. Nên có <b>cả hai</b>.</p></div>
+</div>
+<pre data-title="Absolute timeout với cookie auth (ý tưởng)"><code class="language-csharp">// Lúc đăng nhập: ghi lại thời điểm login vào AuthenticationProperties
+var props = new AuthenticationProperties();
+props.Items["login_at"] = DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString();
+await HttpContext.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, principal, props);
+
+// Mỗi request: từ chối nếu quá 8 giờ kể từ lúc login (dù sliding vẫn đang gia hạn)
+o.Events.OnValidatePrincipal = async ctx =&gt;
+{
+    if (ctx.Properties.Items.TryGetValue("login_at", out var s) &amp;&amp;
+        DateTimeOffset.UtcNow.ToUnixTimeSeconds() - long.Parse(s!) &gt; 8 * 3600)
+    {
+        ctx.RejectPrincipal();
+        await ctx.HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+    }
+};</code></pre>
+
+<h3 id="step-up">Re-authentication / step-up authentication</h3>
+<p>Trước thao tác nhạy cảm (đổi mật khẩu, đổi email, chuyển tiền, xem dữ liệu bí mật), yêu cầu <b>xác thực lại</b> hoặc dùng <b>yếu tố mạnh hơn</b> (ví dụ passkey/MFA) — kể cả khi session vẫn còn hạn. Lý do: session có thể đã bị đánh cắp, hoặc máy đang bị người khác dùng. Với OIDC, app có thể yêu cầu IdP xác thực lại (ví dụ tham số <code>max_age</code>, <code>prompt=login</code>, <code>acr_values</code> — xem <a href="m03-oauth-oidc.html#oidc">M03</a>).</p>
+
+<h3 id="remember-me">Remember me</h3>
+<ul>
+<li>Dùng <b>persistent token riêng</b> (ngẫu nhiên, lưu hash ở server), có thời hạn, có thể thu hồi từng thiết bị, xoay vòng sau mỗi lần dùng.</li>
+<li><b>Không</b> phải chỉ kéo dài session vô thời hạn hay lưu username/password trong cookie.</li>
+<li>Khi đăng nhập bằng remember-me, nên coi là mức tin cậy thấp hơn: thao tác nhạy cảm vẫn cần step-up.</li>
+</ul>
+
+<h3 id="logout">Logout phải hủy session phía server</h3>
+<ul>
+<li>Chỉ xóa cookie ở trình duyệt là <b>chưa đủ</b>: nếu ai đó đã chép được cookie/session ID, họ vẫn dùng được nếu server chưa hủy.</li>
+<li>Session stateful: xóa bản ghi session. Cookie stateless (ticket mã hóa): cần server-side store (<code>ITicketStore</code>) hoặc đánh dấu thu hồi (security stamp, “session version”).</li>
+<li>Logout trong SSO còn liên quan phiên ở IdP và các app khác — xem <a href="m03-oauth-oidc.html#logout">M03 — Logout</a>.</li>
+</ul>
+
+<!-- ===================================================== -->
+<h2 id="tokens">D. Token concepts <span class="badge must">Must</span></h2>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+<b>Access token</b> giống <b>thẻ ra vào tòa nhà có hạn dùng</b>: quẹt ở cửa (API) là vào, ai nhặt được cũng quẹt được, nên hạn dùng ngắn. <b>Refresh token</b> giống <b>giấy hẹn đổi thẻ mới</b> ở quầy lễ tân (Authorization Server) — không quẹt được ở cửa. <b>ID token</b> giống <b>biên nhận “đã kiểm tra căn cước”</b> lễ tân đưa cho <i>công ty mời bạn đến</i> (client) — chứ không phải đưa cho bảo vệ ở cửa.</div>
+<ul>
+<li><b>Token</b>: vật mang thông tin/quyền, hoặc <b>tham chiếu</b> tới thông tin/quyền lưu ở server.</li>
+<li><b>Access Token</b>: dùng để truy cập Resource Server/API. Audience (người nhận) là <b>API</b>.</li>
+<li><b>ID Token</b>: trong OIDC (OpenID Connect), mang thông tin về <b>kết quả xác thực</b> và subject, dành cho <b>client/RP</b>. Luôn là JWT.</li>
+<li><b>Refresh Token</b>: dùng để xin access token mới theo chính sách của Authorization Server; chỉ gửi tới AS, <b>không</b> dùng gọi API.</li>
+</ul>
+
+<h3 id="token-compare">Bảng so sánh Access / ID / Refresh token</h3>
+<p><b>Deliverable 4.</b> Bảng này sẽ được bổ sung thêm ở <a href="m03-oauth-oidc.html#id-vs-access">M03 — ID token vs access token</a>, không làm lại.</p>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>Access Token</th><th>ID Token</th><th>Refresh Token</th></tr></thead>
+<tbody>
+<tr><td><b>Thuộc chuẩn</b></td><td>OAuth 2.0 (RFC 6749)</td><td>OpenID Connect Core</td><td>OAuth 2.0 (RFC 6749)</td></tr>
+<tr><td><b>Mục đích</b></td><td>Ủy quyền gọi API</td><td>Báo cho client biết “ai vừa đăng nhập, khi nào, bằng cách nào”</td><td>Xin access token mới mà không bắt người dùng đăng nhập lại</td></tr>
+<tr><td><b>Người nhận / audience</b></td><td>Resource Server (API), vd. <code>aud: hr-api</code></td><td>Client, <code>aud</code> = <code>client_id</code> của client</td><td>Authorization Server (chính bên phát hành)</td></tr>
+<tr><td><b>Ai kiểm tra</b></td><td>API</td><td>Client/RP</td><td>Authorization Server</td></tr>
+<tr><td><b>Định dạng</b></td><td>JWT hoặc opaque (tùy AS); client <b>không nên</b> đọc nội dung</td><td>Luôn là JWT (ký)</td><td>Thường opaque với client (Keycloak dùng chuỗi dạng JWT nhưng client không nên dựa vào nội dung)</td></tr>
+<tr><td><b>Thời hạn điển hình</b></td><td>Ngắn: vài phút đến ~1 giờ (Keycloak mặc định 5 phút)</td><td>Ngắn; chỉ dùng lúc đăng nhập</td><td>Dài hơn: giờ/ngày, gắn với phiên SSO và chính sách</td></tr>
+<tr><td><b>Gửi đi đâu</b></td><td>Header <code>Authorization: Bearer</code> tới API</td><td>Không gửi đi đâu cả (trừ <code>id_token_hint</code> khi logout)</td><td>Chỉ tới token endpoint của AS</td></tr>
+<tr><td><b>Dùng gọi API?</b></td><td>✅ Có</td><td>❌ Không</td><td>❌ Không</td></tr>
+<tr><td><b>Nếu bị lộ</b></td><td>Kẻ gian gọi API tới khi hết hạn</td><td>Lộ thông tin cá nhân; có thể bị lạm dụng nếu API cấu hình sai chấp nhận ID token</td><td>Nghiêm trọng nhất: xin access token mới liên tục → cần rotation, reuse detection, ràng buộc client</td></tr>
+</tbody></table></div>
+
+<h3 id="opaque-vs-jwt">Opaque token vs JWT</h3>
+<div class="grid cols-2">
+<div class="card"><span class="icon">🎫</span><h4>Opaque token (by reference)</h4><p>Chuỗi ngẫu nhiên không mang cấu trúc đọc được, vd. <code>2YotnFZFEjr1zCsicMWpAA</code>. API phải hỏi AS (<a href="#introspection-revocation">introspection</a>) hoặc tra server-side. Ưu: thu hồi tức thì, không lộ claims. Nhược: thêm một lần gọi mạng.</p></div>
+<div class="card"><span class="icon">📜</span><h4>JWT (by value)</h4><p>Tự mang claims đã ký. API verify cục bộ bằng public key. Ưu: nhanh, không phụ thuộc AS mỗi request. Nhược: khó thu hồi trước hạn, payload đọc được.</p></div>
+</div>
+
+<h3 id="jws-jwe">JWT, JWS và JWE <span class="badge should">Should</span> (JWE)</h3>
+<ul>
+<li><b>JWT</b> (JSON Web Token, RFC 7519): <b>định dạng</b> biểu diễn claims (các cặp thông tin dạng JSON). JWT có thể được <b>ký</b> (dùng JWS) hoặc <b>mã hóa</b> (dùng JWE).</li>
+<li><b>JWS</b> (JSON Web Signature, RFC 7515): bảo vệ <b>toàn vẹn + nguồn gốc</b>. Dạng compact gồm <b>3 phần</b>: <code>header.payload.signature</code>. Đây là loại bạn gặp 99% thời gian.</li>
+<li><b>JWE</b> (JSON Web Encryption, RFC 7516): bảo vệ <b>bí mật</b> nội dung. Dạng compact gồm <b>5 phần</b>: <code>header.encrypted_key.iv.ciphertext.tag</code>.</li>
+</ul>
+<div class="callout danger"><span class="callout-title">🚫 JWT ký ≠ payload bí mật</span>
+Payload của JWS chỉ được <b>Base64url-encode</b> — ai cầm token cũng đọc được (thử với widget bên dưới). Đừng bao giờ đặt mật khẩu, số CMND, lương… vào payload của JWT ký. Cần giấu → dùng JWE, hoặc dùng opaque token.</div>
+
+<!-- ===================================================== -->
+<h2 id="jwt">E. JWT anatomy <span class="badge must">Must</span></h2>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+JWT giống <b>tấm vé có in thông tin và có tem chống giả</b>: phần in (header, payload) ai cũng đọc được; tem (signature) cho biết vé do đúng nơi phát hành và chưa bị sửa. Đọc được chữ trên vé <b>không</b> có nghĩa là đã kiểm tra tem.</div>
+<p>Access token mà Keycloak cấp cho hr-web để gọi hr-api (dạng compact, 3 phần ngăn bởi dấu chấm):</p>
+<div class="jwt"><span class="h">eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6ImhyLTIwMjYtMTEifQ</span><span class="dot">.</span><span class="p">eyJleHAiOjE3OTQyNzYzMDAsImlhdCI6MTc5NDI3NjAwMCwianRpIjoiNWMxZTdkMmEtOWI0Zi00YThlLWI2ZDEtM2YyYTljOGU3YjYwIiwiaXNzIjoiaHR0cHM6Ly9zc28ua2FvcGl6LmxvY2FsL3JlYWxtcy9rYW9waXoiLCJhdWQiOiJoci1hcGkiLCJzdWIiOiI4ZjJjMWE3ZS00YjlkLTRlMTUtOWEzZi0yZDZjN2I4ZTlmMTAiLCJ0eXAiOiJCZWFyZXIiLCJhenAiOiJoci13ZWIiLCJzY29wZSI6Im9wZW5pZCBwcm9maWxlIGhyLnJlYWQiLCJwcmVmZXJyZWRfdXNlcm5hbWUiOiJhbi5udiIsInJlYWxtX2FjY2VzcyI6eyJyb2xlcyI6WyJlbXBsb3llZSJdfX0</span><span class="dot">.</span><span class="s">Y2h1LWt5LW1pbmgtaG9hOiBkYXkgS0hPTkcgcGhhaSBjaHUga3kgUlMyNTYgdGhhdCAtIGNoaSBkZSBtaW5oIGhvYSBjYXUgdHJ1YyBKV1Q</span></div>
+<p class="small muted">⚠️ Phần chữ ký ở đây là <b>chữ ký minh họa</b> (Base64url của một câu ghi chú), không phải chữ ký RS256 thật — token này sẽ <b>không</b> verify được. Chữ ký RS256 thật dài khoảng 342 ký tự.</p>
+
+<div class="grid cols-2">
+<div>
+<pre data-title="Header (decode phần hồng)"><code class="language-json">{
+  "alg": "RS256",
+  "typ": "JWT",
+  "kid": "hr-2026-11"
+}</code></pre>
+<ul class="small">
+<li><code>alg</code>: thuật toán ký (RS256 = RSA + SHA-256).</li>
+<li><code>typ</code>: kiểu token. (RFC 9068 đề xuất <code>at+jwt</code> cho access token JWT; nhiều IdP vẫn dùng <code>JWT</code>.)</li>
+<li><code>kid</code>: Key ID — cho API biết dùng public key nào trong JWKS để verify.</li>
+</ul>
+</div>
+<div>
+<pre data-title="Payload (decode phần tím)"><code class="language-json">{
+  "exp": 1794276300,
+  "iat": 1794276000,
+  "jti": "5c1e7d2a-9b4f-4a8e-b6d1-3f2a9c8e7b60",
+  "iss": "https://sso.kaopiz.local/realms/kaopiz",
+  "aud": "hr-api",
+  "sub": "8f2c1a7e-4b9d-4e15-9a3f-2d6c7b8e9f10",
+  "typ": "Bearer",
+  "azp": "hr-web",
+  "scope": "openid profile hr.read",
+  "preferred_username": "an.nv",
+  "realm_access": { "roles": ["employee"] }
+}</code></pre>
+</div>
+</div>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Claim</th><th>Tên đầy đủ</th><th>Ý nghĩa</th><th>Trong ví dụ</th></tr></thead>
+<tbody>
+<tr><td><code>iss</code></td><td>Issuer</td><td>Ai phát hành token. API so khớp chính xác với issuer mong đợi.</td><td>realm <code>kaopiz</code> của Keycloak</td></tr>
+<tr><td><code>sub</code></td><td>Subject</td><td>Định danh <b>ổn định</b> của chủ thể trong phạm vi issuer (không phải email).</td><td>UUID của An trong Keycloak</td></tr>
+<tr><td><code>aud</code></td><td>Audience</td><td>Token dành cho <b>ai</b>. API chỉ nhận token có aud là chính nó. Có thể là chuỗi hoặc mảng.</td><td><code>hr-api</code></td></tr>
+<tr><td><code>exp</code></td><td>Expiration time</td><td>Sau thời điểm này token hết hiệu lực. Dạng <b>NumericDate</b> = số giây từ 1970-01-01 UTC.</td><td>1794276300 = 10/11/2026 09:05:00 (giờ VN)</td></tr>
+<tr><td><code>nbf</code></td><td>Not before</td><td>Trước thời điểm này token chưa có hiệu lực.</td><td>(không có — Keycloak thường không phát)</td></tr>
+<tr><td><code>iat</code></td><td>Issued at</td><td>Thời điểm phát hành.</td><td>1794276000 = 09:00:00 → token sống 5 phút</td></tr>
+<tr><td><code>jti</code></td><td>JWT ID</td><td>Mã định danh duy nhất của token; dùng chống replay/denylist.</td><td>UUID</td></tr>
+<tr><td><code>scope</code> / <code>roles</code></td><td>—</td><td>Quyền/phạm vi; tên và cấu trúc <b>tùy hệ thống</b> (Keycloak: <code>scope</code>, <code>realm_access.roles</code>, <code>resource_access</code>; Entra ID: <code>scp</code>, <code>roles</code>).</td><td><code>hr.read</code>, role <code>employee</code></td></tr>
+<tr><td><code>azp</code></td><td>Authorized party</td><td>Client đã xin token (claim do OIDC định nghĩa, Keycloak đưa vào access token).</td><td><code>hr-web</code></td></tr>
+</tbody></table></div>
+<div class="callout info"><span class="callout-title">ℹ️ Về <code>aud</code> trong Keycloak</span>
+Mặc định, access token của Keycloak thường có <code>aud</code> là <code>account</code> hoặc không có audience của API bạn. Để token có <code>aud: hr-api</code>, cần cấu hình thêm (ví dụ audience mapper / client scope) — sẽ thực hành ở <a href="lab.html">Lab</a>. Tên menu cụ thể có thể khác theo phiên bản Keycloak.</div>
+
+<div class="widget" id="jwt-widget"><div class="w-title">🧪 JWT decoder — chạy hoàn toàn trên trình duyệt</div>
+<p class="small muted">Dán một JWT (có thể kèm chữ <code>Bearer </code>). Không gửi đi đâu. Đừng dán token production thật vào bất kỳ công cụ online nào.</p>
+<textarea id="jwtIn" spellcheck="false"></textarea>
+<div class="btn-row">
+<button class="btn" id="jwtDecode">Decode</button>
+<button class="btn ghost" id="jwtSample">Điền JWT mẫu</button>
+<button class="btn ghost" id="jwtTamper">Giả mạo: sửa role thành admin</button>
+<button class="btn ghost" id="jwtNone">Giả mạo: alg = none</button>
+</div>
+<div class="out" id="jwtOut">Bấm “Điền JWT mẫu” rồi “Decode”.</div>
+</div>
+<div class="callout danger"><span class="callout-title">🚫 Decode ≠ Verify</span>
+Widget trên chỉ <b>Base64url-decode</b>. Bấm “Giả mạo: sửa role thành admin” — token giả vẫn decode ra đẹp đẽ y như token thật. Chỉ việc <b>verify chữ ký</b> bằng public key của issuer mới phát hiện được giả mạo. API mà “decode rồi tin payload” = ai cũng tự cấp quyền admin cho mình được.</div>
+
+<!-- ===================================================== -->
+<h2 id="jwt-validation">E.1. JWT validation — checklist cho access token <span class="badge must">Must</span></h2>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Bảo vệ ở cửa tòa nhà kiểm tra thẻ theo thứ tự: <b>tem chống giả thật không</b> (chữ ký) → <b>do đúng công ty phát hành không</b> (iss) → <b>thẻ dành cho tòa nhà này không</b> (aud) → <b>còn hạn không</b> (exp/nbf) → <b>đúng loại thẻ ra vào không</b>, không phải biên nhận (token type) → <b>có quyền vào tầng này không</b> (scope/role).</div>
+<p><b>Deliverable 5.</b> Checklist cho API khi nhận access token JWT. <a href="m03-oauth-oidc.html#id-vs-access">M03</a> sẽ bổ sung phần validation ID token (<code>nonce</code>, <code>aud</code> = client_id…).</p>
+<ul class="checklist">
+<li><span><b>Định dạng</b>: đúng 3 phần (JWS); token lấy từ header <code>Authorization: Bearer</code>, không từ query string.</span></li>
+<li><span><b>Thuật toán</b>: <code>alg</code> nằm trong <b>allowlist</b> do API cấu hình (vd. chỉ <code>RS256</code>). Từ chối <code>none</code>; không để token tự chọn thuật toán (chặn tấn công “alg confusion” RS256 → HS256).</span></li>
+<li><span><b>Chữ ký</b>: verify bằng key <b>đáng tin cậy</b> — public key lấy từ JWKS của issuer đã cấu hình (qua HTTPS), chọn theo <code>kid</code>. Không lấy key từ chính token (vd. header <code>jku</code>/<code>jwk</code> do token tự khai).</span></li>
+<li><span><b><code>iss</code></b> khớp <b>chính xác</b> issuer mong đợi (kể cả dấu <code>/</code> cuối).</span></li>
+<li><span><b><code>aud</code></b> chứa định danh của <b>chính API này</b> (vd. <code>hr-api</code>).</span></li>
+<li><span><b>Thời hạn</b>: <code>exp</code> chưa qua, <code>nbf</code> (nếu có) đã tới; clock skew nhỏ (vài chục giây đến vài phút).</span></li>
+<li><span><b>Đúng loại token/ngữ cảnh</b>: là access token, không phải ID token hay refresh token (kiểm tra <code>typ</code> header nếu IdP dùng <code>at+jwt</code>, hoặc claim/audience đặc trưng).</span></li>
+<li><span><b>Quyền</b>: có scope/role cần thiết cho endpoint (thiếu → <code>403</code> + <code>insufficient_scope</code>), sau đó còn kiểm tra quyền trên <b>dữ liệu cụ thể</b> (An chỉ xem payroll của An — <a href="m06-authz-security.html#api-authz">M06</a>).</span></li>
+<li><span><b>Tùy yêu cầu</b>: kiểm tra thu hồi (introspection/denylist <code>jti</code>), ràng buộc sender (DPoP/mTLS), client được phép (<code>azp</code>/<code>client_id</code>).</span></li>
+<li><span><b>Không tự viết</b>: dùng thư viện đã kiểm chứng (Microsoft.IdentityModel / JwtBearer); log lý do từ chối ở server, không lộ chi tiết cho client.</span></li>
+</ul>
+
+<div class="diagram">
+<pre class="mermaid">
+flowchart TD
+  A["Request + Authorization: Bearer token"] --> B{"Đúng định dạng JWS?<br/>alg trong allowlist?"}
+  B -->|"không"| X401["401 invalid_token"]
+  B -->|"có"| C{"Tìm được key theo kid<br/>trong JWKS tin cậy?"}
+  C -->|"không"| R["Làm mới JWKS 1 lần<br/>(có thể đang key rotation)"]
+  R -->|"vẫn không"| X401
+  R -->|"tìm thấy"| D
+  C -->|"có"| D{"Chữ ký hợp lệ?"}
+  D -->|"không"| X401
+  D -->|"có"| E{"iss đúng? aud đúng?<br/>exp/nbf hợp lệ? đúng loại token?"}
+  E -->|"không"| X401
+  E -->|"có"| F{"Có scope/role cần thiết?"}
+  F -->|"không"| X403["403 insufficient_scope"]
+  F -->|"có"| G{"Được phép trên tài nguyên này?<br/>(vd. payroll của chính mình)"}
+  G -->|"không"| X403b["403 Forbidden"]
+  G -->|"có"| OK["✅ 200 OK"]
+</pre>
+<div class="caption">Lỗi xác thực token → 401; token hợp lệ nhưng thiếu quyền → 403 (nhắc lại <a href="m01-fundamentals.html#401-403">M01</a>).</div>
+</div>
+
+<pre data-title="Program.cs — hr-api validate access token từ Keycloak"><code class="language-csharp">using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
+
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(o =&gt;
+    {
+        // Authority → tự tải discovery document + JWKS (và làm mới khi key rotation)
+        o.Authority = "https://sso.kaopiz.local/realms/kaopiz";
+        o.Audience  = "hr-api";
+        o.MapInboundClaims = false;            // giữ nguyên tên claim gốc: sub, scope...
+        o.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            ValidAlgorithms = new[] { SecurityAlgorithms.RsaSha256 },
+            ClockSkew = TimeSpan.FromSeconds(30) // mặc định là 5 phút
+        };
+    });
+
+builder.Services.AddAuthorization(o =&gt;
+    o.AddPolicy("hr.read", p =&gt; p.RequireAssertion(ctx =&gt;
+        ctx.User.FindFirst("scope")?.Value.Split(' ').Contains("hr.read") == true)));</code></pre>
+<div class="callout warn"><span class="callout-title">⚠️ Đừng tắt validation để “cho chạy được”</span>
+Gặp lỗi audience? Đừng đặt <code>ValidateAudience = false</code> — sửa cấu hình để token có đúng <code>aud</code>. Các cách troubleshooting lỗi 401 xem <a href="lab.html#error-table">Lab — bảng lỗi</a> và <a href="m07-architecture.html#troubleshooting">M07</a>.</div>
+
+<!-- ===================================================== -->
+<h2 id="token-lifecycle">F. Token lifecycle <span class="badge must">Must</span></h2>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Thẻ ra vào (access token) hết hạn sau 5 phút → mang giấy hẹn (refresh token) ra lễ tân đổi thẻ mới. Mỗi lần đổi, lễ tân <b>thu giấy hẹn cũ, đưa giấy hẹn mới</b> (rotation). Nếu ai đó mang tới một giấy hẹn <b>đã bị thu</b>, lễ tân biết có kẻ sao chép → hủy luôn cả chuỗi giấy hẹn (reuse detection).</div>
+<p>Vòng đời: <b>cấp → sử dụng → hết hạn → refresh → revoke</b>.</p>
+<ul>
+<li>Access token có thời hạn <b>ngắn hơn</b> refresh token: lộ access token thì thiệt hại bị giới hạn bởi thời hạn ngắn.</li>
+<li><b>Refresh token rotation</b>: mỗi lần dùng refresh token, AS cấp refresh token <b>mới</b> và vô hiệu cái cũ.</li>
+<li><b>Reuse detection</b>: nếu refresh token cũ (đã dùng) bị dùng lại → dấu hiệu bị đánh cắp → AS thu hồi <b>toàn bộ</b> refresh token thuộc cùng grant/phiên. RFC 9700 (OAuth 2.0 Security Best Current Practice) yêu cầu refresh token của public client phải được ràng buộc với sender hoặc dùng rotation.</li>
+</ul>
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  participant C as hr-web (client)
+  participant AS as Keycloak (AS)
+  participant API as hr-api
+  participant X as Attacker
+  C->>AS: Đăng nhập thành công
+  AS-->>C: AT1 (5 phút) + RT1
+  C->>API: Bearer AT1
+  API-->>C: 200
+  Note over C,API: 5 phút sau, AT1 hết hạn
+  C->>API: Bearer AT1
+  API-->>C: 401 invalid_token (expired)
+  C->>AS: grant_type=refresh_token, RT1
+  AS-->>C: AT2 + RT2 (RT1 bị vô hiệu: rotation)
+  Note over X: Attacker đã đánh cắp RT1 từ trước
+  X->>AS: grant_type=refresh_token, RT1
+  AS->>AS: RT1 đã dùng rồi, phát hiện REUSE
+  AS-->>X: 400 invalid_grant
+  AS->>AS: Thu hồi cả họ token: RT2 và phiên liên quan
+  C->>AS: grant_type=refresh_token, RT2
+  AS-->>C: 400 invalid_grant, người dùng phải đăng nhập lại
+  Note over C,API: AT2 đã phát hành vẫn có thể dùng tới khi hết hạn, trừ khi API introspect
+</pre>
+<div class="caption">Rotation + reuse detection biến việc trộm refresh token thành sự kiện <b>phát hiện được</b>. Cái giá: người dùng thật cũng bị đăng xuất.</div>
+</div>
+<div class="callout info"><span class="callout-title">ℹ️ Trong Keycloak</span>
+Rotation được bật bằng tùy chọn <b>Revoke Refresh Token</b> trong cấu hình token của realm, kết hợp <b>Refresh Token Max Reuse</b> = 0 (mỗi refresh token chỉ dùng một lần). Hệ quả thực tế: nhiều tab/nhiều instance dùng chung một refresh token sẽ “giành” nhau — cần thiết kế để chỉ một nơi refresh. Vị trí menu có thể thay đổi theo phiên bản.</div>
+
+<h3 id="logout-token">Logout có vô hiệu hóa token ngay không?</h3>
+<p><b>Không mặc định.</b> Logout thường hủy phiên ở IdP và thu hồi refresh token, nhưng một <b>JWT access token đã phát hành</b> vẫn verify được cho tới <code>exp</code>, vì API kiểm tra cục bộ và không hỏi ai. Các lựa chọn: access token thật ngắn; introspection (hoặc opaque token) cho API nhạy cảm; denylist theo <code>jti</code>/<code>sid</code>; cơ chế đặc thù của IdP. Tùy kiến trúc mà chọn.</p>
+
+<h3 id="key-rotation">Key rotation (xoay vòng signing key) <span class="badge should">Should</span></h3>
+<ul>
+<li>Issuer định kỳ thay signing key (hoặc thay gấp khi lộ key). Public key được công bố ở <b>JWKS</b> (JSON Web Key Set) endpoint, mỗi key có <code>kid</code> — chi tiết ở <a href="m03-oauth-oidc.html#discovery-jwks">M03 — Discovery/JWKS</a>.</li>
+<li>Quy trình an toàn: công bố key mới trong JWKS <b>trước</b> → bắt đầu ký bằng key mới → giữ key cũ trong JWKS tới khi mọi token ký bằng key cũ đã hết hạn → gỡ key cũ.</li>
+<li>API phải: cache JWKS, chọn key theo <code>kid</code>, và khi gặp <code>kid</code> lạ thì <b>làm mới JWKS</b> (có giới hạn tần suất) thay vì từ chối mãi. Không hard-code public key vào code. Middleware JwtBearer với <code>Authority</code> làm việc này tự động.</li>
+</ul>
+<pre data-title="JWKS (rút gọn) trong giai đoạn rollover"><code class="language-json">{
+  "keys": [
+    { "kid": "hr-2026-11", "kty": "RSA", "alg": "RS256", "use": "sig", "n": "0vx7ag…", "e": "AQAB" },
+    { "kid": "hr-2026-08", "kty": "RSA", "alg": "RS256", "use": "sig", "n": "xjlCRB…", "e": "AQAB" }
+  ]
+}</code></pre>
+
+<h3 id="introspection-revocation">Token Introspection (RFC 7662) và Revocation (RFC 7009) <span class="badge should">Should</span></h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+<b>Introspection</b>: bảo vệ ở cửa <b>gọi điện hỏi lễ tân</b> “thẻ số này còn hiệu lực không, của ai?”. <b>Revocation</b>: khách (client) <b>báo lễ tân hủy thẻ</b> vì đã về hoặc làm mất.</div>
+<p><b>Introspection</b>: Resource Server hỏi Authorization Server token còn hiệu lực (<code>active</code>) không và mang thông tin gì. Dùng với opaque token, hoặc khi cần kiểm tra thu hồi tức thời. RS phải <b>xác thực chính nó</b> khi gọi.</p>
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  participant C as Client
+  participant API as hr-api (RS)
+  participant AS as Keycloak (AS)
+  C->>API: GET /payroll/57 + Bearer token
+  API->>AS: POST /introspect (token=..., xác thực bằng credential của hr-api)
+  alt Token còn hiệu lực
+    AS-->>API: 200 active=true, sub, scope, exp, aud...
+    API->>API: Kiểm tra aud, scope, quyền
+    API-->>C: 200 dữ liệu
+  else Hết hạn, bị thu hồi hoặc không tồn tại
+    AS-->>API: 200 active=false
+    API-->>C: 401 + WWW-Authenticate: Bearer error=invalid_token
+  end
+  Note over API,AS: Có thể cache kết quả ngắn hạn, đánh đổi giữa hiệu năng và độ trễ thu hồi
+</pre>
+<div class="caption">Introspection = độ chính xác tức thời đổi lấy một lần gọi mạng (và phụ thuộc AS còn sống).</div>
+</div>
+<pre data-title="Introspection request (RFC 7662, endpoint Keycloak)"><code class="language-plaintext">POST /realms/kaopiz/protocol/openid-connect/token/introspect HTTP/1.1
+Host: sso.kaopiz.local
+Content-Type: application/x-www-form-urlencoded
+Authorization: Basic aHItYXBpOnMzY3IzdC1JbnRyb3NwZWN0
+
+token=eyJhbGciOiJSUzI1NiIs...</code></pre>
+<div class="grid cols-2">
+<pre data-title="Response — token còn hiệu lực"><code class="language-json">{
+  "active": true,
+  "client_id": "hr-web",
+  "username": "an.nv",
+  "scope": "openid profile hr.read",
+  "sub": "8f2c1a7e-4b9d-4e15-9a3f-2d6c7b8e9f10",
+  "aud": "hr-api",
+  "iss": "https://sso.kaopiz.local/realms/kaopiz",
+  "exp": 1794276300,
+  "iat": 1794276000
+}</code></pre>
+<pre data-title="Response — không hiệu lực"><code class="language-json">{
+  "active": false
+}</code></pre>
+</div>
+<ul>
+<li><code>active</code> là trường <b>bắt buộc duy nhất</b>; các trường khác là tùy chọn (<code>scope</code>, <code>client_id</code>, <code>username</code>, <code>token_type</code>, <code>exp</code>, <code>iat</code>, <code>nbf</code>, <code>sub</code>, <code>aud</code>, <code>iss</code>, <code>jti</code>).</li>
+<li>Token hết hạn/bị thu hồi/không tồn tại → vẫn <b>HTTP 200</b> với <code>{"active": false}</code>, không kèm lý do (để không lộ trạng thái nội bộ).</li>
+</ul>
+
+<p><b>Revocation</b>: client báo AS thu hồi refresh token hoặc access token — ví dụ khi logout hoặc mất thiết bị.</p>
+<pre data-title="Revocation request (RFC 7009, endpoint Keycloak)"><code class="language-plaintext">POST /realms/kaopiz/protocol/openid-connect/revoke HTTP/1.1
+Host: sso.kaopiz.local
+Content-Type: application/x-www-form-urlencoded
+Authorization: Basic &lt;base64(client_id:client_secret)&gt;
+
+token=&lt;refresh_token&gt;&amp;token_type_hint=refresh_token</code></pre>
+<ul>
+<li><code>token_type_hint</code> (tùy chọn): <code>access_token</code> hoặc <code>refresh_token</code>; AS có thể bỏ qua.</li>
+<li>Thành công → <b>HTTP 200</b>. Token không hợp lệ/không tồn tại cũng trả <b>200</b> (mục đích “token không còn dùng được” đã đạt).</li>
+<li>Thu hồi refresh token: nếu AS hỗ trợ thu hồi access token thì <i>nên</i> thu hồi luôn các access token cùng grant. Nhưng <b>JWT access token đã nằm ở API</b> vẫn verify được cục bộ cho tới khi hết hạn nếu API không introspect.</li>
+</ul>
+
+<!-- ===================================================== -->
+<h2 id="http-auth">G. HTTP authentication schemes <span class="badge must">Must</span></h2>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+HTTP có một “ô” chuẩn để trình giấy tờ: header <code>Authorization</code>. Phần đầu nói <b>loại giấy tờ</b> (Basic, Bearer…), phần sau là <b>giấy tờ</b>. Khi bị từ chối, server trả lời bằng header <code>WWW-Authenticate</code>: “ở đây cần loại giấy tờ X, và giấy của bạn bị lỗi Y”.</div>
+
+<h3 id="authorization-header">Header <code>Authorization</code></h3>
+<p>Định dạng chung (RFC 9110): <code>Authorization: &lt;scheme&gt; &lt;credentials&gt;</code></p>
+<pre data-title="Ví dụ"><code class="language-plaintext">Authorization: Basic YW4ubnY6UEBzc3cwcmQh
+Authorization: Bearer eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6ImhyLTIwMjYtMTEifQ.eyJleHAi…
+X-API-Key: kz_7d1f…        ← API key thường dùng header riêng, không phải scheme chuẩn</code></pre>
+
+<h3 id="www-authenticate">Header <code>WWW-Authenticate</code> — đọc lỗi 401 như đọc log</h3>
+<p>Server trả kèm <code>401</code> để báo <b>scheme yêu cầu</b> và (với Bearer) <b>lý do lỗi</b>. Đây là nguồn thông tin troubleshooting số 1 — mở DevTools tab Network hoặc xem response header trong Postman.</p>
+<pre data-title="Không gửi token (RFC 6750: không kèm mã lỗi)"><code class="language-plaintext">HTTP/1.1 401 Unauthorized
+WWW-Authenticate: Bearer realm="hr-api"</code></pre>
+<pre data-title="Token hết hạn / sai chữ ký / sai audience"><code class="language-plaintext">HTTP/1.1 401 Unauthorized
+WWW-Authenticate: Bearer realm="hr-api", error="invalid_token", error_description="The access token expired"</code></pre>
+<pre data-title="Token hợp lệ nhưng thiếu scope"><code class="language-plaintext">HTTP/1.1 403 Forbidden
+WWW-Authenticate: Bearer realm="hr-api", error="insufficient_scope", scope="hr.write"</code></pre>
+<pre data-title="Request sai định dạng (vd. gửi token ở 2 nơi)"><code class="language-plaintext">HTTP/1.1 400 Bad Request
+WWW-Authenticate: Bearer realm="hr-api", error="invalid_request"</code></pre>
+<div class="table-wrap"><table>
+<thead><tr><th>Mã lỗi (RFC 6750 §3.1)</th><th>HTTP status</th><th>Ý nghĩa</th><th>Client nên làm gì</th></tr></thead>
+<tbody>
+<tr><td><code>invalid_request</code></td><td>400</td><td>Thiếu/thừa/lặp tham số, gửi credential bằng nhiều cách cùng lúc, request sai định dạng.</td><td>Sửa code gửi request.</td></tr>
+<tr><td><code>invalid_token</code></td><td>401</td><td>Token hết hạn, bị thu hồi, sai định dạng, sai chữ ký, sai issuer/audience…</td><td>Refresh token / đăng nhập lại; nếu vẫn lỗi → kiểm tra <code>iss</code>/<code>aud</code>/cấu hình.</td></tr>
+<tr><td><code>insufficient_scope</code></td><td>403</td><td>Token hợp lệ nhưng không đủ scope; có thể kèm <code>scope</code> cần thiết.</td><td>Xin token với scope phù hợp (có thể cần consent).</td></tr>
+</tbody></table></div>
+<p class="small muted">Nội dung <code>error_description</code> thực tế tùy framework. ASP.NET Core JwtBearer thường mô tả lỗi audience/issuer/hết hạn trong header này — rất có ích khi debug, nhưng ở production cân nhắc không lộ quá chi tiết.</p>
+
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  participant C as Client
+  participant API as hr-api
+  C->>API: GET /payroll/57 (không có Authorization)
+  API-->>C: 401 + WWW-Authenticate: Bearer realm=hr-api
+  C->>API: GET /payroll/57 + Bearer token (aud=account)
+  API-->>C: 401 + Bearer error=invalid_token, audience invalid
+  Note over C: Đọc header, sửa cấu hình audience ở Keycloak
+  C->>API: GET /payroll/57 + Bearer token (aud=hr-api, scope=hr.read)
+  API-->>C: 200 OK
+  C->>API: PUT /payroll/57 + cùng token
+  API-->>C: 403 + Bearer error=insufficient_scope, scope=hr.write
+</pre>
+<div class="caption">Challenge–response của HTTP auth: mỗi lần bị từ chối, header <code>WWW-Authenticate</code> chỉ cho client biết cần sửa gì.</div>
+</div>
+
+<h3 id="basic">Basic authentication</h3>
+<ul>
+<li>RFC 7617: <code>Authorization: Basic base64(username:password)</code>.</li>
+<li><b>Base64 chỉ là encoding</b> (đổi cách biểu diễn), <b>không phải mã hóa</b>: ai bắt được header là có mật khẩu → <b>chỉ dùng qua TLS</b>.</li>
+<li>Gửi mật khẩu thật trong <b>mọi</b> request; không có hạn dùng, scope hay cách thu hồi riêng. Hạn chế dùng cho API mới; vẫn gặp ở hệ thống cũ, công cụ nội bộ, và <b>xác thực client</b> tại token endpoint (<code>client_secret_basic</code>).</li>
+</ul>
+<div class="widget" id="b64-widget"><div class="w-title">🧪 Base64 không phải mã hóa — decode header Basic</div>
+<label class="small">Header Authorization (hoặc chỉ phần Base64)</label>
+<input type="text" id="b64In" value="Authorization: Basic YW4ubnY6UEBzc3cwcmQh">
+<div class="btn-row"><button class="btn" id="b64Decode">Decode</button></div>
+<label class="small" style="margin-top:12px;display:block">Hoặc tạo header từ username / password</label>
+<div class="grid cols-2"><input type="text" id="b64User" value="an.nv"><input type="text" id="b64Pass" value="P@ssw0rd!"></div>
+<div class="btn-row"><button class="btn ghost" id="b64Encode">Encode thành header Basic</button></div>
+<div class="out" id="b64Out">Bấm “Decode”: không cần key nào cả.</div>
+</div>
+
+<h3 id="bearer">Bearer token (RFC 6750)</h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+“Bearer” nghĩa là <b>người cầm</b>: giống <b>tiền mặt</b> — ai cầm tờ tiền là tiêu được, cửa hàng không hỏi bạn là ai. Vì vậy phải giữ token như giữ mật khẩu.</div>
+<ul>
+<li><code>Authorization: Bearer &lt;access_token&gt;</code>. Ai cầm token là dùng được → bảo vệ token như mật khẩu.</li>
+<li><b>Không gửi qua query string/URL</b> (<code>?access_token=…</code>): URL bị ghi vào log server/proxy, lịch sử trình duyệt, header <code>Referer</code>.</li>
+<li>Luôn qua TLS; access token ngắn hạn; không log token. Muốn chống dùng lại token bị trộm → <b>sender-constrained token</b> (DPoP RFC 9449, mTLS RFC 8705) — xem <a href="m06-authz-security.html#token-storage">M06</a>.</li>
+</ul>
+
+<h2 id="api-key">G.1. API key <span class="badge must">Must</span></h2>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+API key giống <b>chìa khóa nhà kho cấp cho một công ty đối tác</b>: nó cho biết <b>công ty nào</b> (ứng dụng/dự án) đang vào, không biết <b>nhân viên nào</b> (người dùng). Chìa thường dùng rất lâu và mở được mọi cửa được gán — nên mất chìa là chuyện lớn.</div>
+<ul>
+<li>Chuỗi bí mật định danh <b>ứng dụng/dự án</b> gọi API, <b>không định danh người dùng</b>.</li>
+<li>Thường sống lâu, không có scope/consent/audience chuẩn hóa; không có chuẩn chung về cách gửi (thường header tùy chỉnh như <code>X-API-Key</code>).</li>
+</ul>
+<div class="dodont">
+<div class="do"><h5>✅ Phù hợp</h5><ul><li>Public API đơn giản (dữ liệu thời tiết, bản đồ…).</li><li>Quota, rate limit, metering, tính phí theo dự án.</li><li>Tích hợp server-to-server quy mô nhỏ, key nằm an toàn ở backend.</li></ul></div>
+<div class="dont"><h5>❌ Không phù hợp</h5><ul><li>Hành động <b>thay mặt người dùng</b> (không biết user nào, không có consent).</li><li>Nhúng trong <b>public client</b>: SPA, mobile, desktop (WPF) — key sẽ bị lộ khi người dùng mở DevTools/decompile.</li><li>Quyền chi tiết, ngắn hạn, cần audit theo người dùng.</li></ul></div>
+</div>
+<h4>Thực hành tốt</h4>
+<ul>
+<li>Gửi qua <b>header</b>, không qua URL.</li>
+<li>Sinh bằng CSPRNG (≥ 128 bit, thường 256 bit), có prefix nhận diện để công cụ secret scanning phát hiện khi lỡ commit.</li>
+<li><b>Chỉ lưu hash</b> phía server; hiển thị key cho người dùng <b>một lần</b> lúc tạo.</li>
+<li>Hỗ trợ <b>rotation/revoke</b> (cho phép 2 key song song khi xoay), có <b>expiration</b>, gắn <b>quyền tối thiểu</b> (theo API/hành động/IP), <b>theo dõi usage</b> và cảnh báo bất thường.</li>
+</ul>
+<pre data-title="Sinh và lưu API key an toàn (.NET)"><code class="language-csharp">using System.Security.Cryptography;
+using System.Text;
+
+// 1) Sinh key: 32 byte ngẫu nhiên (256 bit) từ CSPRNG + prefix nhận diện
+string secret = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
+string apiKey = $"kz_live_{secret}";          // hiển thị cho khách hàng ĐÚNG MỘT LẦN
+
+// 2) Lưu: chỉ lưu hash + vài ký tự đầu để nhận diện trên UI
+byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(apiKey));
+db.ApiKeys.Add(new ApiKeyRecord
+{
+    ClientId  = "payroll-batch",
+    Prefix    = apiKey[..12],                   // "kz_live_7d1f" để hiển thị/tra cứu
+    KeyHash   = hash,
+    Scopes    = "payroll:export",
+    ExpiresAt = DateTimeOffset.UtcNow.AddDays(90)
+});
+
+// 3) Kiểm tra khi có request: băm key nhận được, so sánh constant-time
+static bool Matches(string presented, byte[] storedHash) =&gt;
+    CryptographicOperations.FixedTimeEquals(
+        SHA256.HashData(Encoding.UTF8.GetBytes(presented)), storedHash);</code></pre>
+<div class="callout info"><span class="callout-title">🤔 Vừa nói SHA-256 không đủ cho mật khẩu, sao lại dùng cho API key?</span>
+Vì API key là <b>256 bit ngẫu nhiên</b> — không có “danh sách key phổ biến” để đoán, brute-force 2<sup>256</sup> là bất khả thi dù hash nhanh. Mật khẩu người dùng thì entropy thấp, nên mới cần thuật toán chậm. Điểm mấu chốt là <b>entropy của input</b>, không phải bản thân SHA-256.</div>
+
+<h3 id="auth-scheme-compare">So sánh API key, Basic, Bearer và OAuth Client Credentials</h3>
+<p><b>Deliverable 6.</b> Client Credentials là grant OAuth cho service-to-service, chi tiết ở <a href="m03-oauth-oidc.html#client-credentials">M03</a>.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>API key</th><th>Basic</th><th>Bearer token (nói chung)</th><th>OAuth Client Credentials</th></tr></thead>
+<tbody>
+<tr><td><b>Định danh ai</b></td><td>Ứng dụng/dự án</td><td>User hoặc account kỹ thuật</td><td>Tùy token: user + client, hoặc chỉ client</td><td>Client (ứng dụng), không có user</td></tr>
+<tr><td><b>Gửi gì mỗi request</b></td><td>Secret dài hạn</td><td>Username + password thật</td><td>Token (thường ngắn hạn)</td><td>Access token ngắn hạn; secret chỉ gửi tới AS khi xin token</td></tr>
+<tr><td><b>Thời hạn</b></td><td>Dài (tới khi thu hồi/hết hạn tự đặt)</td><td>Tới khi đổi mật khẩu</td><td>Theo <code>exp</code></td><td>Ngắn (phút), tự xin lại</td></tr>
+<tr><td><b>Scope / audience</b></td><td>Không chuẩn hóa (tự cài)</td><td>Không</td><td>Có thể có (<code>scope</code>, <code>aud</code>)</td><td>Có, chuẩn hóa</td></tr>
+<tr><td><b>Thu hồi / xoay vòng</b></td><td>Thủ công, tự xây</td><td>Đổi mật khẩu</td><td>Hết hạn tự nhiên; revoke/introspect tùy AS</td><td>Chuẩn hóa: token tự hết hạn; xoay client secret hoặc dùng private_key_jwt/mTLS</td></tr>
+<tr><td><b>Phù hợp</b></td><td>Public API đơn giản, quota</td><td>Legacy, công cụ nội bộ, client auth ở token endpoint</td><td>API hiện đại</td><td>Service-to-service (payroll-batch → hr-api)</td></tr>
+<tr><td><b>Rủi ro chính</b></td><td>Lộ key = truy cập lâu dài</td><td>Lộ mật khẩu thật</td><td>Ai cầm cũng dùng được</td><td>Lộ client secret; cấp scope quá rộng</td></tr>
+</tbody></table></div>
+<div class="flow">
+<div class="step"><b>payroll-batch</b>client_id + secret</div><span class="arrow">→</span>
+<div class="step"><b>Keycloak</b>token endpoint<br/>grant_type=client_credentials</div><span class="arrow">→</span>
+<div class="step"><b>Access token</b>5 phút, aud=hr-api, scope=payroll:export</div><span class="arrow">→</span>
+<div class="step"><b>hr-api</b>validate như mọi access token</div>
+</div>
+
+<!-- ===================================================== -->
+<h2 id="hieu-lam">Các hiểu lầm cần tránh</h2>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Hash là một kiểu mã hóa.</span><span class="f-label">Thực tế</span><span>Hash là hàm một chiều, không có key, không giải mã được. Encryption thì đảo ngược được bằng key.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Mã hóa mật khẩu bằng AES rồi lưu là an toàn.</span><span class="f-label">Thực tế</span><span>Lộ key là lộ toàn bộ mật khẩu. Mật khẩu phải lưu bằng password hashing (Argon2id/scrypt/PBKDF2/bcrypt) có salt.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>JWT đã ký nên nội dung bí mật.</span><span class="f-label">Thực tế</span><span>Chữ ký chỉ chống sửa đổi. Payload JWS chỉ Base64url — ai cũng đọc được. Cần bí mật → JWE hoặc opaque token.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Decode được JWT là đã validate.</span><span class="f-label">Thực tế</span><span>Decode chỉ đọc; phải verify chữ ký, <code>iss</code>, <code>aud</code>, <code>exp</code>/<code>nbf</code>, loại token, scope.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Cookie chính là session.</span><span class="f-label">Thực tế</span><span>Cookie là cơ chế lưu/gửi của trình duyệt; session là trạng thái ứng dụng quản lý. Session ID chỉ là một cách dùng cookie.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Logout là token hết hiệu lực ngay.</span><span class="f-label">Thực tế</span><span>JWT access token đã phát hành vẫn dùng được tới <code>exp</code> nếu API không introspect/denylist.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Base64 trong Basic auth đã che mật khẩu.</span><span class="f-label">Thực tế</span><span>Base64 là encoding, decode không cần key. Bảo vệ thật đến từ TLS.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>API key là cách xác thực người dùng.</span><span class="f-label">Thực tế</span><span>API key định danh ứng dụng/dự án, không phải người dùng, và không phù hợp cho public client.</span></div>
+
+<!-- ===================================================== -->
+<h2 id="tom-tat">Tóm tắt nhanh</h2>
+<ul>
+<li><b>Encryption</b> để giấu (đảo ngược được bằng key); <b>hash</b> một chiều không key; <b>signature</b> = private key ký, public key verify, không che nội dung; <b>HMAC</b> = toàn vẹn bằng secret dùng chung.</li>
+<li>Mật khẩu: <b>Argon2id</b> (19 MiB, t=2, p=1) hoặc PBKDF2-HMAC-SHA512 ≥ 220.000 vòng, có <b>salt</b> riêng. Không bao giờ <code>SHA-256(password)</code>. ASP.NET Core Identity mặc định 100.000 vòng → nên tăng.</li>
+<li><b>Certificate</b> gắn public key với danh tính, được CA ký; tin cậy đi theo <b>chain</b> tới root trong trust store. TLS bảo vệ kênh; mTLS xác thực cả client.</li>
+<li><b>Cookie ≠ session</b>. Cookie đăng nhập: <code>HttpOnly; Secure; SameSite=Lax/Strict</code>, không đặt <code>Domain</code>, cân nhắc prefix <code>__Host-</code>.</li>
+<li>Session: ID ngẫu nhiên do framework sinh, <b>đổi ID sau login</b>, có idle + absolute timeout, step-up cho thao tác nhạy cảm, logout hủy phía server.</li>
+<li><b>Access token</b> → API; <b>ID token</b> → client; <b>refresh token</b> → AS. Không dùng ID token gọi API.</li>
+<li>API phải <b>verify</b> JWT: alg allowlist, chữ ký bằng key tin cậy (JWKS theo <code>kid</code>), <code>iss</code>, <code>aud</code>, <code>exp</code>/<code>nbf</code>, loại token, scope. Decode ≠ verify.</li>
+<li>Refresh token <b>rotation + reuse detection</b>; JWT khó thu hồi trước hạn → token ngắn, introspection (RFC 7662), revocation (RFC 7009).</li>
+<li>401 kèm <code>WWW-Authenticate</code> cho biết lý do (<code>invalid_token</code>…); 403 <code>insufficient_scope</code> khi thiếu quyền.</li>
+<li><b>API key</b> định danh ứng dụng, sống lâu; với service-to-service cần kiểm soát tốt hơn, dùng <b>Client Credentials</b>.</li>
+</ul>
+
+<!-- ===================================================== -->
+<h2 id="output">Output / Deliverables</h2>
+<ul class="checklist">
+<li><span><b>Bảng so sánh</b> Encryption, Hash, Signature, HMAC, Password Hashing (<a href="#hash-vs-encryption">mục B</a>). <span class="badge core">Core</span></span></li>
+<li><span><b>Sơ đồ</b> login session-based và token-based (<a href="#stateful-stateless">mục C</a>). <span class="badge core">Core</span></span></li>
+<li><span><b>Một JWT mẫu</b> được phân tích thành header, payload, signature; xác định <code>iss</code>, <code>sub</code>, <code>aud</code>, <code>exp</code>; giải thích vì sao JWT ký không có nghĩa payload bí mật (<a href="#jwt">mục E</a> + widget). <span class="badge core">Core</span></span></li>
+<li><span><b>Bảng so sánh</b> Access Token, ID Token, Refresh Token (<a href="#token-compare">mục D</a>) — dùng tiếp và bổ sung ở <a href="m03-oauth-oidc.html#id-vs-access">M03</a>. <span class="badge core">Core</span></span></li>
+<li><span><b>Checklist validation token</b> cho access token (<a href="#jwt-validation">mục E.1</a>); M03 bổ sung phần ID token. <span class="badge core">Core</span></span></li>
+<li><span><b>Bảng so sánh</b> API key, Basic, Bearer token và OAuth Client Credentials (<a href="#auth-scheme-compare">mục G.1</a>).</span></li>
+</ul>
+
+<h2 id="knowledge-check">Knowledge Check (tự luận)</h2>
+<p>Tự trả lời trước, sau đó mở đáp án gợi ý để so sánh.</p>
+<details><summary>Vì sao không nên lưu password bằng SHA-256 đơn thuần?</summary>
+<p>SHA-256 được thiết kế để <b>nhanh</b> — GPU thử được hàng tỷ ứng viên mỗi giây, nên khi DB lộ, mật khẩu phổ biến bị đoán ra rất rẻ. Không có salt thì cùng mật khẩu cho cùng hash, dùng được bảng tính sẵn và lộ ai dùng chung mật khẩu. Cần thuật toán password hashing <b>chậm có chủ đích, có salt, có work factor</b>: Argon2id, scrypt, PBKDF2 (đủ vòng), bcrypt.</p></details>
+<details><summary>Khác nhau giữa cookie và session?</summary>
+<p>Session là <b>trạng thái</b> đăng nhập/hoạt động do ứng dụng quản lý (thường lưu ở server). Cookie là <b>cơ chế của trình duyệt</b> để lưu và tự động gửi dữ liệu theo domain/path. Cookie thường mang session ID để tham chiếu session, nhưng cookie còn dùng cho việc khác, và session có thể truyền bằng cách khác.</p></details>
+<details><summary>API có thể chỉ decode JWT rồi tin payload không?</summary>
+<p><b>Không.</b> Decode chỉ là Base64url — ai cũng tạo được JWT với payload tùy ý (thử nút “Giả mạo” trong widget). API phải verify chữ ký bằng key tin cậy với thuật toán trong allowlist, rồi kiểm tra <code>iss</code>, <code>aud</code>, <code>exp</code>/<code>nbf</code>, loại token, scope — bằng thư viện đã kiểm chứng.</p></details>
+<details><summary><code>aud</code> giúp bảo vệ điều gì?</summary>
+<p><code>aud</code> cho biết token được cấp <b>cho API nào</b>. Kiểm tra <code>aud</code> ngăn việc một token cấp cho API A (hoặc ID token cấp cho client) bị đem sang dùng ở API B — ví dụ một API ít quan trọng bị lộ token, kẻ tấn công không thể dùng token đó gọi hr-api. Đây là phòng chống “token substitution / confused deputy”.</p></details>
+<details><summary>Vì sao ID token không nên gửi cho API thay access token?</summary>
+<p>ID token dành cho <b>client</b> (<code>aud</code> = client_id) để biết ai đã đăng nhập; nó không đại diện cho việc ủy quyền gọi API, không mang scope cho API, và API không phải audience của nó. Nếu API chấp nhận ID token, bất kỳ client nào có ID token của user (kể cả client khác) có thể gọi API; đồng thời mất khả năng kiểm soát scope/audience. Chi tiết ở <a href="m03-oauth-oidc.html#id-vs-access">M03</a>.</p></details>
+<details><summary>Logout có luôn vô hiệu hóa token ngay lập tức không?</summary>
+<p>Không. Logout thường hủy session ở app/IdP và có thể thu hồi refresh token, nhưng JWT access token đã phát hành vẫn verify được cục bộ cho tới <code>exp</code>. Muốn hiệu lực tức thì cần: access token ngắn, introspection/opaque token, denylist, hoặc cơ chế đặc thù của IdP — phụ thuộc kiến trúc.</p></details>
+<details><summary>API key khác OAuth access token thế nào?</summary>
+<p>API key: secret dài hạn, định danh <b>ứng dụng</b>, không có scope/audience/consent chuẩn hóa, vòng đời và thu hồi tự xây. Access token: do Authorization Server cấp, <b>ngắn hạn</b>, có <code>scope</code>, <code>aud</code>, có thể đại diện user + client, xoay vòng/thu hồi theo chuẩn. Với service-to-service cần kiểm soát tốt, dùng Client Credentials thay API key.</p></details>
+<details><summary>Vì sao phải cấp session ID mới sau khi login?</summary>
+<p>Để chống <b>session fixation</b>: nếu giữ nguyên session ID từ trước khi đăng nhập, kẻ tấn công có thể “cài” sẵn một session ID mà hắn biết cho nạn nhân; sau khi nạn nhân đăng nhập, session ID đó trở thành phiên đã xác thực và kẻ tấn công dùng được. Cũng phải đổi ID khi thay đổi mức quyền.</p></details>
+<details><summary>Header <code>WWW-Authenticate</code> cho biết điều gì khi API trả 401?</summary>
+<p>Cho biết <b>scheme</b> server yêu cầu (vd. <code>Bearer</code>, <code>Basic</code>), <code>realm</code>, và với Bearer có thể kèm <code>error</code> (<code>invalid_request</code>/<code>invalid_token</code>/<code>insufficient_scope</code>), <code>error_description</code> và <code>scope</code> cần. Từ đó biết nên refresh token, sửa audience/issuer, hay xin thêm scope.</p></details>
+
+<div class="callout tip"><span class="callout-title">✅ Tiêu chí hoàn thành</span>
+Đọc được một JWT mẫu (dùng widget ở <a href="#jwt">mục E</a>), giải thích được cách API xác minh token theo checklist, và mô tả được vòng đời cơ bản của session (tạo → đổi ID → timeout → logout) và token (cấp → dùng → hết hạn → refresh/rotation → revoke).</div>
+
+<h2 id="quiz">Quiz trắc nghiệm</h2>
+<div id="quiz"></div>
+
+</main>
+<script>
+window.QUIZ = [
+  { q: "Một dev đề xuất: “Mình mã hóa mật khẩu bằng AES-256 với key để trong appsettings, như vậy an toàn hơn hash.” Nhận định nào đúng?",
+    options: ["Đúng, AES-256 mạnh hơn SHA-256", "Đúng nếu key dài trên 32 ký tự", "Sai: encryption đảo ngược được, lộ key là lộ mọi mật khẩu; phải dùng password hashing có salt", "Sai: nên dùng SHA-256 thay cho AES"],
+    answer: 2,
+    explain: "Mật khẩu không cần (và không nên) khôi phục được. Dùng Argon2id/scrypt/PBKDF2/bcrypt có salt. SHA-256 đơn thuần cũng sai vì quá nhanh. Xem <a href=\"#password-hashing\">Password hashing</a>." },
+  { q: "Vì sao <code>SHA-256(password)</code> (kể cả có salt) vẫn chưa đủ để lưu mật khẩu?",
+    options: ["Vì SHA-256 quá nhanh, kẻ tấn công thử được hàng tỷ mật khẩu mỗi giây khi DB bị lộ", "Vì SHA-256 có thể giải mã ngược", "Vì SHA-256 cho kết quả khác nhau mỗi lần chạy", "Vì SHA-256 đã bị cấm dùng"],
+    answer: 0,
+    explain: "SHA-256 không đảo ngược được và luôn cho cùng kết quả, nhưng nó <b>nhanh</b>. Salt chặn bảng tính sẵn, nhưng không làm chậm việc đoán từng user. Cần thuật toán chậm có work factor." },
+  { q: "Những phát biểu nào đúng về <b>salt</b>?",
+    options: ["Salt là giá trị ngẫu nhiên riêng cho từng password hash", "Salt phải giữ bí mật tuyệt đối, tách khỏi DB", "Salt làm hai user cùng mật khẩu có hash khác nhau", "Salt thay thế được cho thuật toán chậm"],
+    answer: [0, 2],
+    explain: "Salt lưu cùng hash, không cần bí mật (secret dùng chung lưu ngoài DB là <b>pepper</b>). Salt không làm chậm việc brute-force từng hash." },
+  { q: "Keycloak ký access token bằng RS256. hr-api cần gì để verify chữ ký?",
+    options: ["Private key của Keycloak", "Client secret của hr-web", "Mật khẩu admin của Keycloak", "Public key của Keycloak (lấy từ JWKS, chọn theo <code>kid</code>)"],
+    answer: 3,
+    explain: "Chữ ký số: private key ký (chỉ issuer giữ), public key verify (ai cũng có được). Đó là lý do nhiều API có thể verify mà không thể tự phát hành token." },
+  { q: "Một hệ thống có 6 API cùng verify JWT ký bằng <b>HS256</b> với một secret dùng chung. Rủi ro chính là gì?",
+    options: ["HS256 không verify được chữ ký", "Bất kỳ API nào giữ secret cũng có thể tự phát hành token hợp lệ; lộ một API là lộ khả năng giả token cho tất cả", "Payload bị mã hóa nên API không đọc được", "Token không có <code>exp</code>"],
+    answer: 1,
+    explain: "HMAC dùng secret chung: ai verify được thì cũng ký được. Với nhiều bên verify, chữ ký bất đối xứng (RS256/ES256) an toàn hơn. Xem <a href=\"#hmac\">HMAC</a>." },
+  { q: "Trình duyệt kiểm tra certificate của <code>sso.kaopiz.local</code>. Điều nào <b>không</b> nằm trong quá trình kiểm tra?",
+    options: ["Chuỗi chữ ký dẫn tới một root CA trong trust store", "Certificate còn hạn và đúng tên miền", "Private key của server được gửi kèm để so sánh", "Certificate chưa bị thu hồi"],
+    answer: 2,
+    explain: "Private key không bao giờ rời server. Server chỉ <b>chứng minh</b> đang giữ private key trong TLS handshake." },
+  { q: "Cookie đăng nhập nên có bộ thuộc tính nào?",
+    options: ["<code>HttpOnly; Secure; SameSite=Lax; Path=/</code> (không đặt Domain)", "<code>SameSite=None</code> không kèm <code>Secure</code>", "<code>Domain=kaopiz.com</code> để an toàn hơn", "Không cần thuộc tính gì vì đã có HTTPS"],
+    answer: 0,
+    explain: "Đặt <code>Domain</code> làm cookie gửi tới mọi subdomain (mở rộng phạm vi). <code>SameSite=None</code> bắt buộc kèm <code>Secure</code>. Xem <a href=\"#cookie-attributes\">thuộc tính cookie</a>." },
+  { q: "An nhận email chứa link tới <code>https://hr.kaopiz.local/payroll</code> và bấm vào. Cookie đăng nhập có <code>SameSite=Strict</code>. Điều gì xảy ra ở request đầu tiên?",
+    options: ["Cookie được gửi bình thường", "Trình duyệt chặn hoàn toàn trang", "Cookie bị xóa vĩnh viễn", "Cookie <b>không</b> được gửi vì điều hướng bắt nguồn từ site khác, An có thể thấy như chưa đăng nhập"],
+    answer: 3,
+    explain: "Strict không gửi cookie cho mọi request cross-site, kể cả điều hướng top-level. <code>Lax</code> thì vẫn gửi với điều hướng GET top-level." },
+  { q: "Những phát biểu nào đúng về session management?",
+    options: ["Giữ nguyên session ID sau khi login để người dùng không bị gián đoạn", "Cấp session ID mới sau khi login và sau khi nâng quyền", "Idle timeout là đủ, không cần absolute timeout", "Logout phải hủy session phía server, không chỉ xóa cookie"],
+    answer: [1, 3],
+    explain: "Đổi ID chống session fixation. Nên có cả idle lẫn absolute timeout. Xóa cookie phía trình duyệt không vô hiệu được bản sao cookie mà kẻ gian đã chép." },
+  { q: "Hệ thống A lưu session trong Redis, cookie chỉ chứa session ID. Hệ thống B dùng JWT tự chứa claims. Admin muốn khóa ngay một user đang đăng nhập. Phát biểu nào đúng?",
+    options: ["Cả hai đều khóa ngay được bằng cách xóa cookie", "A khóa ngay được bằng cách xóa session; B phải chờ token hết hạn trừ khi có introspection/denylist", "B khóa nhanh hơn vì JWT có chữ ký", "Không hệ thống nào khóa được trước khi hết hạn"],
+    answer: 1,
+    explain: "Stateful thu hồi tức thì; stateless đổi lại khó thu hồi trước hạn. Xem <a href=\"#stateful-stateless\">stateful vs stateless</a>." },
+  { q: "Một SPA gửi <b>ID token</b> trong header <code>Authorization: Bearer</code> tới API vì “nó cũng là JWT có chữ ký”. Vấn đề là gì?",
+    options: ["Không có vấn đề gì", "ID token không có chữ ký", "ID token dành cho client (aud = client_id), không phải cho API; API chấp nhận nó là sai loại token và sai audience", "ID token luôn bị mã hóa nên API không đọc được"],
+    answer: 2,
+    explain: "Access token mới là token cho API. Xem bảng <a href=\"#token-compare\">Access/ID/Refresh</a> và <a href=\"m03-oauth-oidc.html#id-vs-access\">M03</a>." },
+  { q: "API decode payload JWT thấy <code>\"roles\":[\"admin\"]</code> và cho phép xóa dữ liệu, không kiểm tra gì thêm. Kẻ tấn công làm gì được?",
+    options: ["Tự tạo token với payload tùy ý (vd. role admin) và được chấp nhận", "Không làm gì được vì token có dấu chấm phân tách", "Chỉ đọc được dữ liệu, không sửa được", "Phải biết private key mới decode được payload"],
+    answer: 0,
+    explain: "Decode ≠ verify. Payload chỉ là Base64url. Thử nút “Giả mạo” trong <a href=\"#jwt\">JWT decoder</a>." },
+  { q: "Một JWT dạng compact có <b>5 phần</b> ngăn bởi dấu chấm. Đây nhiều khả năng là gì?",
+    options: ["JWS ký bằng RS256", "JWT không ký (alg none)", "Refresh token của OAuth", "JWE — JWT được mã hóa"],
+    answer: 3,
+    explain: "JWS compact có 3 phần; JWE compact có 5 phần: header.encrypted_key.iv.ciphertext.tag." },
+  { q: "Token có <code>\"aud\": \"report-api\"</code> được gửi tới hr-api. hr-api nên làm gì?",
+    options: ["Chấp nhận vì cùng issuer", "Từ chối với 401 <code>invalid_token</code> vì token không dành cho hr-api", "Trả 403 <code>insufficient_scope</code>", "Chấp nhận nếu chữ ký hợp lệ"],
+    answer: 1,
+    explain: "Audience sai là token không hợp lệ cho API này → 401 invalid_token. <code>aud</code> chống việc đem token của API khác sang dùng." },
+  { q: "Những mục nào thuộc checklist validation access token ở API?",
+    options: ["<code>alg</code> nằm trong allowlist, từ chối <code>none</code>", "Verify chữ ký bằng key từ JWKS của issuer đã cấu hình", "Tin <code>jku</code>/<code>jwk</code> trong header token để lấy key", "Kiểm tra <code>iss</code>, <code>aud</code>, <code>exp</code>/<code>nbf</code>"],
+    answer: [0, 1, 3],
+    explain: "Key phải đến từ nguồn tin cậy đã cấu hình, không do token tự khai. Xem <a href=\"#jwt-validation\">checklist</a>." },
+  { q: "Với refresh token rotation + reuse detection, điều gì xảy ra khi một refresh token <b>đã được dùng</b> bị gửi lại lần nữa?",
+    options: ["AS cấp access token mới như bình thường", "AS chỉ từ chối request đó, các token khác không ảnh hưởng", "AS coi là dấu hiệu bị đánh cắp và thu hồi cả họ refresh token của grant/phiên đó", "AS khóa vĩnh viễn tài khoản người dùng"],
+    answer: 2,
+    explain: "Vì không biết bên nào là kẻ trộm, AS thu hồi toàn bộ chuỗi; người dùng thật phải đăng nhập lại. Xem <a href=\"#token-lifecycle\">token lifecycle</a>." },
+  { q: "Resource Server gọi introspection endpoint với một token đã bị thu hồi. Response theo RFC 7662 là gì?",
+    options: ["HTTP 200 với <code>{\"active\": false}</code>", "HTTP 404 Not Found", "HTTP 401 kèm lý do thu hồi", "HTTP 200 với <code>active: true</code> và <code>revoked: true</code>"],
+    answer: 0,
+    explain: "Token không hiệu lực vì bất kỳ lý do gì → 200 + <code>active: false</code>, không nêu lý do để không lộ trạng thái nội bộ." },
+  { q: "API trả <code>WWW-Authenticate: Bearer error=\"insufficient_scope\", scope=\"hr.write\"</code>. Status code và hành động đúng của client?",
+    options: ["401 — refresh token rồi gọi lại", "400 — sửa định dạng request", "500 — báo lỗi server", "403 — xin token có scope <code>hr.write</code> (có thể cần consent/quyền mới)"],
+    answer: 3,
+    explain: "RFC 6750: insufficient_scope → 403. Refresh token chỉ cho token mới cùng phạm vi, không tự thêm quyền. Xem <a href=\"#www-authenticate\">WWW-Authenticate</a>." },
+  { q: "Team desktop WPF muốn nhúng một API key vào file cấu hình của app cài trên máy nhân viên để gọi hr-api. Nhận định nào đúng?",
+    options: ["Ổn vì file cấu hình được mã hóa Base64", "Không phù hợp: desktop là public client, key sẽ bị lộ; và API key không định danh người dùng, nên dùng OAuth (Auth Code + PKCE)", "Ổn nếu đặt key trong query string", "Ổn vì API key tự hết hạn sau 5 phút"],
+    answer: 1,
+    explain: "API key không phù hợp cho public client và hành động thay mặt user. Xem <a href=\"#api-key\">API key</a> và kiến trúc desktop ở <a href=\"m07-architecture.html#desktop\">M07</a>." },
+  { q: "Header <code>Authorization: Basic YW4ubnY6UEBzc3cwcmQh</code> bị lộ trong log. Mức độ nghiêm trọng?",
+    options: ["Thấp, vì đã mã hóa Base64", "Thấp, vì cần key để giải mã", "Cao: Base64 decode được ngay ra <code>an.nv:P@ssw0rd!</code>; phải đổi mật khẩu", "Không sao nếu log nằm trong mạng nội bộ"],
+    answer: 2,
+    explain: "Base64 là encoding, không phải mã hóa. Thử ở widget <a href=\"#basic\">Basic</a>." }
+];
+</script>
+<script>
+(function () {
+  "use strict";
+  function $(id) { return document.getElementById(id); }
+  function esc(s) {
+    return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+  function utf8Encode(str) { return new TextEncoder().encode(str); }
+  function utf8Decode(bytes) { return new TextDecoder("utf-8", { fatal: false }).decode(bytes); }
+  function bytesToB64(bytes) {
+    var bin = "";
+    for (var i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+    return btoa(bin);
+  }
+  function b64ToBytes(b64) {
+    var bin = atob(b64);
+    var out = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+  function b64urlEncodeStr(str) {
+    return bytesToB64(utf8Encode(str)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  }
+  function b64urlDecodeStr(s) {
+    if (!/^[A-Za-z0-9_-]*$/.test(s)) throw new Error("Chứa ký tự không thuộc bảng Base64url");
+    var t = s.replace(/-/g, "+").replace(/_/g, "/");
+    while (t.length % 4) t += "=";
+    return utf8Decode(b64ToBytes(t));
+  }
+  var box = 'style="white-space:normal;font-family:var(--font);margin:6px 0"';
+
+  // ---------------- JWT decoder ----------------
+  var SAMPLE_H = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6ImhyLTIwMjYtMTEifQ";
+  var SAMPLE_P = "eyJleHAiOjE3OTQyNzYzMDAsImlhdCI6MTc5NDI3NjAwMCwianRpIjoiNWMxZTdkMmEtOWI0Zi00YThlLWI2ZDEtM2YyYTljOGU3YjYwIiwiaXNzIjoiaHR0cHM6Ly9zc28ua2FvcGl6LmxvY2FsL3JlYWxtcy9rYW9waXoiLCJhdWQiOiJoci1hcGkiLCJzdWIiOiI4ZjJjMWE3ZS00YjlkLTRlMTUtOWEzZi0yZDZjN2I4ZTlmMTAiLCJ0eXAiOiJCZWFyZXIiLCJhenAiOiJoci13ZWIiLCJzY29wZSI6Im9wZW5pZCBwcm9maWxlIGhyLnJlYWQiLCJwcmVmZXJyZWRfdXNlcm5hbWUiOiJhbi5udiIsInJlYWxtX2FjY2VzcyI6eyJyb2xlcyI6WyJlbXBsb3llZSJdfX0";
+  var SAMPLE_S = "Y2h1LWt5LW1pbmgtaG9hOiBkYXkgS0hPTkcgcGhhaSBjaHUga3kgUlMyNTYgdGhhdCAtIGNoaSBkZSBtaW5oIGhvYSBjYXUgdHJ1YyBKV1Q";
+  var SAMPLE = SAMPLE_H + "." + SAMPLE_P + "." + SAMPLE_S;
+
+  var CLAIMS = {
+    iss: "Issuer — ai phát hành token",
+    sub: "Subject — định danh ổn định của chủ thể (trong phạm vi iss)",
+    aud: "Audience — token dành cho ai (API phải là một trong số này)",
+    exp: "Expiration — hết hạn sau thời điểm này",
+    nbf: "Not before — chưa hiệu lực trước thời điểm này",
+    iat: "Issued at — thời điểm phát hành",
+    auth_time: "Thời điểm người dùng thực sự xác thực",
+    jti: "JWT ID — mã duy nhất của token",
+    azp: "Authorized party — client đã xin token",
+    scope: "Phạm vi quyền (chuỗi, cách nhau bởi dấu cách)",
+    scp: "Phạm vi quyền (tên claim kiểu Entra ID)",
+    roles: "Vai trò (tùy hệ thống)",
+    realm_access: "Vai trò cấp realm (Keycloak)",
+    resource_access: "Vai trò theo client (Keycloak)",
+    typ: "Loại token (claim riêng của Keycloak)",
+    sid: "Session ID phía IdP",
+    nonce: "Chống replay ID token (OIDC)",
+    preferred_username: "Tên đăng nhập hiển thị — không dùng làm khóa định danh",
+    email: "Email — không dùng làm khóa định danh",
+    client_id: "Client đã xin token"
+  };
+  var TIME_CLAIMS = { exp: 1, nbf: 1, iat: 1, auth_time: 1 };
+
+  function fmtTime(v) {
+    if (typeof v !== "number") return "";
+    var d = new Date(v * 1000);
+    var vn;
+    try { vn = d.toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" }) + " (giờ VN)"; }
+    catch (e) { vn = d.toLocaleString(); }
+    return vn + " · " + d.toISOString().replace(".000Z", "Z");
+  }
+
+  function renderJwt(raw) {
+    var out = $("jwtOut");
+    var tok = (raw || "").trim().replace(/^Authorization:\s*/i, "").replace(/^Bearer\s+/i, "").trim();
+    if (!tok) { out.innerHTML = "Chưa có token."; return; }
+    var parts = tok.split(".");
+    var html = "";
+    if (parts.length === 5) {
+      var jh = "";
+      try { jh = esc(JSON.stringify(JSON.parse(b64urlDecodeStr(parts[0])), null, 2)); } catch (e) { jh = "(không decode được header)"; }
+      out.innerHTML = '<div ' + box + '>🔒 Token có <b>5 phần</b> → đây là <b>JWE</b> (mã hóa). Chỉ header đọc được; payload là ciphertext, cần private key/secret của người nhận để giải mã.</div>' +
+        '<div class="small">Header:</div>' + jh;
+      return;
+    }
+    if (parts.length !== 3) {
+      out.innerHTML = '<div ' + box + '>❌ Token có ' + parts.length + ' phần. JWS compact phải có 3 phần (header.payload.signature), JWE có 5. Có thể đây là <b>opaque token</b> — không decode được, API phải dùng introspection.</div>';
+      return;
+    }
+    html += '<div class="jwt" style="margin:6px 0"><span class="h">' + esc(parts[0]) + '</span><span class="dot">.</span><span class="p">' + esc(parts[1]) + '</span><span class="dot">.</span><span class="s">' + esc(parts[2] || "(trống)") + '</span></div>';
+    var header, payload;
+    try { header = JSON.parse(b64urlDecodeStr(parts[0])); }
+    catch (e) { out.innerHTML = html + '<div ' + box + '>❌ Header không phải Base64url/JSON hợp lệ: ' + esc(e.message) + '</div>'; return; }
+    try { payload = JSON.parse(b64urlDecodeStr(parts[1])); }
+    catch (e) { out.innerHTML = html + '<div ' + box + '>❌ Payload không phải Base64url/JSON hợp lệ: ' + esc(e.message) + '</div>'; return; }
+
+    html += '<div ' + box + '><b style="color:var(--jwt-h)">Header</b></div>' + esc(JSON.stringify(header, null, 2));
+    html += '<div ' + box + '><b style="color:var(--jwt-p)">Payload</b></div>' + esc(JSON.stringify(payload, null, 2));
+
+    var warns = [];
+    var alg = String(header.alg || "");
+    if (!alg || alg.toLowerCase() === "none") warns.push("🚨 <code>alg</code> = <b>" + esc(alg || "(thiếu)") + "</b>: token <b>không có chữ ký</b>. API phải từ chối — thuật toán chỉ lấy từ allowlist của API.");
+    else if (/^HS/i.test(alg)) warns.push("ℹ️ <code>" + esc(alg) + "</code> là HMAC (secret dùng chung): ai verify được cũng ký được.");
+    if (!parts[2]) warns.push("🚨 Phần chữ ký trống.");
+    if (parts[2] === SAMPLE_S) warns.push("ℹ️ Chữ ký của token mẫu là <b>chữ ký minh họa</b> (Base64url của một câu ghi chú), không phải RS256 thật.");
+    if (header.kid) warns.push("🔑 <code>kid</code> = " + esc(header.kid) + " → API tìm public key có kid này trong JWKS của issuer.");
+
+    var now = Math.floor(Date.now() / 1000);
+    var rows = "";
+    Object.keys(payload).forEach(function (k) {
+      var v = payload[k];
+      var val = typeof v === "string" ? v : JSON.stringify(v);
+      var extra = "";
+      if (TIME_CLAIMS[k] && typeof v === "number") {
+        extra = "<br><span class=\"small\">" + esc(fmtTime(v)) + "</span>";
+        if (k === "exp") extra += v < now ? ' <b style="color:var(--danger)">— ĐÃ HẾT HẠN</b>' : ' <b style="color:var(--ok)">— còn ' + Math.round((v - now) / 60) + ' phút</b>';
+        if (k === "nbf" && v > now) extra += ' <b style="color:var(--danger)">— CHƯA HIỆU LỰC</b>';
+      }
+      rows += "<tr><td><code>" + esc(k) + "</code></td><td>" + esc(val) + extra + "</td><td>" + esc(CLAIMS[k] || "Claim riêng / tùy hệ thống") + "</td></tr>";
+    });
+    if (typeof payload.exp === "number" && typeof payload.iat === "number") {
+      warns.push("⏱ Thời gian sống: " + Math.round((payload.exp - payload.iat) / 60) + " phút (exp − iat).");
+    }
+    if (payload.aud === undefined) warns.push("⚠️ Không có <code>aud</code> — API không xác định được token có dành cho mình không.");
+    html += '<div ' + box + '><b>Claims</b></div><div class="table-wrap" style="white-space:normal"><table><thead><tr><th>Claim</th><th>Giá trị</th><th>Ý nghĩa</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+    if (warns.length) html += '<div ' + box + '>' + warns.join("<br>") + '</div>';
+    html += '<div ' + box + '><b style="color:var(--danger)">⛔ DECODE ≠ VERIFY.</b> Widget này chỉ Base64url-decode, <b>không kiểm tra chữ ký</b> (không có public key của issuer). Mọi thông tin trên có thể đã bị sửa. API phải verify chữ ký + iss + aud + exp/nbf + loại token + scope bằng thư viện chuẩn.</div>';
+    out.innerHTML = html;
+  }
+
+  if ($("jwtIn")) {
+    $("jwtIn").value = SAMPLE;
+    $("jwtDecode").addEventListener("click", function () { renderJwt($("jwtIn").value); });
+    $("jwtSample").addEventListener("click", function () { $("jwtIn").value = SAMPLE; renderJwt(SAMPLE); });
+    $("jwtTamper").addEventListener("click", function () {
+      var p = JSON.parse(b64urlDecodeStr(SAMPLE_P));
+      p.realm_access = { roles: ["employee", "admin"] };
+      p.scope = "openid profile hr.read hr.write hr.admin";
+      p.exp = Math.floor(Date.now() / 1000) + 365 * 24 * 3600;
+      var t = SAMPLE_H + "." + b64urlEncodeStr(JSON.stringify(p)) + "." + SAMPLE_S;
+      $("jwtIn").value = t; renderJwt(t);
+      $("jwtOut").insertAdjacentHTML("afterbegin", '<div ' + box + '>🦹 Token vừa bị <b>sửa payload</b> (thêm role admin, scope hr.admin, hạn 1 năm) nhưng giữ nguyên chữ ký cũ. Decode vẫn “đẹp” — chỉ bước verify chữ ký mới phát hiện được.</div>');
+    });
+    $("jwtNone").addEventListener("click", function () {
+      var h = b64urlEncodeStr(JSON.stringify({ alg: "none", typ: "JWT" }));
+      var p = JSON.parse(b64urlDecodeStr(SAMPLE_P));
+      p.realm_access = { roles: ["admin"] };
+      var t = h + "." + b64urlEncodeStr(JSON.stringify(p)) + ".";
+      $("jwtIn").value = t; renderJwt(t);
+    });
+  }
+
+  // ---------------- Hash demo ----------------
+  function sha256Fallback(bytes) {
+    function rr(v, n) { return (v >>> n) | (v << (32 - n)); }
+    var H = [], K = [], primes = [], cand = 2, i, t;
+    while (primes.length < 64) {
+      var isP = true;
+      for (i = 0; i < primes.length; i++) { if (cand % primes[i] === 0) { isP = false; break; } }
+      if (isP) primes.push(cand);
+      cand++;
+    }
+    for (i = 0; i < 64; i++) {
+      if (i < 8) H[i] = (Math.pow(primes[i], 1 / 2) * 4294967296) | 0;
+      K[i] = (Math.pow(primes[i], 1 / 3) * 4294967296) | 0;
+    }
+    var m = [], l = bytes.length;
+    for (i = 0; i < l; i++) m.push(bytes[i]);
+    m.push(0x80);
+    while ((m.length % 64) !== 56) m.push(0);
+    var bitHi = Math.floor(l / 536870912), bitLo = (l * 8) >>> 0;
+    m.push((bitHi >>> 24) & 255, (bitHi >>> 16) & 255, (bitHi >>> 8) & 255, bitHi & 255,
+           (bitLo >>> 24) & 255, (bitLo >>> 16) & 255, (bitLo >>> 8) & 255, bitLo & 255);
+    var w = [];
+    for (var off = 0; off < m.length; off += 64) {
+      for (t = 0; t < 16; t++) {
+        var j = off + t * 4;
+        w[t] = (m[j] << 24) | (m[j + 1] << 16) | (m[j + 2] << 8) | m[j + 3];
+      }
+      for (t = 16; t < 64; t++) {
+        var x = w[t - 15], y = w[t - 2];
+        var s0 = rr(x, 7) ^ rr(x, 18) ^ (x >>> 3);
+        var s1 = rr(y, 17) ^ rr(y, 19) ^ (y >>> 10);
+        w[t] = (w[t - 16] + s0 + w[t - 7] + s1) | 0;
+      }
+      var a = H[0], b = H[1], c = H[2], d = H[3], e = H[4], f = H[5], g = H[6], h = H[7];
+      for (t = 0; t < 64; t++) {
+        var S1 = rr(e, 6) ^ rr(e, 11) ^ rr(e, 25);
+        var ch = (e & f) ^ (~e & g);
+        var t1 = (h + S1 + ch + K[t] + w[t]) | 0;
+        var S0 = rr(a, 2) ^ rr(a, 13) ^ rr(a, 22);
+        var maj = (a & b) ^ (a & c) ^ (b & c);
+        var t2 = (S0 + maj) | 0;
+        h = g; g = f; f = e; e = (d + t1) | 0; d = c; c = b; b = a; a = (t1 + t2) | 0;
+      }
+      H[0] = (H[0] + a) | 0; H[1] = (H[1] + b) | 0; H[2] = (H[2] + c) | 0; H[3] = (H[3] + d) | 0;
+      H[4] = (H[4] + e) | 0; H[5] = (H[5] + f) | 0; H[6] = (H[6] + g) | 0; H[7] = (H[7] + h) | 0;
+    }
+    var hex = "";
+    for (i = 0; i < 8; i++) { var s = (H[i] >>> 0).toString(16); while (s.length < 8) s = "0" + s; hex += s; }
+    return hex;
+  }
+  function sha256Hex(str) {
+    var bytes = utf8Encode(str);
+    if (window.crypto && window.crypto.subtle && window.crypto.subtle.digest) {
+      return window.crypto.subtle.digest("SHA-256", bytes).then(function (buf) {
+        return Array.prototype.map.call(new Uint8Array(buf), function (x) { return ("0" + x.toString(16)).slice(-2); }).join("");
+      });
+    }
+    return Promise.resolve(sha256Fallback(bytes)); // fallback khi crypto.subtle không khả dụng (ngữ cảnh không bảo mật)
+  }
+  function bitDiff(h1, h2) {
+    var n = 0;
+    for (var i = 0; i < h1.length; i++) {
+      var v = parseInt(h1[i], 16) ^ parseInt(h2[i], 16);
+      while (v) { n += v & 1; v >>= 1; }
+    }
+    return n;
+  }
+  function highlightDiff(h1, h2) {
+    var s = "";
+    for (var i = 0; i < h2.length; i++) {
+      s += h1[i] === h2[i] ? h2[i] : '<b style="color:var(--danger)">' + h2[i] + "</b>";
+    }
+    return s;
+  }
+  function runHash() {
+    var a = $("hashA").value, b = $("hashB").value;
+    Promise.all([sha256Hex(a), sha256Hex(b)]).then(function (r) {
+      var ha = r[0], hb = r[1];
+      var same = 0;
+      for (var i = 0; i < 64; i++) if (ha[i] === hb[i]) same++;
+      var api = (window.crypto && window.crypto.subtle) ? "crypto.subtle" : "JS fallback";
+      $("hashOut").innerHTML =
+        "SHA-256(A) = " + ha + "\n" +
+        "SHA-256(B) = " + highlightDiff(ha, hb) + "\n\n" +
+        '<span style="font-family:var(--font)">' +
+        (a === b ? "A và B giống nhau → digest giống hệt nhau (hash là tất định)." :
+          "Khác <b>" + bitDiff(ha, hb) + "/256 bit</b> (lý tưởng ≈ 128 = một nửa). Chỉ " + same + "/64 ký tự hex trùng vị trí — không đoán được A từ B hay ngược lại.") +
+        "\nĐộ dài digest luôn là 64 ký tự hex (256 bit), dù input dài hay ngắn. (Tính bằng " + api + ")</span>";
+    });
+  }
+  if ($("hashRun")) {
+    $("hashRun").addEventListener("click", runHash);
+    $("hashSalt").addEventListener("click", function () {
+      var arr = new Uint8Array(8);
+      if (window.crypto && window.crypto.getRandomValues) window.crypto.getRandomValues(arr);
+      else for (var i = 0; i < 8; i++) arr[i] = Math.floor(Math.random() * 256);
+      var salt = Array.prototype.map.call(arr, function (x) { return ("0" + x.toString(16)).slice(-2); }).join("");
+      var base = $("hashA").value.replace(/^[0-9a-f]{16}\$/, "");
+      $("hashA").value = salt + "$" + base;
+      $("hashB").value = base;
+      runHash();
+      setTimeout(function () {
+        $("hashOut").insertAdjacentHTML("beforeend", '<span style="font-family:var(--font)">\n\n🧂 A giờ là <b>salt + "$" + mật khẩu</b>. Cùng mật khẩu nhưng salt khác → hash khác, nên bảng hash tính sẵn vô dụng. Nhưng việc tính vẫn tức thì → kẻ tấn công vẫn thử nhanh từng mật khẩu với salt đã biết. Vì vậy cần thuật toán <b>chậm</b> (Argon2id/scrypt/PBKDF2).</span>');
+      }, 50);
+    });
+  }
+
+  // ---------------- Base64 / Basic ----------------
+  if ($("b64Decode")) {
+    $("b64Decode").addEventListener("click", function () {
+      var v = $("b64In").value.trim().replace(/^Authorization:\s*/i, "").replace(/^Basic\s+/i, "").trim();
+      try {
+        var txt = utf8Decode(b64ToBytes(v));
+        var idx = txt.indexOf(":");
+        var html = "Base64 : " + esc(v) + "\nDecode : " + esc(txt) + "\n\n";
+        if (idx >= 0) {
+          html += "username = " + esc(txt.slice(0, idx)) + "\npassword = <b style=\"color:var(--danger)\">" + esc(txt.slice(idx + 1)) + "</b>\n\n";
+        }
+        html += '<span style="font-family:var(--font)">⚠️ Không cần key, không cần mật khẩu nào để decode — Base64 chỉ là <b>encoding</b>. Bảo vệ thật sự phải đến từ <b>TLS</b>.</span>';
+        $("b64Out").innerHTML = html;
+      } catch (e) {
+        $("b64Out").textContent = "Không phải chuỗi Base64 hợp lệ: " + e.message;
+      }
+    });
+    $("b64Encode").addEventListener("click", function () {
+      var raw = $("b64User").value + ":" + $("b64Pass").value;
+      var enc = bytesToB64(utf8Encode(raw));
+      $("b64In").value = "Authorization: Basic " + enc;
+      $("b64Out").innerHTML = "Chuỗi gốc : " + esc(raw) + "\nHeader    : Authorization: Basic " + esc(enc) +
+        '\n\n<span style="font-family:var(--font)">Bấm “Decode” để thấy nó đảo ngược dễ thế nào.</span>';
+    });
+  }
+})();
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

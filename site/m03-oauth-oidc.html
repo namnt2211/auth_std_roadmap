@@ -1,0 +1,1467 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M03 · OAuth 2.0, OAuth 2.1 &amp; OIDC</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<main class="content">
+
+<div class="page-head">
+  <div class="breadcrumb"><a href="index.html">Lộ trình</a> / Module 03</div>
+  <h1>Module 03 — OAuth 2.0, OAuth 2.1 &amp; OpenID Connect</h1>
+  <p class="lead">Module <b>trọng tâm</b> của lộ trình. Bạn sẽ hiểu OAuth giải quyết bài toán <b>ủy quyền</b> (delegated authorization) thế nào, các flow quan trọng (Authorization Code + PKCE, Client Credentials, Device), vì sao ROPC/Implicit bị loại bỏ, và cách <b>OpenID Connect</b> bổ sung lớp <b>danh tính</b> bằng ID token.</p>
+  <div class="meta-row">
+    <span class="chip">⏱ Full 3 giờ · Core 2.5 giờ</span>
+    <span class="chip">📥 Input: <a href="m01-fundamentals.html">M01</a>, <a href="m02-crypto-session-token.html">M02</a></span>
+    <span class="chip">🧪 Thực hành: <a href="lab.html">Lab 1–3</a></span>
+    <span class="chip">➡️ Tiếp theo: <a href="lab.html">Lab</a></span>
+  </div>
+</div>
+
+<div class="keypoints"><div class="kp-title">Sau bài này bạn sẽ</div><ul>
+<li>Giải thích được vì sao <b>OAuth</b> (Open Authorization) ra đời: để app khác truy cập dữ liệu của bạn <b>mà không cần mật khẩu của bạn</b>.</li>
+<li>Kể tên 4 vai trò: Resource Owner, Client, Authorization Server, Resource Server — và chỉ ra chúng trong một hệ thống thật.</li>
+<li>Vẽ được <b>Authorization Code + PKCE</b> (cho người dùng) và <b>Client Credentials</b> (cho service), đọc hiểu từng HTTP request.</li>
+<li>Biết <code>state</code>, <code>nonce</code>, PKCE, redirect URI validation mỗi cái chặn tấn công nào.</li>
+<li>Hiểu <b>OIDC</b> (OpenID Connect) thêm <b>ID token</b> để biết “ai đang đăng nhập”, và phân biệt ID token với access token.</li>
+<li>Lưu người dùng bằng <code>iss</code> + <code>sub</code>, không phải email; liên kết tài khoản social login an toàn.</li>
+</ul></div>
+
+<div class="callout info"><span class="callout-title">🎯 Mục tiêu module</span>
+Phân biệt chắc chắn <b>authorization</b> (OAuth) và <b>authentication</b> (OIDC); vẽ và giải thích được <b>Authorization Code + PKCE</b> và <b>Client Credentials</b>; biết mỗi cơ chế <code>state</code> / <code>nonce</code> / PKCE / redirect URI validation chống tấn công nào; mô tả được cách client xác minh <b>ID token</b> và API xác minh <b>access token</b> mà không nhầm vai trò từng token; định danh người dùng bằng <b><code>iss</code> + <code>sub</code></b>.</div>
+
+<div class="callout tip"><span class="callout-title">🧭 Học theo Core (2.5 giờ)?</span>
+Học kỹ các mục <span class="badge must">Must</span>. Mục <span class="badge should">Should</span> (OAuth 2.1, Device flow, Discovery/JWKS, logout, social login &amp; account linking) đọc lướt để biết khái niệm. Mục <span class="badge nice">Nice</span> (ROPC/Implicit, multi-tenant, On-Behalf-Of) chỉ cần biết tên, use case và “vì sao không dùng / không phải là gì”.</div>
+
+<h2 id="input">Input trước module</h2>
+<ul>
+<li>Hoàn thành <a href="m01-fundamentals.html">Module 01</a> (vai trò IdP, RP, Client, AS, RS) và <a href="m02-crypto-session-token.html">Module 02</a> (<a href="m02-crypto-session-token.html#tokens">token</a>, <a href="m02-crypto-session-token.html#jwt">JWT</a>, <a href="m02-crypto-session-token.html#jwt-validation">JWT validation</a>).</li>
+<li>Hiểu HTTP redirect (<code>302</code> + header <code>Location</code>), query string, POST body dạng <code>application/x-www-form-urlencoded</code>, header <code>Authorization</code>.</li>
+<li>Biết JWT gồm header.payload.signature và cách kiểm tra chữ ký/claims ở mức khái niệm.</li>
+</ul>
+
+<div class="callout example"><span class="callout-title">💡 Ví dụ xuyên suốt module</span>
+<ul>
+<li><b>Bài toán mở đầu:</b> app in ảnh <b>PrintNow</b> muốn đọc album ảnh của An trên dịch vụ lưu ảnh <b>PhotoCloud</b> (tên hư cấu, minh họa cho kiểu “app in ảnh đọc Google Photos”).</li>
+<li><b>Hệ thống thực hành</b> (khớp với <a href="lab.html#lab1">Lab 1</a>): Keycloak chạy ở <code>http://localhost:8080</code>, realm <code>demo</code>; public client <code>demo-client</code> (desktop/WPF, loopback redirect <code>http://127.0.0.1:7890/</code>); API <code>demo-api</code> với scope <code>orders.read</code>; confidential client <code>worker</code> (service-to-service).</li>
+</ul></div>
+
+<!-- ===================================================== -->
+<h2 id="oauth-van-de">3.2 A. OAuth giải quyết vấn đề gì? <span class="badge must">Must</span></h2>
+
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>Bạn gửi xe ở khách sạn. Thay vì đưa cả chùm chìa khóa nhà + xe cho nhân viên, bạn đưa một <b>chìa khóa phụ chỉ nổ máy được</b>, không mở được cốp. OAuth chính là cách cấp “chìa khóa phụ” (access token) cho một app, thay vì đưa mật khẩu thật. <i>Giới hạn của phép so sánh:</i> chìa khóa OAuth còn tự <b>hết hạn</b> và có thể bị <b>thu hồi từ xa</b>.</div>
+
+<h3 id="password-anti-pattern">Password anti-pattern: “đưa mật khẩu cho app khác”</h3>
+<p>Trước OAuth, nếu PrintNow muốn đọc ảnh của An trên PhotoCloud, cách “dễ” nhất là hỏi thẳng: <i>“Nhập username/password PhotoCloud của bạn vào đây”</i>. PrintNow lưu mật khẩu đó và đăng nhập PhotoCloud thay An. Cách này gọi là <b>password anti-pattern</b> và có hàng loạt vấn đề:</p>
+<div class="grid cols-2">
+  <div class="card bad"><span class="icon">🔓</span><h4>Quyền vô hạn</h4><p>Có mật khẩu là làm được <b>mọi thứ</b>: xóa ảnh, đổi mật khẩu, đọc email… trong khi PrintNow chỉ cần “đọc album”.</p></div>
+  <div class="card bad"><span class="icon">⏳</span><h4>Không thu hồi riêng lẻ</h4><p>Muốn chặn PrintNow, An phải <b>đổi mật khẩu</b> — và mọi app khác dùng mật khẩu đó cũng hỏng theo.</p></div>
+  <div class="card bad"><span class="icon">💥</span><h4>Bề mặt tấn công lớn</h4><p>PrintNow bị hack → lộ mật khẩu gốc của An (và người dùng hay dùng lại mật khẩu ở nơi khác).</p></div>
+  <div class="card bad"><span class="icon">📵</span><h4>Phá vỡ MFA / SSO</h4><p>PhotoCloud bật MFA, passkey hay SSO doanh nghiệp thì app trung gian không thể “gõ hộ” được nữa; người dùng cũng được “dạy” nhập mật khẩu vào trang lạ (phishing).</p></div>
+</div>
+
+<p><b>OAuth 2.0</b> (RFC 6749) giải quyết bằng cách tách hai việc: người dùng <b>đăng nhập và đồng ý (consent)</b> trực tiếp tại máy chủ của PhotoCloud, rồi PhotoCloud cấp cho PrintNow một <b>access token</b> — “chìa khóa phụ” chỉ mở được đúng phần được phép (<code>scope</code>), có <b>thời hạn</b>, và <b>thu hồi được</b> riêng lẻ. PrintNow <b>không bao giờ thấy mật khẩu</b>.</p>
+
+<div class="diagram">
+<pre class="mermaid">
+flowchart LR
+  subgraph Bad["❌ Password anti-pattern"]
+    direction TB
+    U1(("👤 An")) -- "mật khẩu PhotoCloud" --> P1["PrintNow<br/>(lưu mật khẩu)"]
+    P1 -- "đăng nhập bằng mật khẩu của An<br/>= toàn quyền" --> R1["PhotoCloud"]
+  end
+  subgraph Good["✅ OAuth 2.0"]
+    direction TB
+    U2(("👤 An")) -- "đăng nhập + đồng ý<br/>tại PhotoCloud" --> AS2["Authorization Server<br/>của PhotoCloud"]
+    AS2 -- "access token<br/>scope = photos.read" --> P2["PrintNow"]
+    P2 -- "Bearer token<br/>chỉ đọc ảnh" --> R2["PhotoCloud API"]
+  end
+</pre>
+<div class="caption">OAuth thay “đưa mật khẩu” bằng “cấp token có phạm vi, có hạn, thu hồi được”.</div>
+</div>
+
+<h3 id="authz-vs-authn">Authorization framework, không phải giao thức đăng nhập</h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>Thẻ ra vào tòa nhà (access token) cho biết “người cầm thẻ được vào tầng 5”, nhưng <b>không</b> cho lễ tân biết người cầm thẻ là ai — thẻ có thể được nhặt, được cho mượn. Muốn biết “ai đang đứng trước mặt” thì cần xem <b>CCCD</b> — đó là vai trò của ID token trong OIDC.</div>
+<p>OAuth 2.0 tự định nghĩa mình là <b>authorization framework</b> (khung ủy quyền): nó trả lời câu hỏi <i>“client X có được phép truy cập tài nguyên Y thay mặt người dùng không?”</i>. Access token là thông điệp gửi cho <b>API</b>, không phải cho client. Client thậm chí <b>không cần hiểu</b> nội dung access token (với client, token có thể “mờ” — opaque).</p>
+<div class="callout warn"><span class="callout-title">⚠️ Vì sao “đăng nhập bằng OAuth thuần” là sai</span>
+Nếu client coi “có access token” = “người dùng đã đăng nhập”, nó gặp các lỗ hổng kinh điển: token có thể được cấp cho <b>app khác</b> rồi bị đem sang (token substitution — client không kiểm tra được token dành cho ai), không có cách chuẩn biết <b>ai</b> đăng nhập, <b>khi nào</b>, bằng <b>phương thức gì</b>. Mỗi nhà cung cấp từng tự chế endpoint “/me” khác nhau. <b>OpenID Connect</b> ra đời để chuẩn hóa phần này bằng <b>ID token</b> có <code>aud</code> = client_id của bạn (xem <a href="#oidc">mục OIDC</a>).</div>
+
+<div class="grid cols-2">
+  <div class="card acc"><span class="icon">🎟️</span><h4>Delegated authorization (OAuth)</h4><p>“PrintNow được <b>đọc ảnh</b> của An trong 1 giờ.” Kết quả: <b>access token</b> cho API.</p></div>
+  <div class="card acc"><span class="icon">🪪</span><h4>Authentication (OIDC)</h4><p>“Người đang dùng app <b>là An</b> (<code>sub</code> = …), đăng nhập lúc 09:20 bằng passkey, tại OP X.” Kết quả: <b>ID token</b> cho client.</p></div>
+</div>
+
+<!-- ===================================================== -->
+<h2 id="oauth-roles">3.2 B. Các role trong OAuth <span class="badge must">Must</span></h2>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>Bạn (<b>Resource Owner</b> — chủ tài nguyên) nhờ dịch vụ in ảnh (<b>Client</b>) lấy ảnh từ kho (<b>Resource Server</b> — máy chủ tài nguyên). Bảo vệ kho không tin lời dịch vụ in ảnh; họ chỉ tin <b>giấy ủy quyền</b> do <b>phòng cấp phép</b> (<b>Authorization Server</b> — máy chủ cấp quyền) phát hành sau khi chính bạn đến ký xác nhận.</div>
+<div class="table-wrap"><table>
+<thead><tr><th>Role</th><th>Ý nghĩa</th><th>Ví dụ PrintNow</th><th>Ví dụ Lab (Keycloak)</th></tr></thead>
+<tbody>
+<tr><td><b>Resource Owner</b></td><td>Thực thể có quyền cấp quyền truy cập tài nguyên; thường là người dùng cuối.</td><td>An (chủ album ảnh)</td><td>User test trong realm <code>demo</code></td></tr>
+<tr><td><b>Client</b></td><td>Ứng dụng yêu cầu quyền truy cập <i>thay mặt</i> resource owner (hoặc thay mặt chính nó).</td><td>PrintNow (web app có backend)</td><td><code>demo-client</code> (WPF), <code>worker</code> (service)</td></tr>
+<tr><td><b>Authorization Server (AS)</b></td><td>Xác thực người dùng, hỏi consent theo cấu hình, <b>phát hành token</b>.</td><td>Máy chủ OAuth của PhotoCloud</td><td>Keycloak realm <code>demo</code></td></tr>
+<tr><td><b>Resource Server (RS)</b></td><td>API bảo vệ tài nguyên, <b>kiểm tra access token</b> mỗi request.</td><td>PhotoCloud Photos API</td><td>ASP.NET Core <code>demo-api</code> (<a href="lab.html#lab2">Lab 2</a>)</td></tr>
+</tbody></table></div>
+<p>Lưu ý <b>user-agent</b> (trình duyệt) không phải một role nhưng là “đường ống” mang các redirect giữa client và AS — và là nơi nhiều tấn công xảy ra.</p>
+
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant RO as 👤 Resource Owner (An)
+  participant C as Client (PrintNow)
+  participant AZ as Authorization Server
+  participant RS as Resource Server (API)
+  C->>RO: Xin phép truy cập (qua redirect tới AS)
+  RO->>AZ: Đăng nhập + đồng ý cấp quyền
+  AZ-->>C: Authorization grant (vd. authorization code)
+  C->>AZ: Đổi grant lấy token
+  AZ-->>C: Access token (+ refresh token)
+  C->>RS: Gọi API kèm access token
+  RS-->>C: Tài nguyên được bảo vệ
+</pre>
+<div class="caption">“Abstract protocol flow” của OAuth 2.0: các flow cụ thể khác nhau ở cách lấy <i>grant</i> (bước 1–3).</div>
+</div>
+
+<!-- ===================================================== -->
+<h2 id="thuat-ngu">3.2 C. Thuật ngữ, loại client và endpoint <span class="badge must">Must</span></h2>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span><b>Access token</b> ≈ thẻ ra vào tòa nhà có hạn dùng (vài phút đến 1 giờ). <b>Scope</b> ≈ danh sách tầng thẻ được mở. <b>Refresh token</b> ≈ giấy hẹn để đổi thẻ mới khi thẻ cũ hết hạn, chỉ đưa cho phòng cấp thẻ chứ không quẹt ở cửa. <b>client_id</b> ≈ tên công ty in trên đơn xin (công khai), <b>client_secret</b> ≈ con dấu của công ty (bí mật).</div>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Tham số / thuật ngữ</th><th>Ý nghĩa</th><th>Ví dụ</th></tr></thead>
+<tbody>
+<tr><td><code>client_id</code></td><td>Định danh công khai của client tại AS. <b>Không phải bí mật.</b></td><td><code>demo-client</code></td></tr>
+<tr><td><code>client_secret</code></td><td>Bí mật dùng để <b>xác thực client</b> với token endpoint. Chỉ <b>confidential client</b> mới giữ được.</td><td>Chuỗi ngẫu nhiên do Keycloak sinh cho <code>worker</code></td></tr>
+<tr><td><code>redirect_uri</code></td><td>Địa chỉ của client nhận <b>authorization response</b> (code, state…). Phải đăng ký trước và so khớp chính xác.</td><td><code>http://127.0.0.1:7890/</code></td></tr>
+<tr><td><code>scope</code></td><td>Phạm vi quyền client yêu cầu, cách nhau bởi dấu cách. AS có thể cấp ít hơn yêu cầu.</td><td><code>openid profile orders.read</code></td></tr>
+<tr><td><code>state</code></td><td>Giá trị ngẫu nhiên client tạo, gửi trong request và nhận lại nguyên vẹn trong response → <b>correlation</b> và <b>chống CSRF</b> ở redirect URI.</td><td><code>af0ifjsldkj</code></td></tr>
+<tr><td><code>nonce</code></td><td>(OIDC) Giá trị ngẫu nhiên gửi trong authentication request; OP chép vào <b>ID token</b> → liên kết ID token với đúng request, <b>chống replay</b>.</td><td><code>n-0S6_WzA2Mj</code></td></tr>
+<tr><td><code>response_type</code></td><td>Authorization endpoint trả về gì. Hiện đại: <code>code</code>. (Cũ: <code>token</code> = Implicit, <code>id_token</code>…)</td><td><code>code</code></td></tr>
+<tr><td><code>response_mode</code></td><td>Response được trả <b>bằng cách nào</b>: <code>query</code> (mặc định với code), <code>fragment</code>, <code>form_post</code> (POST form tự submit — tránh để tham số trên URL).</td><td><code>form_post</code></td></tr>
+<tr><td><code>grant_type</code></td><td>Loại grant khi gọi <b>token endpoint</b>.</td><td><code>authorization_code</code>, <code>refresh_token</code>, <code>client_credentials</code>, <code>urn:ietf:params:oauth:grant-type:device_code</code></td></tr>
+<tr><td><b>Authorization code</b></td><td>Mã dùng một lần, sống ngắn (RFC 6749 khuyến nghị tối đa 10 phút), client đổi lấy token qua kênh back-channel.</td><td><code>SplxlOBeZQQYbYS6WxSbIA</code></td></tr>
+<tr><td><b>Access token</b></td><td>Credential để gọi API; thường sống ngắn (vài phút–1 giờ). JWT hoặc opaque (<a href="m02-crypto-session-token.html#tokens">M02</a>).</td><td><code>eyJhbGciOi…</code></td></tr>
+<tr><td><b>Refresh token</b></td><td>Credential để xin access token mới mà không bắt người dùng đăng nhập lại; chỉ gửi tới AS, <b>không</b> gửi tới API.</td><td><code>grant_type=refresh_token</code></td></tr>
+</tbody></table></div>
+
+<h3 id="client-types">Public client vs Confidential client</h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span><b>Confidential client</b> (client giữ được bí mật) giống quầy giao dịch ngân hàng: chìa khóa két nằm sau quầy, khách không với tới. <b>Public client</b> (client công khai) giống tờ rơi phát cho mọi người: thứ gì in trên đó — kể cả “mật khẩu” — ai cầm tờ rơi cũng đọc được.</div>
+<div class="grid cols-2">
+  <div class="card acc"><span class="icon">🏢</span><h4>Confidential client</h4><p>Chạy trên <b>server bạn kiểm soát</b> → giữ được bí mật: <code>client_secret</code>, <code>private_key_jwt</code>, mTLS certificate.</p><p>Ví dụ: ASP.NET Core MVC/Razor Pages, BFF (<a href="m07-architecture.html#bff">M07</a>), worker/daemon trên server.</p></div>
+  <div class="card bad"><span class="icon">📱</span><h4>Public client</h4><p>Code chạy trên <b>thiết bị người dùng</b> → ai cũng có thể giải nén/decompile/xem DevTools → <b>không giữ được bí mật</b>.</p><p>Ví dụ: SPA trong browser (<a href="m07-architecture.html#spa">M07</a>), WPF/WinForms/console (<a href="m07-architecture.html#desktop">M07</a>), mobile app, CLI.</p></div>
+</div>
+<div class="callout danger"><span class="callout-title">🚫 “Secret” nhúng trong app desktop/SPA không còn là secret</span>
+Một <code>client_secret</code> nằm trong file .exe/.dll (dù đã obfuscate) hay trong bundle JavaScript thì mọi người dùng đều có — kẻ tấn công trích xuất bằng ILSpy/dnSpy hoặc DevTools trong vài phút. Với public client, AS <b>không thể xác thực client</b>; thứ bảo vệ authorization code là <b>PKCE</b> + redirect URI chính xác.</div>
+
+<h3 id="endpoints">Các endpoint chính</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>Endpoint</th><th>Ai gọi, qua kênh nào</th><th>Dùng để</th><th>Keycloak (realm <code>demo</code>)</th></tr></thead>
+<tbody>
+<tr><td><b>Authorization endpoint</b></td><td>Browser (front-channel, redirect GET)</td><td>Người dùng đăng nhập/consent, AS trả <code>code</code></td><td><code>/realms/demo/protocol/openid-connect/auth</code></td></tr>
+<tr><td><b>Token endpoint</b></td><td>Client gọi trực tiếp (back-channel, POST form)</td><td>Đổi code / refresh token / client credentials lấy token</td><td><code>…/protocol/openid-connect/token</code></td></tr>
+<tr><td>Redirection endpoint</td><td>Thuộc <b>client</b></td><td>Nhận authorization response</td><td><code>http://127.0.0.1:7890/</code></td></tr>
+<tr><td>Device authorization endpoint</td><td>Thiết bị gọi trực tiếp</td><td>Bắt đầu Device flow</td><td><code>…/protocol/openid-connect/auth/device</code></td></tr>
+<tr><td>Introspection / Revocation</td><td>RS / client gọi trực tiếp</td><td>Hỏi token còn hiệu lực / thu hồi token (<a href="m02-crypto-session-token.html#introspection-revocation">M02</a>)</td><td><code>…/token/introspect</code>, <code>…/revoke</code></td></tr>
+<tr><td>UserInfo, JWKS, Discovery, End session</td><td colspan="2">Thuộc OIDC — xem <a href="#oidc">phần OIDC</a></td><td><code>…/userinfo</code>, <code>…/certs</code>, <code>/realms/demo/.well-known/openid-configuration</code>, <code>…/logout</code></td></tr>
+</tbody></table></div>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span><b>Front-channel</b> giống nhắn lời qua người đưa thư (trình duyệt) — có thể bị nhìn trộm. <b>Back-channel</b> giống gọi điện thẳng cho nhau qua đường dây riêng (TLS) — chỉ hai bên nghe.</div>
+<div class="callout info"><span class="callout-title">ℹ️ Front-channel vs back-channel</span>
+<b>Front-channel</b> = thông điệp đi qua trình duyệt (URL, redirect) → có thể bị xem trong history, log, extension, Referer. <b>Back-channel</b> = client nói chuyện trực tiếp với AS qua TLS → an toàn hơn. Thiết kế hiện đại: front-channel chỉ mang <b>code</b> ngắn hạn, dùng-một-lần; <b>token</b> chỉ đi qua back-channel.</div>
+
+<!-- ===================================================== -->
+<h2 id="flows">3.2 D. Các flow / grant quan trọng</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>Flow</th><th>Có người dùng?</th><th>Client điển hình</th><th>Trạng thái</th><th>Nhãn</th></tr></thead>
+<tbody>
+<tr><td>Authorization Code + PKCE</td><td>Có</td><td>Mọi loại: web server, SPA, desktop, mobile</td><td>✅ Mặc định cho mọi thiết kế mới</td><td><span class="badge must">Must</span></td></tr>
+<tr><td>Client Credentials</td><td>Không</td><td>Service, daemon, job</td><td>✅ Machine-to-machine</td><td><span class="badge must">Must</span></td></tr>
+<tr><td>Device Authorization Grant</td><td>Có (trên thiết bị khác)</td><td>TV, CLI, IoT</td><td>✅ Use case riêng</td><td><span class="badge should">Should</span></td></tr>
+<tr><td>Refresh Token</td><td>Không tương tác</td><td>Client đã có refresh token</td><td>✅ Gia hạn phiên</td><td>—</td></tr>
+<tr><td>Implicit</td><td>Có</td><td>SPA đời cũ</td><td>❌ Không dùng</td><td><span class="badge nice">Nice</span></td></tr>
+<tr><td>Resource Owner Password Credentials</td><td>Có (nhập mật khẩu vào client)</td><td>App “first-party” đời cũ</td><td>❌ Không dùng</td><td><span class="badge nice">Nice</span></td></tr>
+</tbody></table></div>
+
+<div class="diagram">
+<pre class="mermaid">
+flowchart TD
+  S["Cần access token"] --> Q1{"Có người dùng<br/>tham gia không?"}
+  Q1 -- "Không: service gọi API" --> CC["Client Credentials"]
+  Q1 -- "Có" --> Q2{"Thiết bị có<br/>trình duyệt tốt không?"}
+  Q2 -- "Không: TV, CLI, IoT" --> DF["Device Authorization Grant"]
+  Q2 -- "Có" --> AC["Authorization Code + PKCE<br/>(web, SPA, desktop, mobile)"]
+  AC --> Q3{"Client có backend<br/>giữ được secret?"}
+  Q3 -- "Có" --> CONF["Confidential client:<br/>PKCE + client authentication"]
+  Q3 -- "Không" --> PUB["Public client:<br/>PKCE, không secret"]
+</pre>
+<div class="caption">Cây quyết định chọn grant. ROPC/Implicit không nằm trên bất kỳ nhánh nào của thiết kế mới.</div>
+</div>
+
+<!-- ======== Authorization Code ======== -->
+<h3 id="auth-code">1. Authorization Code Flow <span class="badge must">Must</span></h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>Giống gửi đồ ở siêu thị: quầy đưa bạn một <b>phiếu số</b> (authorization code). Phiếu tự nó không phải đồ; nhân viên cửa hàng (backend) phải mang phiếu ra <b>quầy riêng phía sau</b> (token endpoint) và trình thẻ nhân viên (client_secret) mới nhận được đồ (token). Phiếu chỉ dùng một lần và hết hạn nhanh.</div>
+<p>Flow nền tảng. Ý tưởng: trình duyệt chỉ mang về một <b>authorization code</b> (ngắn hạn, dùng một lần); client đổi code lấy token qua <b>back-channel</b> (và với confidential client thì kèm xác thực client). Ví dụ dưới là PrintNow — confidential web app có backend.</p>
+
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant U as 👤 An
+  participant B as Browser
+  participant C as PrintNow (backend)
+  participant AZ as PhotoCloud AS
+  participant RS as PhotoCloud API
+  U->>B: Bấm Kết nối PhotoCloud
+  B->>C: GET /connect/photocloud
+  C->>C: Sinh state, lưu vào session
+  C-->>B: 302 tới authorization endpoint (client_id, redirect_uri, scope, state)
+  B->>AZ: GET /authorize?response_type=code&amp;...
+  AZ->>U: Trang đăng nhập + màn hình consent
+  U->>AZ: Đăng nhập, đồng ý cho đọc ảnh
+  AZ-->>B: 302 tới redirect_uri?code=...&amp;state=...
+  B->>C: GET /callback?code=...&amp;state=...
+  C->>C: So state với session
+  C->>AZ: POST /token (code, redirect_uri, client_id + client_secret)
+  AZ-->>C: access_token, refresh_token
+  C->>RS: GET /photos (Authorization Bearer access_token)
+  RS-->>C: Danh sách ảnh
+</pre>
+<div class="caption">Authorization Code Flow (RFC 6749 §4.1). Token không bao giờ đi qua trình duyệt.</div>
+</div>
+
+<p><b>Bước 4–5: Authorization request</b> (browser bị redirect tới AS; xuống dòng chỉ để dễ đọc):</p>
+<pre data-title="Authorization request"><code class="language-plaintext">GET https://auth.photocloud.example/authorize
+    ?response_type=code
+    &amp;client_id=printnow-web
+    &amp;redirect_uri=https%3A%2F%2Fprintnow.example%2Fcallback
+    &amp;scope=photos.read
+    &amp;state=xyzABC123</code></pre>
+
+<p><b>Bước 8: Authorization response</b> — AS redirect về client:</p>
+<pre data-title="Callback"><code class="language-plaintext">HTTP/1.1 302 Found
+Location: https://printnow.example/callback?code=SplxlOBeZQQYbYS6WxSbIA&amp;state=xyzABC123</code></pre>
+
+<p><b>Bước 11: Token request</b> — backend gọi thẳng token endpoint, xác thực client bằng HTTP Basic (<code>client_id:client_secret</code> base64):</p>
+<pre data-title="Token request"><code class="language-plaintext">POST /token HTTP/1.1
+Host: auth.photocloud.example
+Authorization: Basic cHJpbnRub3ctd2ViOnMzY3IzdA==
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=authorization_code&amp;code=SplxlOBeZQQYbYS6WxSbIA&amp;redirect_uri=https%3A%2F%2Fprintnow.example%2Fcallback</code></pre>
+
+<p><b>Bước 12: Token response</b>:</p>
+<pre data-title="Token response"><code class="language-json">HTTP/1.1 200 OK
+Content-Type: application/json
+Cache-Control: no-store
+
+{
+  "access_token": "2YotnFZFEjr1zCsicMWpAA",
+  "token_type": "Bearer",
+  "expires_in": 3600,
+  "refresh_token": "tGzv3JOkF0XG5Qx2TlKWIA",
+  "scope": "photos.read"
+}</code></pre>
+<p><b>Bước 13: Gọi API</b>: <code>GET /photos</code> với header <code>Authorization: Bearer 2YotnFZFEjr1zCsicMWpAA</code> (RFC 6750).</p>
+
+<div class="callout warn"><span class="callout-title">⚠️ Authorization Code “trần” (không PKCE) ngày nay chưa đủ</span>
+Nếu code bị lộ (log, Referer, app độc chiếm custom URI scheme) thì với <b>public client</b> kẻ tấn công đổi code lấy token ngay vì không cần secret; với confidential client vẫn còn nguy cơ <b>code injection</b>. Vì vậy RFC 9700 yêu cầu public client <b>phải</b> dùng PKCE và khuyến nghị cả confidential client cũng dùng; OAuth 2.1 đưa PKCE vào mặc định. → Phần tiếp theo.</div>
+
+<!-- ======== Authorization Code + PKCE ======== -->
+<h3 id="auth-code-pkce">2. Authorization Code + PKCE <span class="badge must">Must</span></h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>Như <b>xé đôi tấm vé</b>: lúc xin code, app gửi trước cho AS “dấu vân” của nửa vé (code_challenge); nửa vé thật (code_verifier) app giữ trong túi. Lúc đổi code, ai trình được nửa vé khớp dấu vân mới nhận token. Kẻ nhặt được phiếu code nhưng không có nửa vé thì bị từ chối. <i>Giới hạn:</i> “dấu vân” là bản băm SHA-256 — không thể từ nó dựng lại nửa vé.</div>
+<p><b>PKCE</b> (Proof Key for Code Exchange — “bằng chứng khóa khi đổi code”, RFC 7636, đọc là “pixy”) thêm một <b>bí mật dùng-một-lần do chính client instance tạo ra</b> cho mỗi lần đăng nhập. Client gửi <i>bản băm</i> của bí mật lúc xin code, và phải trình <i>bí mật gốc</i> lúc đổi code. Ai trộm được code nhưng không có bí mật gốc thì đổi code thất bại.</p>
+
+<div class="flow">
+  <div class="step"><b>1. Tạo verifier</b>Chuỗi ngẫu nhiên 43–128 ký tự</div><span class="arrow">→</span>
+  <div class="step"><b>2. Tạo challenge</b>BASE64URL(SHA256(verifier))</div><span class="arrow">→</span>
+  <div class="step"><b>3. Authorization request</b>gửi <code>code_challenge</code> + <code>S256</code></div><span class="arrow">→</span>
+  <div class="step"><b>4. Token request</b>gửi <code>code_verifier</code></div><span class="arrow">→</span>
+  <div class="step"><b>5. AS kiểm tra</b>băm verifier = challenge đã lưu?</div>
+</div>
+
+<p>Sơ đồ đầy đủ với <b>Client, Browser, Authorization Server và Resource Server</b> (đây là <b>Deliverable 1</b>) cho app WPF <code>demo-client</code> dùng system browser + loopback redirect:</p>
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant U as 👤 An
+  participant C as Client WPF (demo-client)
+  participant B as System Browser
+  participant AZ as Authorization Server (Keycloak)
+  participant RS as Resource Server (demo-api)
+  U->>C: Bấm Đăng nhập
+  C->>C: Sinh code_verifier, state, nonce
+  C->>C: code_challenge = BASE64URL(SHA256(code_verifier))
+  C->>C: Mở listener http://127.0.0.1:7890/
+  C->>B: Mở URL authorization (code_challenge, method S256, state, nonce)
+  B->>AZ: GET /auth?response_type=code&amp;client_id=demo-client&amp;...
+  AZ->>AZ: Lưu code_challenge gắn với phiên authorization
+  AZ->>U: Trang đăng nhập (+ MFA, consent)
+  U->>AZ: Nhập credential
+  AZ-->>B: 302 http://127.0.0.1:7890/?code=...&amp;state=...
+  B->>C: Listener nhận code + state
+  C->>C: Kiểm tra state khớp
+  C->>AZ: POST /token (code, redirect_uri, client_id, code_verifier)
+  AZ->>AZ: SHA256(code_verifier) khớp code_challenge? Code chưa dùng?
+  AZ-->>C: access_token, id_token, refresh_token
+  C->>C: Validate ID token (nếu dùng OIDC)
+  C->>RS: GET /orders (Bearer access_token)
+  RS->>RS: Kiểm tra chữ ký, iss, aud=demo-api, exp, scope
+  RS-->>C: 200 OK dữ liệu
+</pre>
+<div class="caption">Authorization Code + PKCE cho public client (desktop). Không có client_secret. Đây cũng là nội dung <a href="lab.html#lab3">Lab 3</a>.</div>
+</div>
+
+<p><b>Authorization request thật</b> (gửi tới Keycloak, có cả tham số OIDC <code>nonce</code> vì scope có <code>openid</code>):</p>
+<pre data-title="Authorization request + PKCE"><code class="language-plaintext">GET http://localhost:8080/realms/demo/protocol/openid-connect/auth
+    ?response_type=code
+    &amp;client_id=demo-client
+    &amp;redirect_uri=http%3A%2F%2F127.0.0.1%3A7890%2F
+    &amp;scope=openid%20profile%20email%20orders.read
+    &amp;state=af0ifjsldkj
+    &amp;nonce=n-0S6_WzA2Mj
+    &amp;code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM
+    &amp;code_challenge_method=S256</code></pre>
+
+<p><b>Callback</b> (AS → browser → listener loopback của app). Một số AS (gồm Keycloak bản mới) gửi thêm <code>iss</code> theo RFC 9207 để chống mix-up attack:</p>
+<pre data-title="Authorization response"><code class="language-plaintext">HTTP/1.1 302 Found
+Location: http://127.0.0.1:7890/?state=af0ifjsldkj&amp;iss=http%3A%2F%2Flocalhost%3A8080%2Frealms%2Fdemo&amp;code=3f1c2a0e-7d.b41e...</code></pre>
+
+<p><b>Token request</b> — public client: <b>không</b> có <code>client_secret</code>, thay vào đó là <code>code_verifier</code>:</p>
+<pre data-title="POST token endpoint"><code class="language-plaintext">POST /realms/demo/protocol/openid-connect/token HTTP/1.1
+Host: localhost:8080
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=authorization_code
+&amp;code=3f1c2a0e-7d.b41e...
+&amp;redirect_uri=http%3A%2F%2F127.0.0.1%3A7890%2F
+&amp;client_id=demo-client
+&amp;code_verifier=dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk</code></pre>
+<p class="small muted">(Body thật nằm trên một dòng; tách dòng ở đây cho dễ đọc.)</p>
+
+<pre data-title="Token response (rút gọn)"><code class="language-json">{
+  "access_token": "eyJhbGciOiJSUzI1NiIsInR5cCI...",
+  "expires_in": 300,
+  "refresh_expires_in": 1800,
+  "refresh_token": "eyJhbGciOiJIUzUxMiIsInR5cCI...",
+  "token_type": "Bearer",
+  "id_token": "eyJhbGciOiJSUzI1NiIsInR5cCI...",
+  "scope": "openid profile email orders.read"
+}</code></pre>
+<p class="small muted"><code>refresh_expires_in</code> là trường riêng của Keycloak; các trường chuẩn là <code>access_token</code>, <code>token_type</code>, <code>expires_in</code>, <code>refresh_token</code>, <code>scope</code> (RFC 6749 §5.1) và <code>id_token</code> (OIDC).</p>
+
+<div class="callout tip"><span class="callout-title">✅ Trong .NET bạn hiếm khi tự viết các request này</span>
+Web app: <code>AddOpenIdConnect</code> (PKCE bật mặc định qua <code>UsePkce = true</code>). Desktop: <code>Duende.IdentityModel.OidcClient</code> hoặc MSAL.NET (Entra ID) tự sinh verifier/state/nonce và validate ID token. Nhưng bạn <b>phải đọc hiểu</b> chúng để debug bằng DevTools/Fiddler.</div>
+
+<pre data-title="WPF / console — Duende.IdentityModel.OidcClient (rút gọn)"><code class="language-csharp">var options = new OidcClientOptions
+{
+    Authority   = "http://localhost:8080/realms/demo",
+    ClientId    = "demo-client",                 // public client: KHÔNG có ClientSecret
+    RedirectUri = "http://127.0.0.1:7890/",
+    Scope       = "openid profile email orders.read",
+    Browser     = new SystemBrowser(7890)          // mở system browser + listener loopback
+};
+var client = new OidcClient(options);
+LoginResult result = await client.LoginAsync(); // tự tạo state, nonce, code_verifier (S256)
+if (result.IsError) throw new Exception(result.Error);
+var accessToken = result.AccessToken;              // gửi tới demo-api
+var user        = result.User;                     // ClaimsPrincipal dựng từ ID token đã validate</code></pre>
+<p class="small muted"><code>SystemBrowser</code> là lớp mẫu trong các sample của IdentityModel.OidcClient (bạn tự thêm vào project), không phải API có sẵn trong package.</p>
+
+<!-- ======== PKCE detail ======== -->
+<h3 id="pkce">PKCE chi tiết (RFC 7636) <span class="badge must">Must</span></h3>
+<div class="table-wrap"><table>
+<thead><tr><th>Thành phần</th><th>Quy định (RFC 7636)</th></tr></thead>
+<tbody>
+<tr><td><code>code_verifier</code></td><td>Chuỗi ngẫu nhiên mật mã, độ dài <b>43–128 ký tự</b>, chỉ gồm ký tự “unreserved”: <code>A-Z a-z 0-9 - . _ ~</code>. Khuyến nghị: sinh 32 byte ngẫu nhiên rồi base64url → đúng 43 ký tự.</td></tr>
+<tr><td><code>code_challenge</code> (S256)</td><td><code>BASE64URL-ENCODE(SHA256(ASCII(code_verifier)))</code> — base64url <b>không padding</b> <code>=</code>.</td></tr>
+<tr><td><code>code_challenge</code> (plain)</td><td><code>code_challenge = code_verifier</code>. Chỉ được dùng khi client <b>không thể</b> hỗ trợ S256 vì lý do kỹ thuật. OAuth 2.1 (draft) <b>bỏ</b> <code>plain</code>.</td></tr>
+<tr><td><code>code_challenge_method</code></td><td><code>S256</code> hoặc <code>plain</code> (mặc định <code>plain</code> nếu không gửi — nên luôn gửi <code>S256</code> tường minh).</td></tr>
+<tr><td>Khi verifier sai</td><td>Token endpoint trả lỗi <code>invalid_grant</code>.</td></tr>
+<tr><td>Vector kiểm thử (Appendix B)</td><td>verifier <code>dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk</code> → challenge <code>E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM</code></td></tr>
+</tbody></table></div>
+
+<div class="grid cols-2">
+  <div class="card ok"><h4>Vì sao S256 tốt hơn plain?</h4><p>Với <code>plain</code>, giá trị đi trên front-channel <b>chính là</b> verifier — ai đọc được authorization request (log, proxy, malware) cũng có luôn verifier. Với <code>S256</code>, front-channel chỉ chứa <b>bản băm</b>; SHA-256 một chiều nên không suy ngược ra verifier.</p></div>
+  <div class="card acc"><h4>PKCE khác client_secret thế nào?</h4><p><code>client_secret</code> là bí mật <b>tĩnh, dùng chung</b> cho mọi bản cài → không giấu được trong public client. PKCE verifier là bí mật <b>động</b>, sinh mới cho <b>mỗi lần đăng nhập</b>, chỉ nằm trong RAM của đúng instance đó → không cần “giấu” trong binary.</p></div>
+</div>
+
+<div class="widget" id="pkce-widget">
+  <div class="w-title">🧪 PKCE generator (chạy 100% trong trình duyệt của bạn)</div>
+  <p class="small">Sinh <code>code_verifier</code> bằng <code>crypto.getRandomValues</code>, tính <code>code_challenge</code> S256 bằng <code>crypto.subtle.digest("SHA-256")</code>, rồi ghép thành authorization URL mẫu cho Keycloak realm <code>demo</code>. Không có request mạng nào được gửi.</p>
+  <label class="small" for="pk-bytes">Số byte ngẫu nhiên (32 byte → 43 ký tự; 96 byte → 128 ký tự):</label>
+  <select id="pk-bytes">
+    <option value="32" selected>32 byte → verifier 43 ký tự</option>
+    <option value="48">48 byte → verifier 64 ký tự</option>
+    <option value="64">64 byte → verifier 86 ký tự</option>
+    <option value="96">96 byte → verifier 128 ký tự</option>
+  </select>
+  <label class="small" for="pk-verifier">code_verifier (có thể sửa tay để thử):</label>
+  <input type="text" id="pk-verifier" spellcheck="false" autocomplete="off">
+  <div class="btn-row">
+    <button class="btn" id="pk-gen">1. Sinh verifier + state + nonce</button>
+    <button class="btn" id="pk-calc">2. Tính challenge &amp; URL</button>
+    <button class="btn ghost" id="pk-rfc">Dùng vector RFC 7636</button>
+  </div>
+  <div class="out" id="pk-out">Bấm “1. Sinh verifier…” để bắt đầu.</div>
+  <p class="small" style="margin-top:12px"><b>Mô phỏng AS kiểm tra ở token endpoint:</b> dán một <code>code_verifier</code> (vd. verifier của “kẻ tấn công”) để xem AS so khớp với challenge đã lưu ra sao.</p>
+  <input type="text" id="pk-try" spellcheck="false" autocomplete="off" placeholder="code_verifier gửi kèm khi đổi code">
+  <div class="btn-row"><button class="btn" id="pk-verify">3. AS xác minh</button></div>
+  <div class="out" id="pk-verify-out">—</div>
+</div>
+
+<h4 id="pkce-attack">Tấn công authorization code interception mà PKCE chặn</h4>
+<p>Kịch bản kinh điển trên desktop/mobile: app độc cài trên cùng máy đăng ký <b>cùng custom URI scheme</b> (vd. <code>com.demo.app:/callback</code>) hoặc đọc được URL callback (log, Referer, extension). Nó lấy được <code>code</code> — nhưng không có <code>code_verifier</code> nằm trong RAM của app thật.</p>
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant C as App thật (demo-client)
+  participant B as Browser
+  participant AZ as Authorization Server
+  participant M as 😈 App độc / kẻ nghe lén
+  C->>C: verifier V (chỉ ở RAM), challenge = SHA256(V)
+  C->>B: Authorization request + code_challenge
+  B->>AZ: Đăng nhập thành công
+  AZ-->>B: Redirect kèm code
+  B-->>M: Code bị chặn (custom scheme trùng, log, Referer)
+  M->>AZ: POST /token (code, client_id=demo-client, KHÔNG có V)
+  alt Không dùng PKCE
+    AZ-->>M: ❌ Cấp token cho kẻ tấn công (public client không có secret)
+  else Có PKCE
+    AZ-->>M: ✅ 400 invalid_grant - thiếu hoặc sai code_verifier
+  end
+</pre>
+<div class="caption">PKCE ràng buộc code với đúng client instance đã tạo request. Biến thể “code injection” (kẻ tấn công nhét code trộm được vào phiên của chính nó) cũng thất bại vì verifier trong phiên của kẻ tấn công không khớp challenge.</div>
+</div>
+
+<!-- ======== Client Credentials ======== -->
+<h3 id="client-credentials">3. Client Credentials <span class="badge must">Must</span></h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>Xe tải giao hàng của công ty vào kho lúc 2 giờ sáng: không có “người dùng” nào bấm đồng ý cả. Tài xế trình <b>giấy phép của chính công ty</b> và nhận thẻ vào kho. Token này đại diện cho <b>service</b>, không đại diện cho người nào.</div>
+<p>Dùng cho <b>machine-to-machine</b> (M2M): một service (job đồng bộ, worker, daemon) gọi API bằng <b>danh tính của chính nó</b>. Không có người dùng, không có trình duyệt, không có redirect — chỉ một request tới token endpoint. Vì phải xác thực client nên chỉ <b>confidential client</b> được dùng grant này.</p>
+
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant W as Worker service (client worker)
+  participant AZ as Authorization Server (Keycloak)
+  participant API as Resource Server (demo-api)
+  Note over W: Job chạy lúc 02:00, không có user
+  W->>AZ: POST /token grant_type=client_credentials, scope=orders.read<br/>+ xác thực client (secret, private_key_jwt hoặc mTLS)
+  AZ->>AZ: Xác thực client, kiểm tra scope được phép
+  AZ-->>W: access_token (sub = service account), expires_in=300
+  W->>W: Cache token đến gần hết hạn
+  W->>API: GET /orders (Bearer access_token)
+  API->>API: Validate chữ ký, iss, aud, exp, scope
+  API-->>W: 200 OK
+  Note over W,AZ: Hết hạn thì xin token mới bằng client credentials,<br/>thường KHÔNG có refresh token
+</pre>
+<div class="caption">Client Credentials cho service-to-service (Deliverable 2). Thực hành ở <a href="lab.html#lab4">Lab 4</a>; kiến trúc ở <a href="m07-architecture.html#s2s">M07</a>.</div>
+</div>
+
+<pre data-title="Token request — client_secret_basic"><code class="language-plaintext">POST /realms/demo/protocol/openid-connect/token HTTP/1.1
+Host: localhost:8080
+Authorization: Basic d29ya2VyOldvcmtlclNlY3JldDEyMw==
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=client_credentials&amp;scope=orders.read</code></pre>
+<pre data-title="Token response"><code class="language-json">{
+  "access_token": "eyJhbGciOiJSUzI1NiIsInR5cCI...",
+  "expires_in": 300,
+  "token_type": "Bearer",
+  "scope": "orders.read"
+}</code></pre>
+<p>Giải mã access token này bạn sẽ thấy <code>sub</code> là ID của <b>service account</b> (Keycloak đặt <code>preferred_username</code> dạng <code>service-account-worker</code>) và <code>azp</code> = <code>worker</code> — không có thông tin của người dùng thật nào.</p>
+
+<pre data-title="Worker .NET — gọi token endpoint bằng HttpClient"><code class="language-csharp">using var http = new HttpClient();
+var basic = Convert.ToBase64String(Encoding.UTF8.GetBytes("worker:" + secretFromVault));
+http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", basic);
+
+var resp = await http.PostAsync(
+    "http://localhost:8080/realms/demo/protocol/openid-connect/token",
+    new FormUrlEncodedContent(new Dictionary&lt;string, string&gt;
+    {
+        ["grant_type"] = "client_credentials",
+        ["scope"]      = "orders.read"
+    }));
+resp.EnsureSuccessStatusCode();
+using var json = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+var accessToken = json.RootElement.GetProperty("access_token").GetString();
+// Cache token tới (expires_in - vài giây) rồi mới xin lại — đừng xin token mới cho MỖI request.</code></pre>
+<div class="callout danger"><span class="callout-title">🚫 Client Credentials không phải để đăng nhập người dùng</span>
+Token này đại diện cho <b>ứng dụng</b>. Nếu API cần biết “user nào”, Client Credentials là sai flow. Nếu API A cần gọi API B <i>thay mặt người dùng</i>, dùng Token Exchange / On-Behalf-Of (<a href="#obo">xem cuối trang</a>), đừng dùng token “service” với quyền tối cao rồi tự truyền <code>userId</code> trong body.</div>
+
+<!-- ======== Device flow ======== -->
+<h3 id="device-flow">4. Device Authorization Grant (RFC 8628) <span class="badge should">Should</span></h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>Smart TV không có bàn phím tử tế. TV hiện: “Mở điện thoại, vào trang X, nhập mã <b>WDJB-MJHT</b>”. Bạn đăng nhập trên điện thoại; trong lúc đó TV cứ vài giây lại hỏi AS “xong chưa?”. Xong thì TV nhận token.</div>
+<p>Cho thiết bị <b>có input hạn chế hoặc không có trình duyệt</b>: Smart TV, CLI (vd. <code>az login --use-device-code</code>, <code>gh auth login</code>), thiết bị IoT. Mục tiêu khóa học: hiểu use case và các tham số, <b>không cần triển khai</b>.</p>
+
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant D as 📺 Thiết bị (TV/CLI)
+  participant AZ as Authorization Server
+  participant U as 👤 Người dùng
+  participant P as 📱 Điện thoại/PC
+  D->>AZ: POST /auth/device (client_id, scope)
+  AZ-->>D: device_code, user_code, verification_uri, expires_in, interval
+  D->>U: Hiển thị: vào verification_uri, nhập user_code (hoặc QR)
+  loop Polling mỗi interval giây
+    D->>AZ: POST /token grant_type=device_code, device_code
+    AZ-->>D: 400 authorization_pending (hoặc slow_down: tăng interval thêm 5s)
+  end
+  U->>P: Mở verification_uri, nhập user_code
+  P->>AZ: Đăng nhập + consent
+  D->>AZ: POST /token (lần poll tiếp theo)
+  AZ-->>D: 200 access_token (+ refresh_token, id_token)
+</pre>
+<div class="caption">Device flow: xác thực xảy ra trên <b>thiết bị khác</b>; thiết bị gốc chỉ polling.</div>
+</div>
+
+<pre data-title="1. Device authorization request &amp; response"><code class="language-plaintext">POST /realms/demo/protocol/openid-connect/auth/device HTTP/1.1
+Host: localhost:8080
+Content-Type: application/x-www-form-urlencoded
+
+client_id=tv-app&amp;scope=openid%20orders.read
+
+HTTP/1.1 200 OK
+Content-Type: application/json
+
+{
+  "device_code": "GmRhmhcxhwAzkoEqiMEg_DnyEysNkuNhszIySk9eS",
+  "user_code": "WDJB-MJHT",
+  "verification_uri": "http://localhost:8080/realms/demo/device",
+  "verification_uri_complete": "http://localhost:8080/realms/demo/device?user_code=WDJB-MJHT",
+  "expires_in": 600,
+  "interval": 5
+}</code></pre>
+<pre data-title="2. Polling token endpoint"><code class="language-plaintext">POST /realms/demo/protocol/openid-connect/token HTTP/1.1
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Adevice_code
+&amp;device_code=GmRhmhcxhwAzkoEqiMEg_DnyEysNkuNhszIySk9eS
+&amp;client_id=tv-app
+
+HTTP/1.1 400 Bad Request
+{ "error": "authorization_pending" }</code></pre>
+<div class="table-wrap"><table>
+<thead><tr><th>Trường / lỗi</th><th>Ý nghĩa (RFC 8628)</th></tr></thead>
+<tbody>
+<tr><td><code>device_code</code></td><td>Mã bí mật thiết bị dùng khi polling — không hiển thị cho người dùng.</td></tr>
+<tr><td><code>user_code</code></td><td>Mã ngắn người dùng gõ tay. Nên dễ đọc, không phân biệt hoa thường.</td></tr>
+<tr><td><code>verification_uri</code> / <code>verification_uri_complete</code></td><td>Trang người dùng mở; bản <i>complete</i> đã kèm sẵn user_code (dùng cho QR code).</td></tr>
+<tr><td><code>expires_in</code>, <code>interval</code></td><td>Thời gian sống của mã; số giây tối thiểu giữa hai lần poll (<b>mặc định 5</b> nếu AS không gửi).</td></tr>
+<tr><td><code>authorization_pending</code></td><td>Người dùng chưa xong → tiếp tục poll.</td></tr>
+<tr><td><code>slow_down</code></td><td>Poll quá nhanh → <b>tăng interval thêm 5 giây</b> cho lần này và mọi lần sau.</td></tr>
+<tr><td><code>access_denied</code> / <code>expired_token</code></td><td>Người dùng từ chối / mã hết hạn → dừng poll.</td></tr>
+</tbody></table></div>
+<div class="callout warn"><span class="callout-title">⚠️ Device code phishing</span>
+Kẻ tấn công có thể tự bắt đầu device flow rồi gửi <code>user_code</code> cho nạn nhân kèm lời dụ “nhập mã này để xác minh tài khoản”. Nạn nhân đăng nhập → kẻ tấn công nhận token. Chỉ bật device flow cho client thực sự cần; màn hình xác nhận phải nói rõ thiết bị nào đang xin quyền. Liên hệ <a href="m06-authz-security.html#threats">M06 — Threats</a>.</div>
+
+<!-- ======== Refresh token ======== -->
+<h3 id="refresh-token">Refresh token grant (gia hạn access token)</h3>
+<p>Access token sống ngắn để giảm thiệt hại khi bị lộ. Khi hết hạn, client dùng <b>refresh token</b> xin access token mới mà không làm phiền người dùng:</p>
+<pre data-title="Refresh token request"><code class="language-plaintext">POST /realms/demo/protocol/openid-connect/token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=refresh_token&amp;refresh_token=eyJhbGciOiJIUzUxMiIs...&amp;client_id=demo-client</code></pre>
+<p>Với <b>refresh token rotation</b>, mỗi lần dùng AS trả về refresh token <b>mới</b> và vô hiệu cái cũ; nếu cái cũ bị dùng lại (dấu hiệu bị trộm) AS thu hồi cả chuỗi (reuse detection — thử ở <a href="lab.html#lab4">Lab 4</a>). Chi tiết vòng đời token ở <a href="m02-crypto-session-token.html#token-lifecycle">M02</a>.</p>
+
+<!-- ======== ROPC & Implicit ======== -->
+<h3 id="ropc-implicit">5. ROPC và Implicit — vì sao KHÔNG dùng <span class="badge nice">Nice</span></h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span><b>ROPC</b> = quay lại chuyện “đưa mật khẩu cho app khác”, chỉ là có giấy tờ hợp thức. <b>Implicit</b> = phòng cấp phép đưa thẳng thẻ ra vào qua cửa sổ ra đường (URL trình duyệt) thay vì đưa phiếu số — ai đi ngang cũng có thể nhìn thấy.</div>
+
+<h4 id="ropc">Resource Owner Password Credentials (ROPC)</h4>
+<p>Người dùng gõ username/password <b>vào chính client</b>; client gửi thẳng tới token endpoint với <code>grant_type=password</code>.</p>
+<pre data-title="ROPC — CHỈ để nhận biết, KHÔNG dùng"><code class="language-plaintext">POST /token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=password&amp;username=an&amp;password=P%40ssw0rd&amp;client_id=legacy-app</code></pre>
+<ul>
+<li>Client <b>thấy và xử lý mật khẩu</b> → đúng cái password anti-pattern OAuth muốn loại bỏ; tăng bề mặt tấn công, “dạy” người dùng gõ mật khẩu vào bất kỳ app nào.</li>
+<li>Không hỗ trợ được <b>MFA</b>, passkey, federation/SSO, consent, các bước đăng nhập có điều kiện — vì AS không có màn hình đăng nhập của riêng nó.</li>
+<li>RFC 9700: ROPC <b>MUST NOT</b> be used. OAuth 2.1 <b>loại bỏ</b> grant này.</li>
+<li><b>Không</b> coi ROPC là lựa chọn tương đương Authorization Code + PKCE, kể cả cho app “first-party”.</li>
+</ul>
+
+<h4 id="implicit">Implicit grant</h4>
+<p>Thiết kế cho SPA thời chưa có CORS: authorization endpoint trả <b>access token trực tiếp</b> trong <b>URL fragment</b> (<code>response_type=token</code>), không có bước đổi code.</p>
+<pre data-title="Implicit response — CHỈ để nhận biết"><code class="language-plaintext">HTTP/1.1 302 Found
+Location: https://spa.example/callback#access_token=eyJhbGciOi...&amp;token_type=Bearer&amp;expires_in=3600&amp;state=xyz</code></pre>
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant B as Browser
+  participant AZ as Authorization Server
+  participant SPA as SPA (JavaScript)
+  participant X as 😈 Nơi rò rỉ
+  B->>AZ: GET /authorize?response_type=token&amp;...
+  AZ-->>B: 302 callback, access_token nằm trong fragment
+  B->>SPA: JS đọc token từ location.hash
+  B-->>X: Lộ qua history, extension, script bên thứ ba (XSS)
+  SPA-->>X: Redirect tiếp hoặc lỗi mở có thể làm rò rỉ URL qua Referer
+  Note over AZ,SPA: Không có bước back-channel, không có PKCE<br/>AS không biết token tới đúng client hay không
+</pre>
+<div class="caption">Implicit: token đi qua front-channel và nằm trong URL — nhiều đường rò rỉ, không có ràng buộc client.</div>
+</div>
+<ul>
+<li><b>Token trong URL</b>: nằm trong lịch sử trình duyệt, có thể bị extension/script bên thứ ba đọc, và rò rỉ qua redirect/Referer trong một số tình huống.</li>
+<li><b>Không có client binding</b>: không có bước đổi code nên không xác thực client, không PKCE → token injection (kẻ tấn công nhét token của mình/của app khác vào) khó phát hiện.</li>
+<li><b>Không có refresh token an toàn</b> → SPA phải dùng iframe “silent renew” dựa trên cookie bên thứ ba, đang bị trình duyệt chặn dần.</li>
+<li>Thay thế: <b>Authorization Code + PKCE</b> cho SPA (CORS đã phổ biến), hoặc tốt hơn nữa là kiến trúc <b>BFF</b> (<a href="m07-architecture.html#bff">M07</a>) để token không nằm trong browser (<a href="m06-authz-security.html#token-storage">M06 — token storage</a>).</li>
+</ul>
+
+<!-- ===================================================== -->
+<h2 id="oauth21">3.2 D.1. OAuth 2.1 thay đổi gì so với OAuth 2.0? <span class="badge should">Should</span></h2>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>OAuth 2.0 (2012) là bộ luật gốc; sau đó có hàng chục “thông tư bổ sung” (PKCE, best practice bảo mật…). OAuth 2.1 là bản <b>hợp nhất</b>: gộp các thông tư vào luật gốc và <b>xóa các điều khoản nguy hiểm</b>. Nó gần như không thêm cơ chế mới.</div>
+
+<div class="callout info"><span class="callout-title">📌 Trạng thái tại 11/2026 (đã kiểm tra trên IETF Datatracker)</span>
+<ul>
+<li><b>OAuth 2.1</b> vẫn là <b>Internet-Draft</b>: <code>draft-ietf-oauth-v2-1-17</code> (31/10/2026), nhóm OAuth WG, <b>chưa có số RFC</b>. Có thể trích dẫn như “bản nháp đang hoàn thiện”, không phải chuẩn chính thức. Nếu thành RFC, nó sẽ thay thế RFC 6749 và RFC 6750.</li>
+<li><b>RFC 9700</b> — <i>Best Current Practice for OAuth 2.0 Security</i> (BCP 240) — đã ban hành <b>tháng 1/2025</b>. Đây là văn bản chính thức bạn có thể viện dẫn ngay hôm nay cho hầu hết các yêu cầu bên dưới.</li>
+<li><b>RFC 10017</b> — <i>OAuth 2.0 for Browser-Based Applications</i> (BCP 212) — đã ban hành năm 2026, hướng dẫn riêng cho SPA (liên quan <a href="m07-architecture.html#spa">M07 — SPA/BFF</a>).</li>
+</ul></div>
+
+<div class="table-wrap"><table>
+<thead><tr><th>#</th><th>Thay đổi trong OAuth 2.1 (draft -17, mục “Differences from OAuth 2.0”)</th><th>Vì sao</th></tr></thead>
+<tbody>
+<tr><td>1</td><td><b>PKCE là mặc định/bắt buộc</b> cho Authorization Code — kể cả confidential client.</td><td>Chặn code interception &amp; code injection (<a href="#pkce-attack">xem trên</a>).</td></tr>
+<tr><td>2</td><td><b>Bỏ phương thức PKCE <code>plain</code></b>, chỉ còn <code>S256</code>.</td><td><code>plain</code> để lộ verifier trên front-channel.</td></tr>
+<tr><td>3</td><td><b>Loại bỏ Implicit grant</b> (<code>response_type=token</code>).</td><td>Token trong URL, không client binding.</td></tr>
+<tr><td>4</td><td><b>Loại bỏ ROPC</b> (<code>grant_type=password</code>).</td><td>Client xử lý mật khẩu, không MFA/federation.</td></tr>
+<tr><td>5</td><td><b>Redirect URI so khớp chuỗi chính xác</b> (exact string matching). Ngoại lệ: với loopback IP của native app (<code>http://127.0.0.1:{port}/</code>) AS phải chấp nhận <b>port bất kỳ</b> lúc request.</td><td>Wildcard/so khớp lỏng từng gây ra hàng loạt vụ trộm code/token.</td></tr>
+<tr><td>6</td><td><b>Không gửi bearer token trong query string</b> (<code>?access_token=…</code>).</td><td>URL bị ghi vào log, history, Referer.</td></tr>
+<tr><td>7</td><td><b>Refresh token của public client</b> phải <b>sender-constrained</b> (vd. DPoP) <b>hoặc dùng một lần</b> (rotation).</td><td>Refresh token sống lâu, nằm trên thiết bị người dùng → giảm thiệt hại khi bị trộm.</td></tr>
+<tr><td>8</td><td>Refresh token cấp cho ứng dụng chạy trong browser có thêm ràng buộc về thời gian sống.</td><td>Theo RFC 10017.</td></tr>
+<tr><td>9</td><td>Token request đổi authorization code <b>không còn tham số <code>redirect_uri</code></b>.</td><td>Vai trò chống injection đã do PKCE đảm nhận. (Chi tiết của draft; AS hiện nay vẫn chấp nhận/yêu cầu tham số này theo OAuth 2.0.)</td></tr>
+<tr><td>10</td><td>AS phải hỗ trợ client credentials gửi trong body request.</td><td>Thống nhất cách xác thực client.</td></tr>
+</tbody></table></div>
+<div class="callout warn"><span class="callout-title">📝 Ghi chú so với roadmap</span>
+Roadmap liệt kê đúng 5 thay đổi cốt lõi (PKCE bắt buộc, bỏ Implicit/ROPC, exact redirect URI, không token trong query, refresh token của public client). Bản draft hiện hành còn thêm: <b>bỏ <code>plain</code></b>, <b>bỏ <code>redirect_uri</code> ở token request</b>, ràng buộc refresh token cho browser-based app. Draft vẫn có thể thay đổi trước khi thành RFC — kiểm tra lại khi trích dẫn.</div>
+<p><b>Kết luận thực tế:</b> hầu hết IdP hiện đại (Keycloak, Entra ID, Okta, Auth0…) đã áp dụng các khuyến nghị này. Thiết kế mới nên tuân theo OAuth 2.1 + RFC 9700 ngay từ đầu.</p>
+
+<!-- ===================================================== -->
+<h2 id="state-nonce">3.2 E. PKCE, state, nonce và redirect URI <span class="badge must">Must</span></h2>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>Bốn “ổ khóa” cho bốn cánh cửa khác nhau. <b>state</b> = số thứ tự bạn bấm ở quầy: kết quả trả về phải đúng số của bạn. <b>nonce</b> = mã đơn hàng in lên hóa đơn: hóa đơn (ID token) phải ghi đúng mã đơn bạn vừa đặt. <b>PKCE</b> = nửa vé xé đôi: chỉ người giữ nửa vé mới đổi được phiếu. <b>Redirect URI chính xác</b> = địa chỉ giao hàng cố định đã đăng ký: không ai đổi được nơi nhận.</div>
+<p>Bốn cơ chế này <b>liên quan nhưng không thay thế nhau</b>. Đây là <b>Deliverable 5</b>:</p>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Cơ chế</th><th>Ai tạo / ai kiểm tra</th><th>Ràng buộc cái gì</th><th>Chống tấn công nào</th><th>Không chống được</th></tr></thead>
+<tbody>
+<tr><td><b><code>state</code></b></td><td>Client tạo ngẫu nhiên, lưu trong session/cookie của user-agent; client so khớp khi nhận callback.</td><td>Authorization <b>response</b> ↔ request do chính phiên trình duyệt này khởi tạo.</td><td><b>CSRF tại redirect URI</b> — gồm <b>login CSRF</b> và <b>authorization response injection</b> (kẻ tấn công ép trình duyệt nạn nhân mang code của <i>kẻ tấn công</i> tới callback). Cũng dùng để correlation/khôi phục trang đích.</td><td>Code bị chặn rồi đổi ở nơi khác; ID token replay.</td></tr>
+<tr><td><b><code>nonce</code></b> (OIDC)</td><td>Client tạo, gửi trong authentication request; OP chép vào <b>ID token</b>; client so khớp khi validate ID token.</td><td><b>ID token</b> ↔ authentication request/phiên của client.</td><td><b>ID token replay</b> và <b>ID token injection</b> (đem ID token cũ/của phiên khác dùng lại). RFC 9700 cho phép confidential OIDC client dùng nonce thay PKCE để chống code injection (với điều kiện bổ sung).</td><td>Không bảo vệ access token; không thay state trong OAuth thuần (không có ID token).</td></tr>
+<tr><td><b>PKCE</b></td><td>Client tạo verifier/challenge; <b>AS</b> kiểm tra ở token endpoint.</td><td>Authorization <b>code</b> ↔ client instance đã gửi request.</td><td><b>Authorization code interception</b> (app độc, log, Referer) và <b>authorization code injection</b>. RFC 9700: PKCE cũng chống được CSRF <i>nếu</i> client chắc chắn AS hỗ trợ PKCE.</td><td>Không chống token bị trộm <i>sau khi</i> đã cấp; không thay redirect URI validation.</td></tr>
+<tr><td><b>Redirect URI validation</b></td><td>Client đăng ký trước; <b>AS</b> so khớp chính xác mỗi request.</td><td>Nơi nhận code/token ↔ URI đã đăng ký.</td><td><b>Open redirect</b> và <b>code/token theft</b>: kẻ tấn công sửa <code>redirect_uri</code> trỏ tới domain của mình để nhận code.</td><td>Không chống code bị lộ <i>tại</i> URI hợp lệ (đó là việc của PKCE).</td></tr>
+<tr><td><code>iss</code> trong response (RFC 9207)</td><td>AS gửi; client so với AS nó đã gọi.</td><td>Response ↔ đúng Authorization Server.</td><td><b>Mix-up attack</b> khi client làm việc với nhiều AS.</td><td>—</td></tr>
+</tbody></table></div>
+
+<h3 id="login-csrf">Ví dụ: login CSRF khi thiếu state</h3>
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant A as 😈 Kẻ tấn công
+  participant V as 👤 Nạn nhân (Browser)
+  participant C as Client (PrintNow)
+  participant AZ as Authorization Server
+  A->>AZ: Tự đăng nhập bằng tài khoản CỦA KẺ TẤN CÔNG
+  AZ-->>A: code_A (kẻ tấn công dừng lại, không dùng code)
+  A->>V: Gửi link hoặc ảnh ẩn trỏ tới /callback?code=code_A
+  V->>C: GET /callback?code=code_A
+  alt Client không kiểm tra state
+    C->>AZ: Đổi code_A lấy token
+    C-->>V: Nạn nhân bị đăng nhập/liên kết vào tài khoản của kẻ tấn công
+    Note over V,C: Ảnh nạn nhân tải lên hoặc thẻ thanh toán nạn nhân nhập<br/>rơi vào tài khoản kẻ tấn công
+  else Client kiểm tra state
+    C-->>V: ❌ Từ chối: không có state khớp trong session của trình duyệt này
+  end
+</pre>
+<div class="caption">state phải ngẫu nhiên, gắn với phiên trình duyệt, dùng một lần. Liên hệ <a href="m06-authz-security.html#csrf">M06 — CSRF</a>.</div>
+</div>
+
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Đã có PKCE thì bỏ state, bỏ nonce.</span><span class="f-label">Thực tế</span><span>PKCE bảo vệ <b>code</b>. nonce bảo vệ <b>ID token</b>. state vẫn hữu ích cho correlation và là lớp chống CSRF khi không chắc AS thực thi PKCE. Thư viện chuẩn (ASP.NET Core OIDC handler, OidcClient, MSAL) dùng <b>cả ba</b> — đừng tắt.</span></div>
+
+<h3 id="redirect-uri">Redirect URI validation</h3>
+<p>Authorization Server chỉ được gửi code tới URI <b>đã đăng ký trước</b>, so khớp <b>chính xác từng ký tự</b> (scheme, host, port, path, cả dấu <code>/</code> cuối).</p>
+<div class="dodont">
+<div class="do"><h5>✅ Nên</h5><ul>
+<li>Đăng ký URI đầy đủ: <code>https://printnow.example/signin-oidc</code>.</li>
+<li>Native/desktop: loopback IP <code>http://127.0.0.1:{port}/</code> (port động được phép) hoặc claimed HTTPS scheme / private-use scheme dạng reverse-domain (RFC 8252).</li>
+<li>Tách URI theo môi trường (dev/staging/prod), xóa URI không dùng.</li>
+<li>Callback page không nhúng script/ảnh bên thứ ba, đặt <code>Referrer-Policy</code> chặt.</li>
+</ul></div>
+<div class="dont"><h5>❌ Không nên</h5><ul>
+<li>Wildcard: <code>https://*.printnow.example/*</code> — một subdomain bị chiếm (subdomain takeover) là mất code.</li>
+<li>So khớp tiền tố: <code>https://printnow.example/</code> cho phép <code>…/open-redirect?to=evil.com</code>.</li>
+<li>Endpoint trên client nhận tham số <code>returnUrl</code> rồi redirect bừa (open redirect) — biến thành “cầu” đẩy code ra ngoài.</li>
+<li>Dùng <code>http://</code> cho domain thật (chỉ loopback mới được HTTP).</li>
+</ul></div>
+</div>
+
+<!-- ===================================================== -->
+<h2 id="oidc">3.3 OpenID Connect (OIDC) <span class="badge must">Must</span></h2>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>OAuth đưa cho app một <b>thẻ ra vào</b> (access token). OIDC đưa thêm một <b>CCCD có dấu giáp lai</b> (ID token): ghi rõ bạn là ai, ai cấp (iss), cấp cho app nào (aud), cấp lúc nào và hết hạn khi nào. App đọc CCCD để biết “ai đang đăng nhập”, còn thẻ ra vào thì đem đi quẹt ở API.</div>
+
+<h3 id="oidc-la-gi">A. OIDC là gì?</h3>
+<p><b>OpenID Connect 1.0</b> là lớp <b>identity/authentication</b> xây <b>trên</b> OAuth 2.0 (đặc tả của OpenID Foundation, không phải IETF). Nó dùng lại toàn bộ flow OAuth (thường là Authorization Code + PKCE) và chuẩn hóa thêm:</p>
+<ul>
+<li>Scope đặc biệt <code>openid</code> — có nó thì request trở thành <b>authentication request</b> OIDC.</li>
+<li><b>ID token</b> — một JWT có chữ ký, chứa kết quả xác thực.</li>
+<li><b>UserInfo endpoint</b>, tập <b>claim chuẩn</b> (<code>name</code>, <code>email</code>…), <b>Discovery</b>, <b>JWKS</b>, các đặc tả <b>logout</b>.</li>
+</ul>
+<div class="diagram">
+<pre class="mermaid">
+flowchart TB
+  subgraph OIDC["OpenID Connect (lớp danh tính)"]
+    direction LR
+    I1["scope openid"] --- I2["ID token"] --- I3["UserInfo"] --- I4["Discovery + JWKS"] --- I5["Logout specs"]
+  end
+  subgraph OAUTH["OAuth 2.0 (lớp ủy quyền)"]
+    direction LR
+    O1["Authorization endpoint"] --- O2["Token endpoint"] --- O3["Access / refresh token"] --- O4["PKCE, state, redirect URI"]
+  end
+  subgraph BASE["Nền tảng"]
+    direction LR
+    B1["HTTPS / TLS"] --- B2["JSON"] --- B3["JWT, JWS, JWK"]
+  end
+  OIDC --> OAUTH --> BASE
+</pre>
+<div class="caption">OIDC không thay OAuth mà dựng thêm một tầng lên trên. Một request vừa có thể xin ID token (đăng nhập) vừa xin access token (gọi API).</div>
+</div>
+
+<h3 id="oidc-terms">B. Thành phần và thuật ngữ</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>Thuật ngữ</th><th>Ý nghĩa</th><th>Tương ứng OAuth</th></tr></thead>
+<tbody>
+<tr><td><b>OpenID Provider (OP)</b></td><td>Hệ thống cung cấp dịch vụ OIDC: xác thực người dùng, phát hành ID token. Thường chính là IdP.</td><td>Authorization Server có hỗ trợ OIDC</td></tr>
+<tr><td><b>Relying Party (RP)</b></td><td>Ứng dụng <b>tin cậy</b> kết quả xác thực từ OP.</td><td>Client</td></tr>
+<tr><td><b>ID Token</b></td><td>JWT có chữ ký chứa claims về <b>sự kiện xác thực</b> và <b>subject</b>. Dành cho RP.</td><td>(OAuth không có)</td></tr>
+<tr><td><b>UserInfo Endpoint</b></td><td>API của OP trả claims về người dùng, gọi bằng <b>access token</b>.</td><td>Một Resource Server của OP</td></tr>
+<tr><td><b>Discovery</b></td><td>Tài liệu metadata JSON tại <code>{issuer}/.well-known/openid-configuration</code>.</td><td>Tương tự RFC 8414</td></tr>
+<tr><td><b>JWKS</b> (JSON Web Key Set)</td><td>Tập public key của OP để xác minh chữ ký token.</td><td>—</td></tr>
+<tr><td><b>Claims</b></td><td>Từng mẩu thông tin về subject (<code>sub</code>, <code>name</code>, <code>email</code>…). Chỉ xin những gì cần — quyền riêng tư.</td><td>—</td></tr>
+</tbody></table></div>
+
+<h3 id="id-token">ID token: cấu trúc và claims</h3>
+<p>Một ID token mẫu theo định dạng Keycloak realm <code>demo</code> — header và payload decode được thật (phần chữ ký chỉ mang tính minh họa — token này không verify được):</p>
+<div class="jwt"><span class="h">eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6ImtRM3g5dlQyYkwwbVI3d04ifQ</span><span class="dot">.</span><span class="p">eyJleHAiOjE3OTQyNzc1MDAsImlhdCI6MTc5NDI3NzIwMCwiYXV0aF90aW1lIjoxNzk0Mjc3MTkwLCJpc3MiOiJodHRwOi8vbG9jYWxob3N0OjgwODAvcmVhbG1zL2RlbW8iLCJhdWQiOiJkZW1vLWNsaWVudCIsInN1YiI6ImYzYjJjMWQwLTdhNmUtNGMyYi05ZDFhLTVlOGY3YTZiNGMzZCIsInR5cCI6IklEIiwiYXpwIjoiZGVtby1jbGllbnQiLCJub25jZSI6Im4tMFM2X1d6QTJNaiIsImFjciI6IjEiLCJuYW1lIjoiTmd1eWVuIFZhbiBBbiIsImVtYWlsIjoiYW4ubnZAZXhhbXBsZS5jb20iLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZX0</span><span class="dot">.</span><span class="s">NHVaYe26MbtOYhSKkoKYdFVomg4i8ZJd8_-RU8VNbftc4TSMb4bXP3l3YlNWACwyXPGffz5aXHc6lty1Y2t4SWRqGteragsVdZufDn5BlnJl9pdR_kdVFUsra2rWKEofkZeIC4yWytE58sMIihvo9H1ScmmVwBcQP6XETqYd0aSHp1gOa9RdUPDvoXQ5oqygTqVtxaDr6wUFKrKItgBMzWIdNZ6y7O9E0DhEPTbE9rfBo6KTFsHAZnMg4k68CDp2woYIaXbmYTWcvbzIuHO7_37GT79XdIwkm95QJ7hYC9RiwrV7mesbY4PAahERJawntho0my942XheVLmGwLMBkQ</span></div>
+<pre data-title="Header + payload sau khi decode"><code class="language-json">// Header
+{ "alg": "RS256", "typ": "JWT", "kid": "kQ3x9vT2bL0mR7wN" }
+
+// Payload
+{
+  "exp": 1794277500,                // hết hạn 10/11/2026 09:25 (giờ VN)
+  "iat": 1794277200,                // phát hành 09:20
+  "auth_time": 1794277190,          // người dùng thực sự nhập credential lúc 09:19:50
+  "iss": "http://localhost:8080/realms/demo",
+  "aud": "demo-client",             // = client_id của RP
+  "sub": "f3b2c1d0-7a6e-4c2b-9d1a-5e8f7a6b4c3d",
+  "typ": "ID",                      // claim riêng của Keycloak
+  "azp": "demo-client",
+  "nonce": "n-0S6_WzA2Mj",          // khớp nonce trong authorization request
+  "acr": "1",
+  "name": "Nguyen Van An",
+  "email": "an.nv@example.com",
+  "email_verified": true
+}</code></pre>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Claim</th><th>Bắt buộc? (OIDC Core §2)</th><th>Ý nghĩa</th></tr></thead>
+<tbody>
+<tr><td><code>iss</code></td><td><b>REQUIRED</b></td><td>Issuer Identifier của OP (URL HTTPS; lab dùng HTTP localhost). Phải khớp <b>chính xác</b> issuer trong Discovery.</td></tr>
+<tr><td><code>sub</code></td><td><b>REQUIRED</b></td><td>Subject identifier: duy nhất <b>trong phạm vi issuer</b>, không bao giờ cấp lại cho người khác, phân biệt hoa thường, tối đa 255 ký tự ASCII.</td></tr>
+<tr><td><code>aud</code></td><td><b>REQUIRED</b></td><td>Audience — <b>phải chứa <code>client_id</code> của RP</b>. Có thể là chuỗi hoặc mảng.</td></tr>
+<tr><td><code>exp</code></td><td><b>REQUIRED</b></td><td>Thời điểm hết hạn (giây Unix). Sau thời điểm này không được chấp nhận.</td></tr>
+<tr><td><code>iat</code></td><td><b>REQUIRED</b></td><td>Thời điểm phát hành.</td></tr>
+<tr><td><code>auth_time</code></td><td>Bắt buộc khi request có <code>max_age</code> hoặc yêu cầu claim này là essential; còn lại tùy chọn</td><td>Thời điểm người dùng <b>thực sự xác thực</b> (khác <code>iat</code> khi SSO dùng lại phiên cũ).</td></tr>
+<tr><td><code>nonce</code></td><td>Nếu request có nonce thì OP <b>phải</b> đưa vào ID token và RP <b>phải</b> kiểm tra</td><td>Liên kết ID token với authentication request, chống replay.</td></tr>
+<tr><td><code>acr</code></td><td>OPTIONAL</td><td>Authentication Context Class Reference — “mức độ” xác thực (ý nghĩa giá trị tùy OP).</td></tr>
+<tr><td><code>amr</code></td><td>OPTIONAL</td><td>Authentication Methods References — phương thức đã dùng, vd. <code>["pwd","mfa"]</code>.</td></tr>
+<tr><td><code>azp</code></td><td>OPTIONAL</td><td>Authorized party — client_id của bên được cấp token. Nếu có, RP nên kiểm tra nó bằng client_id của mình. Một số OP (Keycloak, Google) luôn gửi.</td></tr>
+</tbody></table></div>
+
+<h3 id="scopes-userinfo">Scope OIDC, claims và UserInfo</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>Scope</th><th>Claims trả về (OIDC Core §5.4)</th></tr></thead>
+<tbody>
+<tr><td><code>openid</code></td><td><b>Bắt buộc</b> để là request OIDC; trả <code>sub</code>. Thiếu nó = OAuth thuần, không có ID token.</td></tr>
+<tr><td><code>profile</code></td><td><code>name</code>, <code>family_name</code>, <code>given_name</code>, <code>middle_name</code>, <code>nickname</code>, <code>preferred_username</code>, <code>profile</code>, <code>picture</code>, <code>website</code>, <code>gender</code>, <code>birthdate</code>, <code>zoneinfo</code>, <code>locale</code>, <code>updated_at</code></td></tr>
+<tr><td><code>email</code></td><td><code>email</code>, <code>email_verified</code></td></tr>
+<tr><td><code>address</code>, <code>phone</code></td><td><code>address</code>; <code>phone_number</code>, <code>phone_number_verified</code></td></tr>
+<tr><td><code>offline_access</code></td><td>Xin refresh token dùng được khi người dùng không còn phiên ở OP.</td></tr>
+</tbody></table></div>
+<pre data-title="UserInfo request / response"><code class="language-plaintext">GET /realms/demo/protocol/openid-connect/userinfo HTTP/1.1
+Host: localhost:8080
+Authorization: Bearer eyJhbGciOiJSUzI1NiIsInR5cCI...
+
+HTTP/1.1 200 OK
+Content-Type: application/json
+
+{
+  "sub": "f3b2c1d0-7a6e-4c2b-9d1a-5e8f7a6b4c3d",
+  "name": "Nguyen Van An",
+  "preferred_username": "an.nv",
+  "email": "an.nv@example.com",
+  "email_verified": true
+}</code></pre>
+<div class="callout warn"><span class="callout-title">⚠️ Kiểm tra <code>sub</code> của UserInfo</span>
+OIDC Core yêu cầu RP xác minh <code>sub</code> trong UserInfo response <b>trùng</b> <code>sub</code> trong ID token; nếu khác thì không được dùng dữ liệu UserInfo. Nhớ: UserInfo được gọi bằng <b>access token</b> — đây là ví dụ hiếm hoi client “dùng” access token cho chính OP.</div>
+
+<h3 id="oidc-flow">D. OIDC flow đầy đủ (Authorization Code + PKCE)</h3>
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant U as 👤 An
+  participant B as Browser
+  participant RP as RP: Web app ASP.NET Core
+  participant OP as OP: Keycloak
+  participant API as demo-api
+  U->>B: Mở /orders (chưa đăng nhập)
+  B->>RP: GET /orders
+  RP->>RP: Sinh state, nonce, code_verifier (lưu cookie tạm đã mã hóa)
+  RP-->>B: 302 tới authorization endpoint<br/>scope=openid profile orders.read, code_challenge, state, nonce
+  B->>OP: GET /auth?...
+  OP->>U: Đăng nhập (dùng lại phiên OP nếu đã có = SSO)
+  U->>OP: Credential + MFA
+  OP-->>B: 302 /signin-oidc?code=...&amp;state=...
+  B->>RP: GET /signin-oidc?code=...&amp;state=...
+  RP->>RP: Kiểm tra state
+  RP->>OP: POST /token (code, code_verifier, client auth)
+  OP-->>RP: id_token, access_token, refresh_token
+  RP->>OP: GET JWKS (đã cache theo kid)
+  RP->>RP: Validate ID token: chữ ký, iss, aud, exp, iat, nonce, azp
+  opt Cần thêm claims
+    RP->>OP: GET /userinfo (Bearer access_token)
+    OP-->>RP: Claims, kiểm tra sub trùng ID token
+  end
+  RP->>RP: Map iss+sub sang user nội bộ, tạo SESSION RIÊNG (cookie)
+  RP-->>B: 302 /orders + Set-Cookie session của app
+  B->>RP: GET /orders (cookie)
+  RP->>API: GET /orders (Bearer access_token)
+  API-->>RP: 200 OK
+  RP-->>B: Trang đơn hàng
+</pre>
+<div class="caption">Sau bước 18, RP không cần ID token cho mỗi request nữa — nó dùng <b>session cookie riêng</b> (<a href="m02-crypto-session-token.html#session-cookie">M02</a>). ID token là “bằng chứng đăng nhập” lúc vào cửa, không phải vé dùng mãi.</div>
+</div>
+
+<pre data-title="Program.cs — RP ASP.NET Core (confidential, server-side)"><code class="language-csharp">builder.Services.AddAuthentication(o =&gt;
+{
+    o.DefaultScheme          = CookieAuthenticationDefaults.AuthenticationScheme;
+    o.DefaultChallengeScheme = OpenIdConnectDefaults.AuthenticationScheme;
+})
+.AddCookie()
+.AddOpenIdConnect(o =&gt;
+{
+    o.Authority    = "http://localhost:8080/realms/demo"; // Discovery tự đọc từ đây
+    o.ClientId     = "demo-web";
+    o.ClientSecret = builder.Configuration["Oidc:ClientSecret"];
+    o.ResponseType = "code";            // Authorization Code
+    o.UsePkce      = true;              // mặc định đã true
+    o.Scope.Add("profile");             // "openid" và "profile" thường có sẵn mặc định
+    o.Scope.Add("orders.read");
+    o.SaveTokens   = true;              // lưu access/refresh token vào auth cookie để gọi API
+    o.MapInboundClaims = false;         // giữ tên claim gốc: sub, email...
+    o.RequireHttpsMetadata = false;     // CHỈ cho lab localhost
+});</code></pre>
+<p class="small muted">Handler tự sinh state/nonce/PKCE, tự tải Discovery + JWKS, và tự validate ID token theo checklist bên dưới. Việc của bạn: cấu hình đúng và hiểu khi nó báo lỗi.</p>
+
+<h3 id="id-token-validation">ID token validation checklist (OIDC Core §3.1.3.7)</h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>Nhận CCCD thì phải: xem dấu giáp lai thật (chữ ký), đúng cơ quan cấp (iss), cấp cho <b>mình</b> chứ không phải cho nơi khác (aud), còn hạn (exp), và đúng là tờ mình vừa yêu cầu chứ không phải bản photo cũ (nonce).</div>
+<ol class="steps">
+<li><b>Giải mã</b> nếu ID token được mã hóa (JWE) — ít gặp.</li>
+<li><b><code>iss</code></b> phải <b>khớp chính xác</b> Issuer Identifier của OP (lấy từ Discovery).</li>
+<li><b><code>aud</code></b> phải chứa <b><code>client_id</code></b> của RP; từ chối nếu không chứa, hoặc chứa audience khác mà RP không tin cậy.</li>
+<li>Nếu có <b><code>azp</code></b> → nên kiểm tra <code>azp</code> = <code>client_id</code> của mình.</li>
+<li><b>Chữ ký</b>: xác minh bằng public key của OP từ JWKS (chọn theo <code>kid</code>). Ngoại lệ: ID token nhận <b>trực tiếp</b> từ token endpoint qua TLS thì đặc tả cho phép dựa vào TLS thay cho kiểm tra chữ ký — nhưng thư viện thường vẫn kiểm tra, và bạn <b>nên</b> kiểm tra.</li>
+<li><b><code>alg</code></b>: phải là thuật toán đã thỏa thuận (mặc định <code>RS256</code>); <b>không</b> chấp nhận <code>none</code> hay đổi sang HMAC (<a href="m02-crypto-session-token.html#jwt-validation">M02 — algorithm confusion</a>).</li>
+<li><b><code>exp</code></b>: thời gian hiện tại phải trước <code>exp</code> (cho phép clock skew nhỏ).</li>
+<li><b><code>iat</code></b>: có thể từ chối token phát hành quá xa trong quá khứ.</li>
+<li><b><code>nonce</code></b>: nếu đã gửi nonce thì claim phải có và <b>khớp</b> giá trị đã lưu; nên chống dùng lại.</li>
+<li><b><code>acr</code></b> / <b><code>auth_time</code></b>: nếu đã yêu cầu mức xác thực hoặc <code>max_age</code> thì kiểm tra và yêu cầu đăng nhập lại khi cần.</li>
+</ol>
+
+<h3 id="id-vs-access">C. ID token vs Access token (vs Refresh token)</h3>
+<p>Bảng này <b>mở rộng</b> bảng token ở <a href="m02-crypto-session-token.html#tokens">M02</a> — đây là <b>Deliverable 4</b>.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>ID token</th><th>Access token</th><th>Refresh token</th></tr></thead>
+<tbody>
+<tr><td>Chuẩn</td><td>OIDC Core</td><td>OAuth 2.0 (RFC 6749/6750; JWT profile RFC 9068)</td><td>OAuth 2.0</td></tr>
+<tr><td>Dành cho</td><td><b>Client/RP</b></td><td><b>Resource Server/API</b></td><td><b>Authorization Server</b></td></tr>
+<tr><td>Mục đích</td><td>Thông tin về <b>kết quả xác thực</b>: ai, khi nào, bằng cách nào</td><td><b>Truy cập tài nguyên</b> với scope cho phép</td><td>Xin access token mới</td></tr>
+<tr><td>Định dạng</td><td><b>Luôn là JWT</b> (có chữ ký)</td><td>JWT <b>hoặc</b> opaque — client không nên phụ thuộc vào nội dung</td><td>Thường opaque với client</td></tr>
+<tr><td><code>aud</code></td><td><b><code>client_id</code></b> của RP (vd. <code>demo-client</code>)</td><td>API (vd. <code>demo-api</code>)</td><td>—</td></tr>
+<tr><td>Claims đặc trưng</td><td><code>nonce</code>, <code>auth_time</code>, <code>acr</code>, <code>amr</code>, <code>azp</code>, <code>at_hash</code></td><td><code>scope</code>, <code>client_id</code>/<code>azp</code>, roles…</td><td>—</td></tr>
+<tr><td>Ai validate</td><td>RP: chữ ký, <code>iss</code>, <code>aud</code>=client_id, <code>exp</code>, <code>nonce</code>, <code>azp</code></td><td>API: chữ ký, <code>iss</code>, <code>aud</code>=API, <code>exp</code>, scope (hoặc introspection)</td><td>AS</td></tr>
+<tr><td>Gửi đi đâu</td><td><b>Không</b> gửi tới API làm bearer token. (Ngoại lệ hợp lệ: <code>id_token_hint</code> khi logout.)</td><td>Header <code>Authorization: Bearer</code> tới API</td><td>Chỉ tới token endpoint</td></tr>
+<tr><td>Thời hạn điển hình</td><td>Ngắn (phút) — chỉ cần lúc đăng nhập</td><td>Ngắn (5–60 phút)</td><td>Dài hơn (giờ–ngày), nên rotation</td></tr>
+<tr><td>Dùng thay nhau?</td><td colspan="3"><b>Không bao giờ.</b> API nhận ID token sẽ bị đánh lừa (aud là client, không có scope). Client “đọc” access token để biết user là dựa vào chi tiết không được đảm bảo.</td></tr>
+</tbody></table></div>
+<div class="callout example"><span class="callout-title">💡 Cùng một lần đăng nhập, hai <code>aud</code> khác nhau</span>
+Trong <a href="lab.html#lab3">Lab 3</a>: ID token có <code>aud = "demo-client"</code>, <code>azp = "demo-client"</code>. Access token có <code>aud = "demo-api"</code> (nhờ Audience mapper ở <a href="lab.html#lab1">Lab 1</a>), <code>azp = "demo-client"</code>, <code>scope = "openid profile email orders.read"</code>. → <code>azp</code> cho API biết “client nào đã xin token này”, <code>aud</code> cho biết “token này dành cho ai”.</div>
+
+<!-- ===================================================== -->
+<h2 id="discovery-jwks">3.3 E. OIDC Discovery và JWKS <span class="badge should">Should</span></h2>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span><b>Discovery</b> là “danh bạ” của OP: các cửa (endpoint) ở đâu, hỗ trợ gì. <b>JWKS</b> là “bảng mẫu con dấu” công khai: app so chữ ký trên token với mẫu dấu có cùng mã số (<code>kid</code>). Khi OP đổi dấu mới, nó treo mẫu dấu mới lên bảng trước.</div>
+<pre data-title="GET http://localhost:8080/realms/demo/.well-known/openid-configuration (rút gọn)"><code class="language-json">{
+  "issuer": "http://localhost:8080/realms/demo",
+  "authorization_endpoint": "http://localhost:8080/realms/demo/protocol/openid-connect/auth",
+  "token_endpoint": "http://localhost:8080/realms/demo/protocol/openid-connect/token",
+  "userinfo_endpoint": "http://localhost:8080/realms/demo/protocol/openid-connect/userinfo",
+  "jwks_uri": "http://localhost:8080/realms/demo/protocol/openid-connect/certs",
+  "end_session_endpoint": "http://localhost:8080/realms/demo/protocol/openid-connect/logout",
+  "introspection_endpoint": "http://localhost:8080/realms/demo/protocol/openid-connect/token/introspect",
+  "revocation_endpoint": "http://localhost:8080/realms/demo/protocol/openid-connect/revoke",
+  "device_authorization_endpoint": "http://localhost:8080/realms/demo/protocol/openid-connect/auth/device",
+  "grant_types_supported": ["authorization_code", "client_credentials", "refresh_token",
+                            "urn:ietf:params:oauth:grant-type:device_code"],
+  "response_types_supported": ["code", "none", "id_token", "token", "id_token token", "code id_token"],
+  "response_modes_supported": ["query", "fragment", "form_post"],
+  "subject_types_supported": ["public", "pairwise"],
+  "id_token_signing_alg_values_supported": ["RS256", "ES256", "PS256"],
+  "scopes_supported": ["openid", "profile", "email", "offline_access"],
+  "code_challenge_methods_supported": ["plain", "S256"],
+  "backchannel_logout_supported": true,
+  "frontchannel_logout_supported": true
+}</code></pre>
+<p class="small muted">Danh sách thực tế dài hơn và tùy phiên bản Keycloak. Theo OIDC Discovery, các trường bắt buộc gồm <code>issuer</code>, <code>authorization_endpoint</code>, <code>token_endpoint</code>, <code>jwks_uri</code>, <code>response_types_supported</code>, <code>subject_types_supported</code>, <code>id_token_signing_alg_values_supported</code>. Giá trị <code>issuer</code> phải trùng URL bạn dùng để tải tài liệu (bỏ phần <code>/.well-known/…</code>).</p>
+
+<pre data-title="GET …/protocol/openid-connect/certs (JWKS, rút gọn)"><code class="language-json">{
+  "keys": [
+    {
+      "kid": "kQ3x9vT2bL0mR7wN",
+      "kty": "RSA",
+      "alg": "RS256",
+      "use": "sig",
+      "n": "u1SU1LfVLPHCozMxH2Mo4lgOEePzNm0tRgeLezV6ffAt0gunVTLw7onLRnrq0_IzW7yWR7QkrmBL7jTKEn5u...",
+      "e": "AQAB"
+    },
+    {
+      "kid": "Zp7aL1cX0vQ9mN2r",
+      "kty": "RSA",
+      "alg": "RS256",
+      "use": "sig",
+      "n": "xjlCRBqkOK2wRA1e5Ex0bTr5Y5u0VmfN6fFQ8rN0h8yJ5Bf2Kp9nW3HzT1sZf8v0aQ...",
+      "e": "AQAB"
+    }
+  ]
+}</code></pre>
+<p>Cách chọn key: đọc <code>kid</code> trong <b>header</b> của JWT → tìm JWK có cùng <code>kid</code> trong JWKS → xác minh chữ ký bằng key đó (và <code>alg</code> đã được cho phép). JWKS thường có <b>nhiều key</b> cùng lúc trong giai đoạn chuyển đổi.</p>
+
+<h3 id="key-rotation">Cache metadata/JWKS và key rotation</h3>
+<div class="diagram">
+<pre class="mermaid">
+flowchart TD
+  T["Nhận JWT, đọc kid trong header"] --> C{"kid có trong<br/>JWKS đã cache?"}
+  C -- "Có" --> V["Xác minh chữ ký bằng key đó"]
+  C -- "Không" --> R{"Lần refresh gần nhất<br/>đã quá vài phút?"}
+  R -- "Có" --> F["Tải lại Discovery + JWKS"]
+  R -- "Không: tránh bị spam" --> X["Từ chối token (401)"]
+  F --> C2{"Có kid sau khi tải lại?"}
+  C2 -- "Có" --> V
+  C2 -- "Không" --> X
+  V --> OK["Tiếp tục kiểm tra iss, aud, exp..."]
+</pre>
+<div class="caption">Thư viện .NET (<code>ConfigurationManager</code> trong Microsoft.IdentityModel) làm đúng việc này: cache metadata, tự refresh định kỳ và khi gặp <code>kid</code> lạ (có giới hạn tần suất).</div>
+</div>
+<div class="dodont">
+<div class="do"><h5>✅ Nên</h5><ul>
+<li>Cấu hình <code>Authority</code> để thư viện tự đọc Discovery/JWKS.</li>
+<li>Cache có thời hạn; refresh khi gặp <code>kid</code> chưa biết (có rate limit).</li>
+<li>Phía OP: công bố key mới vào JWKS <b>trước</b> khi bắt đầu ký bằng nó, giữ key cũ đến khi token cũ hết hạn.</li>
+</ul></div>
+<div class="dont"><h5>❌ Không nên</h5><ul>
+<li><b>Hardcode</b> public key/certificate vĩnh viễn khi OP hỗ trợ rollover — đến ngày xoay key, toàn bộ hệ thống đồng loạt 401.</li>
+<li>Tải JWKS ở mỗi request (chậm, dễ bị chặn) hoặc cache vĩnh viễn.</li>
+<li>Tin URL JWKS lấy từ <b>chính token</b> (header <code>jku</code>/<code>x5u</code>) — kẻ tấn công tự trỏ tới key của họ.</li>
+</ul></div>
+</div>
+
+<!-- ===================================================== -->
+<h2 id="logout">3.3 F. Logout và session <span class="badge should">Should</span></h2>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>Bạn có <b>ba thứ</b> cần “trả lại” khi ra về: vòng tay vào khu vui chơi con (session của app), vé cổng chính của công viên (session ở OP), và các thẻ đã cấp cho máy bán hàng (token). Tháo vòng tay khu con không làm vé cổng chính hết hiệu lực — và ngược lại.</div>
+<div class="table-wrap"><table>
+<thead><tr><th>Trạng thái</th><th>Nằm ở đâu</th><th>Kết thúc bằng</th><th>Nếu chỉ làm cái này thì…</th></tr></thead>
+<tbody>
+<tr><td><b>Local application session</b></td><td>Cookie của RP (vd. <code>.AspNetCore.Cookies</code>)</td><td>Xóa cookie / session của app (<b>local logout</b>)</td><td>Bấm “Đăng nhập” lại sẽ vào ngay không hỏi mật khẩu — vì phiên OP còn (SSO).</td></tr>
+<tr><td><b>OP session</b></td><td>Cookie của OP trên domain OP</td><td><b>RP-initiated logout</b> tới <code>end_session_endpoint</code></td><td>Các app khác đang dùng SSO vẫn còn session riêng của chúng cho tới khi hết hạn hoặc nhận thông báo logout.</td></tr>
+<tr><td><b>Access/refresh token</b></td><td>Client / BFF / thiết bị</td><td><b>Revoke</b> (RFC 7009) — chủ yếu refresh token; access token JWT thường sống tới <code>exp</code></td><td>Token đã phát vẫn có thể dùng tới khi hết hạn nếu API chỉ validate cục bộ.</td></tr>
+</tbody></table></div>
+
+<h3 id="rp-initiated-logout">RP-initiated logout</h3>
+<p>Đặc tả <b>OpenID Connect RP-Initiated Logout 1.0</b> (Final): RP chuyển trình duyệt tới <code>end_session_endpoint</code> (lấy từ Discovery) với các tham số:</p>
+<pre data-title="RP-initiated logout request"><code class="language-plaintext">GET http://localhost:8080/realms/demo/protocol/openid-connect/logout
+    ?id_token_hint=eyJhbGciOiJSUzI1NiIsInR5cCI...
+    &amp;post_logout_redirect_uri=https%3A%2F%2Fprintnow.example%2Fsignout-callback-oidc
+    &amp;state=lg-7f2c9a</code></pre>
+<ul>
+<li><code>id_token_hint</code> (RECOMMENDED): ID token đã nhận trước đó → OP biết phiên nào, client nào.</li>
+<li><code>post_logout_redirect_uri</code> (OPTIONAL): nơi quay về sau logout — <b>phải đăng ký trước</b> và khớp chính xác (chống open redirect).</li>
+<li><code>client_id</code>, <code>logout_hint</code>, <code>state</code>, <code>ui_locales</code> (OPTIONAL). Keycloak yêu cầu <code>id_token_hint</code> hoặc <code>client_id</code> khi có <code>post_logout_redirect_uri</code>.</li>
+</ul>
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant B as Browser
+  participant RP as RP (PrintNow)
+  participant OP as OP (Keycloak)
+  participant RP2 as RP khác (Wiki)
+  B->>RP: POST /logout
+  RP->>RP: Xóa session cookie của app (local logout)
+  RP->>RP: Revoke refresh token (nếu có)
+  RP-->>B: 302 end_session_endpoint?id_token_hint=...&amp;post_logout_redirect_uri=...
+  B->>OP: GET /logout?...
+  OP->>OP: Kết thúc OP session
+  opt Back-channel logout
+    OP->>RP2: POST logout_token (JWT có sid/sub, events)
+    RP2->>RP2: Hủy session khớp sid
+  end
+  OP-->>B: 302 post_logout_redirect_uri?state=...
+  B->>RP: Trang đã đăng xuất
+</pre>
+<div class="caption">Logout đầy đủ = local session + OP session + (tùy) revoke token + (tùy) thông báo RP khác.</div>
+</div>
+<pre data-title="ASP.NET Core — đăng xuất cả app lẫn OP"><code class="language-csharp">app.MapPost("/logout", async (HttpContext ctx) =&gt;
+{
+    await ctx.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);   // local session
+    await ctx.SignOutAsync(OpenIdConnectDefaults.AuthenticationScheme,          // redirect tới end_session_endpoint
+        new AuthenticationProperties { RedirectUri = "/" });                     // kèm id_token_hint nếu SaveTokens = true
+});</code></pre>
+
+<h3 id="front-back-channel">Front-channel và back-channel logout (nhận biết)</h3>
+<div class="grid cols-2">
+  <div class="card"><h4>Front-channel logout</h4><p>OP render trang chứa các <b>iframe</b> trỏ tới <code>frontchannel_logout_uri</code> của từng RP để chúng xóa cookie. Phụ thuộc trình duyệt; ngày càng kém tin cậy vì trình duyệt chặn cookie bên thứ ba trong iframe.</p></div>
+  <div class="card"><h4>Back-channel logout</h4><p>OP gửi <b>POST server-to-server</b> tới <code>backchannel_logout_uri</code> của RP, kèm <b>logout token</b> (JWT có <code>iss</code>, <code>aud</code>, <code>iat</code>, <code>jti</code>, <code>events</code>, <code>sub</code> và/hoặc <code>sid</code>; <b>không</b> có <code>nonce</code>). Tin cậy hơn, nhưng RP phải lưu được map <code>sid</code> → session.</p></div>
+</div>
+<div class="callout warn"><span class="callout-title">⚠️ Single Logout không bao giờ “tức thời và hoàn hảo”</span>
+RP có thể đang offline, không đăng ký logout URI, hoặc API vẫn nhận access token JWT cũ tới khi hết hạn. Thiết kế: access token ngắn hạn, refresh token revoke được, và chấp nhận rằng logout ở IdP <b>không</b> tự động xóa mọi thứ ở mọi nơi. (SAML SLO ở <a href="m04-saml.html">M04</a> có cùng vấn đề.)</div>
+
+<!-- ===================================================== -->
+<h2 id="iss-sub">3.3 G. Định danh người dùng: <code>iss</code> + <code>sub</code> <span class="badge must">Must</span></h2>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span><code>sub</code> giống <b>số CCCD</b>, còn <code>iss</code> là <b>quốc gia cấp</b>. Số 012345 ở Việt Nam và số 012345 ở Nhật là hai người khác nhau — nên phải lưu cả cặp. Email giống <b>số điện thoại</b>: đổi được, bị thu hồi cấp cho người khác được, và có nơi cho bạn tự điền mà không kiểm tra.</div>
+<p>OIDC Core nói rõ: <code>sub</code> và <code>iss</code>, <b>dùng cùng nhau</b>, là những claim duy nhất RP có thể dựa vào làm <b>định danh ổn định</b> cho người dùng. <code>sub</code> chỉ duy nhất <b>trong phạm vi một issuer</b>.</p>
+<div class="grid cols-2">
+  <div class="card ok"><h4>✅ Khóa định danh: (<code>iss</code>, <code>sub</code>)</h4><p>Ổn định, không bị cấp lại, không đổi khi người dùng đổi email/tên. Ví dụ: (<code>http://localhost:8080/realms/demo</code>, <code>f3b2c1d0-…</code>).</p></div>
+  <div class="card bad"><h4>❌ Không dùng <code>email</code> làm khóa chính</h4><p>Email <b>đổi được</b> (đổi tên, đổi công ty), có thể <b>bị tái sử dụng</b> (người nghỉ việc, email cấp cho người mới), có thể <b>chưa xác minh</b> (<code>email_verified = false</code>), và ở một số provider/cấu hình người dùng <b>tự đặt</b> được giá trị email.</p></div>
+</div>
+<div class="callout warn"><span class="callout-title">⚠️ <code>sub</code> có thể khác nhau theo app</span>
+Một số OP phát <b>pairwise</b> subject: cùng một người nhưng mỗi client (hoặc mỗi nhóm client) nhận một <code>sub</code> khác — để chống theo dõi chéo. Ví dụ Microsoft Entra ID: <code>sub</code> là pairwise theo ứng dụng, còn <code>oid</code> là ID ổn định của user trong tenant. Đừng đem <code>sub</code> của app A so với <code>sub</code> của app B.</div>
+
+<h3 id="social-login">Social / external login <span class="badge should">Should</span></h3>
+<p>“Đăng nhập bằng Google / Microsoft / GitHub” = ứng dụng của bạn là <b>RP</b>, nhà cung cấp là <b>OP</b> (GitHub là OAuth 2.0 thuần, không phải OIDC đầy đủ — bạn lấy id người dùng qua API). Ứng dụng vẫn có <b>user nội bộ</b> của riêng mình; external login chỉ là “cách để vào” user đó. Một user nội bộ có thể liên kết <b>nhiều</b> external login.</p>
+
+<h3 id="external-login">Thiết kế bảng user / external login</h3>
+<p>Đây là <b>Deliverable 6</b>:</p>
+<pre data-title="schema.sql (SQL Server)"><code class="language-sql">CREATE TABLE users (
+    id              UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+    display_name    NVARCHAR(200)  NOT NULL,
+    contact_email   NVARCHAR(320)  NULL,      -- chỉ để liên lạc/hiển thị, KHÔNG phải khóa
+    status          VARCHAR(20)    NOT NULL DEFAULT 'active',
+    created_at      DATETIME2      NOT NULL DEFAULT SYSUTCDATETIME()
+);
+
+CREATE TABLE external_logins (
+    id              BIGINT IDENTITY PRIMARY KEY,
+    user_id         UNIQUEIDENTIFIER NOT NULL REFERENCES users(id),
+    issuer          NVARCHAR(512)  NOT NULL,  -- iss, vd https://accounts.google.com
+    subject         NVARCHAR(255)  NOT NULL,  -- sub (tối đa 255 ký tự ASCII theo OIDC Core)
+    provider_name   NVARCHAR(50)   NOT NULL,  -- 'google', 'entra', 'keycloak' (để hiển thị)
+    tenant_id       NVARCHAR(64)   NULL,      -- tid nếu là Entra multi-tenant
+    email_at_link   NVARCHAR(320)  NULL,      -- email lúc liên kết, chỉ để tham khảo/audit
+    linked_at       DATETIME2      NOT NULL DEFAULT SYSUTCDATETIME(),
+    last_login_at   DATETIME2      NULL,
+    CONSTRAINT uq_external_login UNIQUE (issuer, subject)  -- MỘT (iss, sub) chỉ thuộc MỘT user
+);
+CREATE INDEX ix_external_logins_user ON external_logins(user_id);</code></pre>
+<div class="callout info"><span class="callout-title">ℹ️ So với ASP.NET Core Identity</span>
+Bảng <code>AspNetUserLogins</code> có khóa (<code>LoginProvider</code>, <code>ProviderKey</code>) và cột <code>UserId</code>. <code>ProviderKey</code> thường là <code>sub</code>; <code>LoginProvider</code> là <b>tên scheme</b> bạn đặt (vd. “Google”), không phải <code>iss</code>. Ổn khi mỗi scheme ứng với đúng một issuer; với provider đa tenant hãy cân nhắc lưu thêm <code>iss</code>/<code>tid</code>.</div>
+
+<h3 id="account-linking">Account linking an toàn <span class="badge should">Should</span></h3>
+<p>Tình huống: An đã có tài khoản (đăng ký bằng Keycloak), hôm nay bấm “Đăng nhập bằng Google” lần đầu với cùng email. Có nên tự gộp không?</p>
+<div class="diagram">
+<pre class="mermaid">
+flowchart TD
+  S["Callback OIDC thành công:<br/>có iss, sub, email, email_verified"] --> A{"Đã có external_login<br/>với (iss, sub)?"}
+  A -- "Có" --> L["Đăng nhập vào user_id đã liên kết"]
+  A -- "Chưa" --> B{"Người dùng ĐANG đăng nhập<br/>và chủ động bấm Liên kết?"}
+  B -- "Có" --> R["Yêu cầu xác thực lại user hiện tại<br/>rồi thêm external_login"]
+  B -- "Không" --> C{"Có user nội bộ<br/>trùng email?"}
+  C -- "Không" --> N["Tạo user mới + external_login<br/>(nếu cho phép tự đăng ký)"]
+  C -- "Có" --> D{"email_verified = true VÀ<br/>provider đáng tin cho domain đó?"}
+  D -- "Không" --> X["KHÔNG tự liên kết.<br/>Yêu cầu đăng nhập bằng cách cũ để liên kết"]
+  D -- "Có" --> P{"Chính sách cho phép<br/>tự liên kết?"}
+  P -- "Có" --> M["Liên kết + gửi email thông báo<br/>+ ghi audit log"]
+  P -- "Không" --> X
+</pre>
+<div class="caption">Cách an toàn nhất: người dùng <b>đang đăng nhập</b> chủ động liên kết thêm provider. Tự liên kết theo email chỉ khi email đã xác minh và provider có thẩm quyền với domain đó (vd. Entra ID của chính công ty cho <code>@company.com</code>).</div>
+</div>
+<div class="callout danger"><span class="callout-title">🚫 Account takeover qua tự liên kết bằng email chưa xác minh</span>
+Kẻ tấn công tạo tài khoản ở một provider cho phép đặt email tùy ý (hoặc chưa xác minh), đặt email = <code>an.nv@company.com</code>, rồi “Đăng nhập bằng provider đó” vào app của bạn. Nếu app tự gộp theo email → kẻ tấn công vào thẳng tài khoản của An. Đây là lỗi thật đã xảy ra với nhiều hệ thống.</div>
+
+<h3 id="multi-tenant">Multi-tenant (Microsoft Entra ID) <span class="badge nice">Nice</span></h3>
+<p>App đăng ký “multi-tenant” cho phép người dùng từ <b>mọi</b> tenant Entra ID đăng nhập qua endpoint <code>/common</code> hoặc <code>/organizations</code>. Mỗi tenant có <b>issuer riêng</b> dạng <code>https://login.microsoftonline.com/{tenant-id}/v2.0</code>, và ID token có claim <code>tid</code>.</p>
+<ul>
+<li>Kiểm tra <code>iss</code>/<code>tid</code> thuộc <b>danh sách tenant được phép</b> (khách hàng đã đăng ký), không mặc định chấp nhận mọi tenant.</li>
+<li>Khóa định danh nên gồm tenant: (<code>tid</code>, <code>oid</code>) hoặc (<code>iss</code>, <code>sub</code>).</li>
+<li>“Ai cũng có thể tạo một tenant Entra miễn phí” → nếu bỏ qua kiểm tra tenant, người lạ vẫn đăng nhập được.</li>
+</ul>
+
+<h3 id="obo">On-Behalf-Of / Token Exchange (RFC 8693) <span class="badge nice">Nice</span></h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>Bạn ủy quyền cho luật sư (API A). Luật sư cần vào ngân hàng (API B) thay bạn. Luật sư không đưa nguyên giấy ủy quyền của bạn (token có <code>aud</code> = API A), mà mang nó tới phòng công chứng (AS) đổi lấy <b>giấy ủy quyền mới</b> ghi rõ “cho ngân hàng B, thay mặt An”.</div>
+<p>Khi API A nhận access token của người dùng và cần gọi API B <b>thay mặt chính người dùng đó</b>, API A <b>không</b> nên chuyển tiếp nguyên token (aud sai, quyền quá rộng), cũng không nên dùng Client Credentials (mất danh tính người dùng). Thay vào đó API A đổi token:</p>
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant C as Client
+  participant A as API A (orders)
+  participant AZ as Authorization Server
+  participant B as API B (billing)
+  C->>A: Bearer token1 (aud=API A, sub=An)
+  A->>AZ: Token exchange: subject_token=token1, audience=API B
+  AZ->>AZ: Kiểm tra token1, chính sách cho phép A gọi B thay An
+  AZ-->>A: token2 (aud=API B, sub=An, có thể kèm act=API A)
+  A->>B: Bearer token2
+  B-->>A: 200 OK
+</pre>
+<div class="caption">Token Exchange (RFC 8693) / On-Behalf-Of (Entra ID). Chỉ cần biết tên và use case — xem thêm <a href="appendix.html#advanced">Appendix — nâng cao</a>.</div>
+</div>
+<pre data-title="RFC 8693 vs Entra OBO (tham số chính)"><code class="language-plaintext"># RFC 8693 Token Exchange
+grant_type=urn:ietf:params:oauth:grant-type:token-exchange
+&amp;subject_token=eyJ...token1
+&amp;subject_token_type=urn:ietf:params:oauth:token-type:access_token
+&amp;audience=billing-api
+
+# Microsoft Entra ID On-Behalf-Of (biến thể riêng, dùng jwt-bearer)
+grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer
+&amp;assertion=eyJ...token1
+&amp;requested_token_use=on_behalf_of
+&amp;scope=api://billing-api/.default
+&amp;client_id=...&amp;client_secret=...</code></pre>
+
+<h3 id="nang-cao">Nội dung nâng cao (chỉ cần biết tên)</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>Chủ đề</th><th>Một dòng giải thích</th></tr></thead>
+<tbody>
+<tr><td>DPoP (RFC 9449), mTLS-bound tokens (RFC 8705)</td><td><b>Sender-constrained token</b>: token gắn với khóa của client, bị trộm cũng không dùng được nếu thiếu khóa.</td></tr>
+<tr><td>PAR (RFC 9126)</td><td>Pushed Authorization Requests: client POST tham số authorization lên AS trước, front-channel chỉ mang <code>request_uri</code>.</td></tr>
+<tr><td>JAR (RFC 9101), JARM</td><td>Authorization request / response được đóng gói thành JWT có chữ ký.</td></tr>
+<tr><td>RAR (RFC 9396)</td><td>Rich Authorization Requests: xin quyền chi tiết bằng JSON (<code>authorization_details</code>) thay vì chuỗi scope.</td></tr>
+<tr><td>Resource Indicators (RFC 8707)</td><td>Tham số <code>resource</code> chỉ rõ token dành cho API nào → audience hẹp.</td></tr>
+<tr><td>RFC 9207</td><td>Tham số <code>iss</code> trong authorization response chống mix-up.</td></tr>
+<tr><td>RFC 8252, RFC 10017</td><td>Best practice cho native app và browser-based app (SPA).</td></tr>
+<tr><td>FAPI 2.0, OpenID Federation</td><td>Profile bảo mật cao cho tài chính; liên kết tin cậy giữa nhiều OP/RP quy mô lớn.</td></tr>
+</tbody></table></div>
+
+<!-- ===================================================== -->
+<h2 id="hieu-lam">Các hiểu lầm cần tránh</h2>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Có access token nghĩa là người dùng đã đăng nhập vào app của tôi.</span><span class="f-label">Thực tế</span><span>Access token là để <b>gọi API</b>; nó có thể cấp cho app khác. Đăng nhập cần <b>ID token</b> đã validate (aud = client_id của bạn).</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Gửi ID token lên API cho tiện, vì nó cũng là JWT có chữ ký.</span><span class="f-label">Thực tế</span><span>ID token có <code>aud</code> = client, không có scope. API phải từ chối (thử ở <a href="lab.html#lab2">Lab 2</a>).</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Obfuscate thì giấu được client_secret trong WPF/SPA.</span><span class="f-label">Thực tế</span><span>Public client không giữ được bí mật. Dùng PKCE, không secret (hoặc BFF/backend).</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>PKCE chỉ dành cho mobile/SPA.</span><span class="f-label">Thực tế</span><span>RFC 9700 khuyến nghị cả confidential client; OAuth 2.1 đưa PKCE vào mặc định cho mọi Authorization Code.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>state và nonce là một, dùng cái nào cũng được.</span><span class="f-label">Thực tế</span><span>state bảo vệ <b>authorization response</b> (CSRF); nonce bảo vệ <b>ID token</b> (replay). Khác đối tượng, khác nơi kiểm tra.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Bấm Logout trong app là đã đăng xuất khỏi mọi nơi.</span><span class="f-label">Thực tế</span><span>Local session, OP session và token là ba trạng thái khác nhau.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>OAuth 2.1 là chuẩn mới với nhiều cơ chế mới.</span><span class="f-label">Thực tế</span><span>Nó là bản <b>hợp nhất</b> các best practice đã có, và tại 11/2026 vẫn là Internet-Draft.</span></div>
+
+<!-- ===================================================== -->
+<h2 id="so-sanh">3.4 So sánh cần nắm vững</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>#</th><th>Cặp so sánh</th><th>Điểm khác cốt lõi</th><th>Câu “chốt”</th></tr></thead>
+<tbody>
+<tr><td>1</td><td><b>OAuth 2.0 vs OIDC</b></td><td>OAuth: ủy quyền, sản phẩm là access token cho API. OIDC: xác thực trên nền OAuth, thêm scope <code>openid</code>, ID token, UserInfo, Discovery.</td><td>OAuth = “được làm gì”, OIDC = “là ai”.</td></tr>
+<tr><td>2</td><td><b>Authentication vs delegated authorization</b></td><td>AuthN xác minh danh tính người đang dùng app. Delegated authorization: người dùng cho phép app truy cập tài nguyên của mình ở nơi khác.</td><td>Đăng nhập ≠ cấp quyền cho app.</td></tr>
+<tr><td>3</td><td><b>Authorization Code vs Client Credentials</b></td><td>Code: có người dùng, qua browser, token đại diện người dùng. Client Credentials: không có người dùng, token đại diện service.</td><td>Có user → Code + PKCE. Không user → Client Credentials.</td></tr>
+<tr><td>4</td><td><b>Public vs Confidential client</b></td><td>Confidential chạy trên server, giữ được secret/key. Public chạy trên thiết bị người dùng, không giữ được.</td><td>Code trên máy người dùng = public.</td></tr>
+<tr><td>5</td><td><b>Access vs ID vs Refresh token</b></td><td>Access → API. ID → client (kết quả đăng nhập). Refresh → AS (xin token mới).</td><td>Mỗi token một người nhận (<a href="#id-vs-access">bảng</a>).</td></tr>
+<tr><td>6</td><td><b>JWT vs opaque token</b></td><td>JWT tự chứa claims, API validate cục bộ bằng JWKS, khó thu hồi tức thì. Opaque là chuỗi tham chiếu, API phải introspect, thu hồi tức thì được.</td><td>JWT: nhanh, độc lập. Opaque: kiểm soát tập trung (<a href="m02-crypto-session-token.html#tokens">M02</a>).</td></tr>
+<tr><td>7</td><td><b>PKCE vs client_secret</b></td><td>Secret: tĩnh, xác thực <b>client</b>, chỉ confidential client giữ được. PKCE: động mỗi lần đăng nhập, ràng buộc <b>code</b> với client instance, dùng được cho public client.</td><td>Không thay nhau — confidential client nên dùng cả hai.</td></tr>
+<tr><td>8</td><td><b><code>state</code> vs <code>nonce</code></b></td><td>state: client kiểm tra ở callback, chống CSRF/response injection. nonce: nằm trong ID token, chống replay ID token.</td><td>state bảo vệ redirect, nonce bảo vệ ID token.</td></tr>
+<tr><td>9</td><td><b>Local logout vs federated logout</b></td><td>Local: xóa session của app. Federated: kết thúc phiên ở OP và (tùy) thông báo các RP khác.</td><td>Chỉ local logout → SSO đăng nhập lại ngay.</td></tr>
+<tr><td>10</td><td><b>OAuth 2.0 vs OAuth 2.1</b></td><td>2.1 hợp nhất 2.0 + PKCE + RFC 9700: PKCE bắt buộc, bỏ Implicit/ROPC/plain, exact redirect URI, không token trong query, ràng buộc refresh token public client.</td><td>2.1 = 2.0 “đã dọn dẹp”, vẫn là draft.</td></tr>
+<tr><td>11</td><td><b><code>iss</code>+<code>sub</code> vs <code>email</code></b></td><td>(iss, sub) ổn định, duy nhất, không cấp lại. Email đổi được, tái sử dụng được, có thể chưa xác minh.</td><td>Khóa = (iss, sub). Email = thuộc tính.</td></tr>
+</tbody></table></div>
+
+<!-- ===================================================== -->
+<h2 id="tom-tat">Tóm tắt nhanh</h2>
+<ul>
+<li><b>OAuth 2.0</b> là khung <b>ủy quyền</b>: cấp access token có scope, có hạn, thu hồi được — thay cho việc đưa mật khẩu cho app khác.</li>
+<li>4 vai trò: <b>Resource Owner</b> (người dùng), <b>Client</b> (app), <b>Authorization Server</b> (cấp token), <b>Resource Server</b> (API kiểm tra token).</li>
+<li>Có người dùng → <b>Authorization Code + PKCE</b> (mọi loại client). Không có người dùng → <b>Client Credentials</b>. Thiết bị không có trình duyệt → <b>Device flow</b>.</li>
+<li><b>ROPC</b> và <b>Implicit</b> đã bị loại bỏ: không dùng cho thiết kế mới.</li>
+<li><b>PKCE</b>: verifier ngẫu nhiên 43–128 ký tự, challenge = BASE64URL(SHA256(verifier)), method <code>S256</code> → kẻ trộm code không đổi được token.</li>
+<li><b>state</b> chống CSRF ở callback, <b>nonce</b> chống replay ID token, <b>redirect URI chính xác</b> chống trộm code qua URI giả — không cái nào thay cái nào.</li>
+<li><b>OIDC</b> = OAuth + scope <code>openid</code> + <b>ID token</b> (JWT, <code>aud</code> = client_id) + UserInfo + Discovery/JWKS.</li>
+<li><b>ID token cho client, access token cho API</b> — không bao giờ dùng thay nhau.</li>
+<li>Logout có 3 lớp: session của app, session ở OP, token. Single Logout không bao giờ hoàn hảo.</li>
+<li>Định danh người dùng bằng <b>(<code>iss</code>, <code>sub</code>)</b>, không bằng email; chỉ liên kết tài khoản khi người dùng chủ động hoặc email đã xác minh bởi provider có thẩm quyền.</li>
+</ul>
+
+<!-- ===================================================== -->
+<h2 id="output">Output / Deliverables</h2>
+<ul class="checklist">
+<li><span><b>Sơ đồ sequence Authorization Code + PKCE</b> có đủ Client, Browser, Authorization Server và Resource Server (tham khảo <a href="#auth-code-pkce">sơ đồ mẫu</a>). <span class="badge core">Core</span></span></li>
+<li><span><b>Sơ đồ Client Credentials</b> cho service-to-service (<a href="#client-credentials">mẫu</a>). <span class="badge core">Core</span></span></li>
+<li><span><b>Bảng so sánh OAuth 2.0 và OIDC</b>, kèm một đoạn ngắn: OAuth 2.1 bắt buộc/loại bỏ gì và vì sao không dùng ROPC/Implicit cho thiết kế mới (<a href="#oauth21">OAuth 2.1</a>, <a href="#ropc-implicit">ROPC/Implicit</a>). <span class="badge core">Core</span></span></li>
+<li><span><b>Bổ sung bảng token và checklist validation từ Module 02</b> với phần ID token: <code>nonce</code>, <code>aud</code> = <code>client_id</code>, <code>azp</code>, issuer, thời hạn (<a href="#id-vs-access">bảng</a>, <a href="#id-token-validation">checklist</a>). <span class="badge core">Core</span></span></li>
+<li><span><b>Bảng giải thích <code>state</code>, <code>nonce</code>, PKCE và redirect URI validation</b>: mỗi cơ chế chống lại tấn công nào (<a href="#state-nonce">mẫu</a>). <span class="badge core">Core</span></span></li>
+<li><span><b>Thiết kế bảng lưu user/external login</b> dựa trên <code>iss</code> + <code>sub</code>, kèm quy tắc account linking (<a href="#external-login">schema</a>, <a href="#account-linking">quy tắc</a>).</span></li>
+</ul>
+
+<h2 id="knowledge-check">Knowledge Check (tự luận)</h2>
+<p>Tự trả lời trước, sau đó mở đáp án gợi ý để so sánh.</p>
+<details><summary>OAuth có xác thực người dùng không?</summary>
+<p>Bản thân OAuth 2.0 là authorization framework: Authorization Server <i>có</i> xác thực người dùng (để hỏi consent), nhưng OAuth <b>không chuẩn hóa</b> cách truyền kết quả xác thực cho client. Access token dành cho API, có thể không chứa thông tin người dùng, và client không có cách chuẩn để chắc token được cấp cho chính mình. Muốn “đăng nhập” chuẩn → dùng <b>OIDC</b> (ID token).</p></details>
+<details><summary>OIDC thêm những gì vào OAuth?</summary>
+<p>Scope <code>openid</code>; <b>ID token</b> (JWT có chữ ký với <code>iss</code>, <code>sub</code>, <code>aud</code>, <code>exp</code>, <code>iat</code>, <code>nonce</code>, <code>auth_time</code>, <code>acr</code>, <code>amr</code>…); tham số <code>nonce</code>; <b>UserInfo endpoint</b>; bộ claim và scope chuẩn (<code>profile</code>, <code>email</code>…); <b>Discovery</b> và <b>JWKS</b>; các đặc tả <b>logout</b> (RP-initiated, front/back-channel).</p></details>
+<details><summary>Vì sao SPA/native app cần PKCE?</summary>
+<p>Chúng là <b>public client</b>: không có client_secret để chứng minh với token endpoint “tôi là client thật”. Nếu authorization code bị chặn (app độc trùng custom scheme, log, Referer, extension), kẻ tấn công đổi code lấy token ngay. PKCE gắn code với một bí mật động chỉ instance thật biết (<code>code_verifier</code>), nên code bị trộm là vô dụng.</p></details>
+<details><summary><code>client_secret</code> có thể giữ bí mật trong desktop app không?</summary>
+<p><b>Không.</b> Mọi người dùng đều có file thực thi; secret nhúng trong đó (kể cả obfuscate, mã hóa với key cũng nằm trong app) có thể bị trích xuất bằng decompiler hoặc đọc bộ nhớ. Desktop app là public client → dùng Authorization Code + PKCE với system browser và loopback redirect, <b>không</b> có secret (<a href="m07-architecture.html#desktop">M07 — Desktop</a>).</p></details>
+<details><summary>API cần nhận ID token hay access token?</summary>
+<p><b>Access token.</b> ID token có <code>aud</code> = client_id của RP, mô tả sự kiện đăng nhập cho client, không mang scope/quyền cho API. API phải validate access token: chữ ký, <code>iss</code>, <code>aud</code> = chính API, <code>exp</code>, scope/role.</p></details>
+<details><summary><code>aud</code> của ID token và access token có thể khác nhau không?</summary>
+<p><b>Có, và thường là khác.</b> ID token: <code>aud</code> = <code>client_id</code> của RP (vd. <code>demo-client</code>). Access token: <code>aud</code> = API đích (vd. <code>demo-api</code>). Cùng một lần đăng nhập sinh ra hai token với hai “người nhận” khác nhau; <code>azp</code> cho biết client nào đã xin token.</p></details>
+<details><summary>Client Credentials có đại diện cho user đang đăng nhập không?</summary>
+<p><b>Không.</b> Token Client Credentials đại diện cho <b>chính ứng dụng/service</b> (<code>sub</code> là service account). Nếu cần gọi API downstream thay mặt user → Token Exchange/On-Behalf-Of, không phải Client Credentials.</p></details>
+<details><summary>Nếu chữ ký JWT hợp lệ nhưng <code>aud</code> sai, API có nên chấp nhận không?</summary>
+<p><b>Không.</b> Chữ ký hợp lệ chỉ chứng minh token do AS phát hành và không bị sửa. <code>aud</code> sai nghĩa là token được cấp cho <b>người nhận khác</b> (API khác, hoặc là ID token cho client). Chấp nhận nó cho phép “token substitution”: token lấy ở dịch vụ kém quan trọng được dùng để vào dịch vụ quan trọng. Trả <code>401</code>.</p></details>
+<details><summary>Vì sao không dùng email làm khóa định danh người dùng?</summary>
+<p>Email có thể <b>thay đổi</b>, <b>được cấp lại</b> cho người khác, <b>chưa được xác minh</b> (<code>email_verified = false</code>), và ở một số provider người dùng tự đặt được. Dùng email làm khóa (hoặc tự liên kết theo email) có thể dẫn đến chiếm tài khoản. Khóa đúng: cặp <b>(<code>iss</code>, <code>sub</code>)</b>; email chỉ là thuộc tính liên lạc.</p></details>
+<details><summary>OAuth 2.1 bắt buộc và loại bỏ những gì?</summary>
+<p><b>Bắt buộc:</b> PKCE cho mọi Authorization Code (chỉ <code>S256</code>), redirect URI so khớp chính xác (trừ port loopback), refresh token của public client phải sender-constrained hoặc dùng một lần. <b>Loại bỏ:</b> Implicit grant, ROPC, PKCE <code>plain</code>, bearer token trong query string. Tại 11/2026 OAuth 2.1 vẫn là Internet-Draft (-17); các yêu cầu tương ứng đã có hiệu lực qua RFC 9700 (BCP).</p></details>
+
+<div class="callout tip"><span class="callout-title">✅ Tiêu chí hoàn thành</span>
+Có thể <b>vẽ và giải thích</b> Authorization Code + PKCE và Client Credentials, và mô tả cách <b>client</b> xác minh ID token và <b>API</b> xác minh access token mà không nhầm vai trò của từng token. Kiểm chứng bằng tay ở <a href="lab.html#lab1">Lab 1</a>–<a href="lab.html#lab3">Lab 3</a>.</div>
+
+<h2 id="quiz">Quiz trắc nghiệm</h2>
+<div id="quiz"></div>
+
+</main>
+<script>
+window.QUIZ = [
+  { q: "App in ảnh muốn đọc album của người dùng trên một dịch vụ lưu ảnh. Cách nào đúng tinh thần OAuth?",
+    options: ["Yêu cầu người dùng nhập mật khẩu dịch vụ lưu ảnh vào app in ảnh rồi lưu lại", "Chuyển người dùng tới Authorization Server của dịch vụ lưu ảnh để đăng nhập + đồng ý, app nhận access token có scope chỉ đọc ảnh", "Dịch vụ lưu ảnh gửi file ảnh qua email cho app in ảnh", "App in ảnh dùng API key chung của dịch vụ lưu ảnh cho mọi người dùng"],
+    answer: 1,
+    explain: "OAuth thay <b>password anti-pattern</b> bằng access token có phạm vi, có hạn, thu hồi được; app không bao giờ thấy mật khẩu. Xem <a href='#oauth-van-de'>mục A</a>." },
+  { q: "Trong OAuth, thành phần nào <b>kiểm tra access token</b> trên mỗi request?",
+    options: ["Authorization Server", "Client", "Resource Owner", "Resource Server"],
+    answer: 3,
+    explain: "Resource Server (API) kiểm tra access token. Authorization Server là bên <b>phát hành</b> token." },
+  { q: "Một ứng dụng WPF cài trên máy nhân viên. Phân loại client nào đúng?",
+    options: ["Public client — không giữ được client_secret, dùng Authorization Code + PKCE", "Confidential client vì chạy trong mạng nội bộ", "Confidential client nếu secret được obfuscate", "Không phải client OAuth"],
+    answer: 0,
+    explain: "Code chạy trên thiết bị người dùng ⇒ <b>public client</b>. Obfuscate không biến secret thành bí mật. Xem <a href='#client-types'>Public vs Confidential</a>." },
+  { q: "Với PKCE method <code>S256</code>, <code>code_challenge</code> được tính thế nào (RFC 7636)?",
+    options: ["BASE64(SHA1(code_verifier))", "HMAC-SHA256(client_secret, code_verifier)", "BASE64URL-ENCODE(SHA256(ASCII(code_verifier))) không padding", "code_challenge = code_verifier"],
+    answer: 2,
+    explain: "S256: <code>BASE64URL(SHA256(ASCII(code_verifier)))</code>. Phương án cuối là method <code>plain</code> — bị OAuth 2.1 loại bỏ." },
+  { q: "Giá trị nào là <code>code_verifier</code> <b>hợp lệ</b> theo RFC 7636?",
+    options: ["<code>abc123</code>", "Chuỗi 43 ký tự base64url sinh từ 32 byte ngẫu nhiên", "Chuỗi 200 ký tự ngẫu nhiên", "Một GUID có dấu ngoặc nhọn <code>{...}</code>"],
+    answer: 1,
+    explain: "Verifier dài <b>43–128</b> ký tự, chỉ gồm <code>A-Z a-z 0-9 - . _ ~</code>. 32 byte ngẫu nhiên → base64url → đúng 43 ký tự. Thử ở <a href='#pkce-widget'>PKCE generator</a>." },
+  { q: "Kẻ tấn công chặn được authorization code của một public client có dùng PKCE và gửi code tới token endpoint. Điều gì xảy ra?",
+    options: ["AS cấp token vì code hợp lệ", "AS trả lỗi <code>invalid_grant</code> vì thiếu/sai <code>code_verifier</code>", "AS yêu cầu người dùng đăng nhập lại", "AS trả về ID token nhưng không trả access token"],
+    answer: 1,
+    explain: "Kẻ tấn công không có verifier (chỉ nằm trong RAM của app thật) ⇒ AS từ chối với <code>invalid_grant</code>. Xem <a href='#pkce-attack'>sơ đồ tấn công</a>." },
+  { q: "Một job đồng bộ dữ liệu chạy lúc 2 giờ sáng cần gọi API kho hàng. Không có người dùng. Grant nào phù hợp?",
+    options: ["Authorization Code + PKCE", "Device Authorization Grant", "Implicit", "Client Credentials"],
+    answer: 3,
+    explain: "Machine-to-machine, không có người dùng ⇒ <b>Client Credentials</b> với confidential client." },
+  { q: "Token lấy bằng Client Credentials có <code>sub</code> là gì?",
+    options: ["ID của service account / client, không phải người dùng thật", "ID của người dùng đăng nhập gần nhất", "Email của quản trị viên", "Luôn rỗng"],
+    answer: 0,
+    explain: "Client Credentials đại diện cho <b>chính ứng dụng</b>. Keycloak dùng service account (<code>service-account-worker</code>)." },
+  { q: "Trong Device Authorization Grant, thiết bị nhận lỗi <code>slow_down</code> khi polling. Nó phải làm gì?",
+    options: ["Dừng hẳn và báo lỗi cho người dùng", "Poll ngay lập tức lần nữa", "Tăng khoảng cách polling thêm 5 giây cho lần này và mọi lần sau", "Xin device_code mới"],
+    answer: 2,
+    explain: "RFC 8628: <code>slow_down</code> ⇒ interval <b>tăng thêm 5 giây</b>. <code>authorization_pending</code> ⇒ tiếp tục poll theo interval hiện tại." },
+  { q: "Những lý do nào khiến Implicit grant không được dùng cho ứng dụng mới?",
+    options: ["Access token nằm trong URL fragment, có thể lộ qua history, extension, script bên thứ ba", "Không có bước đổi code ở back-channel nên không có client binding/PKCE", "Implicit bắt buộc client phải có client_secret", "Không có refresh token an toàn cho SPA"],
+    answer: [0, 1, 3],
+    explain: "Implicit trả token trực tiếp qua front-channel và không xác thực/ràng buộc client. Nó <b>không</b> dùng client_secret. Xem <a href='#ropc-implicit'>ROPC &amp; Implicit</a>." },
+  { q: "Vì sao ROPC (<code>grant_type=password</code>) không được dùng cho thiết kế mới?",
+    options: ["Vì nó chậm hơn Authorization Code", "Vì client trực tiếp xử lý mật khẩu người dùng, không hỗ trợ MFA/federation, và RFC 9700 nói MUST NOT", "Vì nó chỉ dùng được với SAML", "Vì nó không trả về access token"],
+    answer: 1,
+    explain: "ROPC đưa mật khẩu vào tay client — đúng password anti-pattern. RFC 9700: MUST NOT; OAuth 2.1 loại bỏ." },
+  { q: "Tại 11/2026, phát biểu nào về OAuth 2.1 là đúng?",
+    options: ["Là RFC chính thức thay thế RFC 6749", "Đã bị IETF hủy bỏ", "Là bản viết lại hoàn toàn với cơ chế mới", "Vẫn là Internet-Draft (draft-ietf-oauth-v2-1); các yêu cầu bảo mật tương ứng đã có trong RFC 9700"],
+    answer: 3,
+    explain: "Datatracker: <code>draft-ietf-oauth-v2-1-17</code>, chưa có số RFC. RFC 9700 (BCP 240, 1/2025) là văn bản chính thức có thể trích dẫn." },
+  { q: "Những thay đổi nào thuộc OAuth 2.1 so với OAuth 2.0?",
+    options: ["PKCE bắt buộc cho Authorization Code", "Loại bỏ Client Credentials grant", "Redirect URI phải so khớp chính xác", "Không gửi bearer token trong query string"],
+    answer: [0, 2, 3],
+    explain: "Client Credentials <b>vẫn giữ</b>. Bị loại bỏ là Implicit, ROPC và PKCE <code>plain</code>." },
+  { q: "Client <b>không</b> kiểm tra <code>state</code> ở callback. Tấn công nào trở nên khả thi?",
+    options: ["Login CSRF / authorization response injection: nạn nhân bị gắn vào tài khoản của kẻ tấn công", "Algorithm confusion trên JWT", "Brute force mật khẩu", "SQL injection"],
+    answer: 0,
+    explain: "state ràng buộc response với phiên trình duyệt đã khởi tạo request. Thiếu nó, kẻ tấn công ép trình duyệt nạn nhân mang code của <i>kẻ tấn công</i> vào callback. Xem <a href='#login-csrf'>ví dụ</a>." },
+  { q: "<code>nonce</code> trong OIDC nằm ở đâu và chủ yếu chống gì?",
+    options: ["Trong access token, chống token bị dùng ở API khác", "Trong URL callback, chống CSRF", "Trong ID token, liên kết ID token với authentication request — chống replay/injection ID token", "Trong refresh token, chống reuse"],
+    answer: 2,
+    explain: "Client gửi nonce, OP chép vào ID token, client so khớp khi validate ID token." },
+  { q: "Authorization Server cho phép <code>redirect_uri</code> dạng <code>https://*.printnow.example/*</code>. Rủi ro chính là gì?",
+    options: ["Token hết hạn sớm", "Kẻ tấn công chiếm một subdomain hoặc dùng open redirect để nhận authorization code", "Người dùng phải đăng nhập lại nhiều lần", "Không có rủi ro vì vẫn cùng domain"],
+    answer: 1,
+    explain: "Wildcard/so khớp lỏng là nguồn gốc nhiều vụ trộm code. RFC 9700 &amp; OAuth 2.1: so khớp chuỗi <b>chính xác</b>." },
+  { q: "API nhận một JWT có chữ ký hợp lệ do đúng issuer phát hành, nhưng <code>aud</code> = <code>demo-client</code> (không phải <code>demo-api</code>). API nên làm gì?",
+    options: ["Chấp nhận vì chữ ký hợp lệ", "Chấp nhận nếu token còn hạn", "Từ chối với 401 — token dành cho người nhận khác (có thể là ID token)", "Trả 403 nhưng vẫn ghi nhận người dùng đã đăng nhập"],
+    answer: 2,
+    explain: "Chữ ký chỉ chứng minh nguồn gốc và tính toàn vẹn; <code>aud</code> sai ⇒ token không dành cho API này ⇒ 401." },
+  { q: "Những claim nào là <b>REQUIRED</b> trong mọi ID token theo OIDC Core?",
+    options: ["<code>iss</code>, <code>sub</code>, <code>aud</code>", "<code>exp</code>, <code>iat</code>", "<code>email</code>, <code>name</code>", "<code>amr</code>, <code>acr</code>"],
+    answer: [0, 1],
+    explain: "Bắt buộc: <code>iss</code>, <code>sub</code>, <code>aud</code>, <code>exp</code>, <code>iat</code>. <code>acr</code>, <code>amr</code>, <code>azp</code> là OPTIONAL; <code>auth_time</code>, <code>nonce</code> bắt buộc theo điều kiện." },
+  { q: "Trong ID token, <code>aud</code> phải chứa giá trị nào?",
+    options: ["URL của Resource Server", "<code>client_id</code> của Relying Party", "Issuer URL", "<code>sub</code> của người dùng"],
+    answer: 1,
+    explain: "ID token dành cho client ⇒ <code>aud</code> chứa <code>client_id</code>. <code>azp</code> (nếu có) cũng nên bằng client_id." },
+  { q: "Ứng dụng nhận JWT có header <code>kid</code> không có trong JWKS đã cache. Cách xử lý tốt nhất?",
+    options: ["Từ chối vĩnh viễn mọi token có kid mới", "Bỏ qua kiểm tra chữ ký cho token này", "Tải JWKS từ URL ghi trong header <code>jku</code> của token", "Tải lại Discovery/JWKS (có giới hạn tần suất), nếu vẫn không có kid thì từ chối"],
+    answer: 3,
+    explain: "Key rotation: OP công bố key mới trong JWKS. Không tin URL key do token tự khai báo. Xem <a href='#key-rotation'>key rotation</a>." },
+  { q: "Người dùng bấm Logout trong app; app chỉ xóa cookie session của mình. Ngay sau đó bấm Đăng nhập — chuyện gì thường xảy ra?",
+    options: ["Phải nhập lại mật khẩu", "Vào lại ngay không hỏi mật khẩu vì phiên ở OP vẫn còn (SSO)", "Tài khoản bị khóa", "Refresh token bị thu hồi tự động"],
+    answer: 1,
+    explain: "Local logout ≠ OP logout. Cần RP-initiated logout tới <code>end_session_endpoint</code> (kèm <code>id_token_hint</code>) để kết thúc phiên OP." },
+  { q: "Khi thiết kế bảng external login, khóa duy nhất nên là gì?",
+    options: ["<code>email</code>", "<code>preferred_username</code>", "Cặp (<code>iss</code>, <code>sub</code>)", "<code>name</code> + <code>email</code>"],
+    answer: 2,
+    explain: "<code>sub</code> chỉ duy nhất trong phạm vi issuer. Email/username đổi được, tái sử dụng được." },
+  { q: "Người dùng chưa đăng nhập, đăng nhập bằng một provider trả <code>email = an.nv@company.com</code>, <code>email_verified = false</code>. Hệ thống đã có user với email đó. Nên làm gì?",
+    options: ["Không tự liên kết; yêu cầu người dùng đăng nhập bằng phương thức cũ rồi chủ động liên kết", "Tự liên kết vì email trùng", "Xóa user cũ và tạo user mới", "Ghi đè email của user cũ"],
+    answer: 0,
+    explain: "Tự liên kết theo email chưa xác minh ⇒ account takeover. Xem <a href='#account-linking'>flowchart account linking</a>." },
+  { q: "API A nhận access token của An và cần gọi API B <b>thay mặt An</b>. Cách nào đúng?",
+    options: ["Chuyển tiếp nguyên token của An (aud = API A) sang API B", "Dùng Client Credentials của API A và gửi userId của An trong body", "Gửi ID token của An cho API B", "Dùng Token Exchange (RFC 8693) / On-Behalf-Of để lấy token mới có aud = API B và vẫn đại diện An"],
+    answer: 3,
+    explain: "Token Exchange/OBO giữ danh tính người dùng và tạo token đúng audience cho API downstream. Xem <a href='#obo'>OBO</a>." }
+];
+</script>
+<script>
+(function () {
+  var AUTH_EP = "http://localhost:8080/realms/demo/protocol/openid-connect/auth";
+  var CLIENT_ID = "demo-client";
+  var REDIRECT = "http://127.0.0.1:7890/";
+  var SCOPE = "openid profile email orders.read";
+  var RFC_VERIFIER = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
+  var RFC_CHALLENGE = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM";
+  var state = "", nonce = "", storedChallenge = "";
+
+  function $(id) { return document.getElementById(id); }
+  function b64url(bytes) {
+    var s = "";
+    for (var i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+    return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  }
+  function randomB64url(n) {
+    var a = new Uint8Array(n);
+    crypto.getRandomValues(a);
+    return b64url(a);
+  }
+  function hasSubtle() { return !!(window.crypto && crypto.subtle && crypto.subtle.digest); }
+  function sha256b64url(text) {
+    return crypto.subtle.digest("SHA-256", new TextEncoder().encode(text))
+      .then(function (buf) { return b64url(new Uint8Array(buf)); });
+  }
+  function validVerifier(v) { return /^[A-Za-z0-9\-._~]{43,128}$/.test(v); }
+
+  function gen() {
+    var n = parseInt($("pk-bytes").value, 10);
+    $("pk-verifier").value = randomB64url(n);
+    state = randomB64url(16);
+    nonce = randomB64url(16);
+    $("pk-out").textContent =
+      "Bước 1 — đã sinh bằng crypto.getRandomValues:\n" +
+      "  code_verifier (" + $("pk-verifier").value.length + " ký tự) = " + $("pk-verifier").value + "\n" +
+      "  state = " + state + "\n" +
+      "  nonce = " + nonce + "\n\n" +
+      "Client giữ 3 giá trị này trong bộ nhớ/session. Verifier KHÔNG BAO GIỜ đi qua trình duyệt.\n" +
+      "→ Bấm \"2. Tính challenge & URL\".";
+  }
+
+  function calc() {
+    var v = $("pk-verifier").value.trim();
+    if (!v) { gen(); v = $("pk-verifier").value; }
+    if (!state) state = randomB64url(16);
+    if (!nonce) nonce = randomB64url(16);
+    if (!hasSubtle()) {
+      $("pk-out").textContent = "Trình duyệt không cung cấp crypto.subtle (cần HTTPS, localhost hoặc file:// trên trình duyệt hiện đại).";
+      return;
+    }
+    var check = validVerifier(v)
+      ? "✅ Hợp lệ: " + v.length + " ký tự, chỉ gồm A-Z a-z 0-9 - . _ ~"
+      : "❌ KHÔNG hợp lệ theo RFC 7636 (cần 43–128 ký tự thuộc A-Z a-z 0-9 - . _ ~). Hiện có " + v.length + " ký tự.";
+    sha256b64url(v).then(function (ch) {
+      storedChallenge = ch;
+      var url = AUTH_EP +
+        "?response_type=code" +
+        "&client_id=" + encodeURIComponent(CLIENT_ID) +
+        "&redirect_uri=" + encodeURIComponent(REDIRECT) +
+        "&scope=" + encodeURIComponent(SCOPE) +
+        "&state=" + encodeURIComponent(state) +
+        "&nonce=" + encodeURIComponent(nonce) +
+        "&code_challenge=" + ch +
+        "&code_challenge_method=S256";
+      var rfc = (v === RFC_VERIFIER)
+        ? "\n  So với RFC 7636 Appendix B: " + (ch === RFC_CHALLENGE ? "✅ KHỚP " : "❌ KHÁC ") + RFC_CHALLENGE
+        : "";
+      $("pk-out").textContent =
+        "Kiểm tra verifier: " + check + "\n\n" +
+        "Bước 2 — code_challenge = BASE64URL(SHA256(ASCII(code_verifier))):\n" +
+        "  SHA-256 cho ra 32 byte → base64url bỏ dấu = → luôn 43 ký tự\n" +
+        "  code_challenge = " + ch + rfc + "\n\n" +
+        "Bước 3 — authorization URL (đi qua trình duyệt, chỉ chứa challenge):\n" + url + "\n\n" +
+        "Bước 4 — khi đổi code, client gửi tới token endpoint (back-channel):\n" +
+        "  grant_type=authorization_code&code=...&redirect_uri=" + encodeURIComponent(REDIRECT) +
+        "&client_id=" + CLIENT_ID + "&code_verifier=" + v + "\n\n" +
+        "Bước 5 — AS tính lại SHA256(code_verifier), so với challenge đã lưu. Thử ở ô bên dưới.";
+      $("pk-try").value = v;
+    });
+  }
+
+  function rfcVector() {
+    $("pk-verifier").value = RFC_VERIFIER;
+    calc();
+  }
+
+  function verify() {
+    var out = $("pk-verify-out");
+    if (!storedChallenge) { out.textContent = "Chưa có challenge nào được \"lưu\" ở AS — hãy làm bước 2 trước."; return; }
+    if (!hasSubtle()) { out.textContent = "Trình duyệt không hỗ trợ crypto.subtle."; return; }
+    var v = $("pk-try").value.trim();
+    if (!v) { out.textContent = "AS: thiếu code_verifier → 400 {\"error\":\"invalid_grant\"} (đã có challenge thì verifier là bắt buộc)."; return; }
+    sha256b64url(v).then(function (ch) {
+      if (ch === storedChallenge) {
+        out.textContent = "SHA256(verifier) = " + ch + "\nChallenge đã lưu = " + storedChallenge +
+          "\n✅ KHỚP → AS cấp token (200 OK, access_token, id_token...).";
+      } else {
+        out.textContent = "SHA256(verifier) = " + ch + "\nChallenge đã lưu = " + storedChallenge +
+          "\n❌ KHÔNG KHỚP → 400 {\"error\":\"invalid_grant\"}. Kẻ trộm code mà không có verifier gốc sẽ thất bại ở đây.";
+      }
+    });
+  }
+
+  function init() {
+    if (!$("pk-gen")) return;
+    $("pk-gen").addEventListener("click", gen);
+    $("pk-calc").addEventListener("click", calc);
+    $("pk-rfc").addEventListener("click", rfcVector);
+    $("pk-verify").addEventListener("click", verify);
+    $("pk-bytes").addEventListener("change", gen);
+  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init); else init();
+})();
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

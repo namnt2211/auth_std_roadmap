@@ -1,0 +1,1358 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lab · OAuth/OIDC với ASP.NET Core</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<main class="content">
+
+<div class="page-head">
+  <div class="breadcrumb"><a href="index.html">Lộ trình</a> / Lab</div>
+  <h1>Lab — Hands-on OAuth/OIDC với ASP.NET Core</h1>
+  <p class="lead">Biến các flow đã vẽ ở <a href="m03-oauth-oidc.html">Module 03</a> thành hệ thống <b>chạy được trên máy bạn</b>: Keycloak làm IdP, một Web API ASP.NET Core xác minh JWT, một console app đăng nhập bằng Authorization Code + PKCE, và một “worker” dùng Client Credentials. Bạn sẽ đọc request, response và token <b>thật</b> — rồi cố tình làm hỏng để hiểu từng lỗi 401/403.</p>
+  <div class="meta-row">
+    <span class="chip">⏱ Full 2 giờ · Core 1.5 giờ (Lab 1–3)</span>
+    <span class="chip">📥 Input: hoàn thành M01–M03</span>
+    <span class="chip">🧰 .NET 10 LTS · Docker · Keycloak 26.x</span>
+    <span class="chip">➡️ Tiếp theo: <a href="m04-saml.html">Module 04</a></span>
+  </div>
+</div>
+
+<div class="keypoints"><div class="kp-title">Sau bài này bạn sẽ</div><ul>
+<li>Tự dựng một IdP (Keycloak) với realm, user, client public/confidential, client scope và audience — biết <b>vì sao</b> từng cấu hình tồn tại.</li>
+<li>Viết một ASP.NET Core Web API xác minh access token (JWT) và <b>tái hiện được ít nhất 6 lỗi</b> 401/403, đọc được header <code>WWW-Authenticate</code> và log <code>IDX10xxx</code>.</li>
+<li>Viết một console app .NET đăng nhập bằng <b>Authorization Code + PKCE</b> qua system browser và loopback redirect, tự bắt được <code>code_challenge</code>, <code>state</code>, <code>nonce</code>.</li>
+<li>Phân biệt ID token và access token bằng dữ liệu thật (<code>aud</code>, <code>azp</code>, <code>nonce</code>, <code>scope</code>).</li>
+<li>Dùng Client Credentials, quan sát refresh token rotation, gọi introspection và revocation endpoint.</li>
+<li>(Nice) Đọc một SAML Response thật bằng SAML-tracer.</li>
+</ul></div>
+
+<div class="callout info"><span class="callout-title">🎯 Mục tiêu của Lab (theo roadmap)</span>
+Biến các flow đã vẽ ở Module 03 thành hệ thống chạy được. Tập đọc request, response và token thật thay vì chỉ học qua sơ đồ. Kết quả lab cũng là <b>demo cho buổi chia sẻ</b> và là nguồn dữ liệu cho <a href="m07-architecture.html#troubleshooting">troubleshooting guide ở Module 07</a>.</div>
+
+<div class="callout tip"><span class="callout-title">🧭 Cách đọc trang này</span>
+Mỗi lab có 6 phần cố định: <b>(a) Mục tiêu</b> → <b>(b) Yêu cầu/đề bài</b> (bạn phải đạt được gì, nộp gì) → <b>(c) Hướng dẫn từng bước</b> (mỗi bước: <i>làm gì – vì sao – kiểm tra đã đúng chưa</i>) → <b>(d) Kết quả mong đợi</b> → <b>(e) Lỗi thường gặp</b> → <b>(f) Câu hỏi tự kiểm tra</b>. Hãy đọc phần (b) trước để biết “đích đến”, rồi mới làm (c).</div>
+
+<!-- ===================================================== -->
+<h2 id="tong-quan">Tổng quan kiến trúc lab</h2>
+
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Hãy tưởng tượng một tòa nhà văn phòng. <b>Keycloak</b> là quầy lễ tân cấp thẻ ra vào. <b>DemoApi</b> là cửa phòng “Orders” có đầu đọc thẻ. <b>demo-client</b> là nhân viên (alice) đến quầy xin thẻ, còn <b>worker</b> là robot giao hàng của công ty xin thẻ cho chính nó (không thay mặt người nào). Đầu đọc thẻ ở cửa không gọi điện hỏi lễ tân mỗi lần — nó tự kiểm tra con dấu (chữ ký) trên thẻ bằng mẫu con dấu đã tải về trước (JWKS).</div>
+
+<div class="diagram">
+<pre class="mermaid">
+flowchart LR
+  U(("👤 alice<br/>(user test)"))
+  subgraph PC["Máy của bạn - localhost"]
+    KC["🏢 Keycloak 26.x :8080<br/>realm demo<br/>(IdP / Authorization Server)"]
+    CLI["💻 demo-client<br/>Console/WPF .NET<br/>loopback 127.0.0.1:7890"]
+    W["🤖 worker<br/>curl / service<br/>(confidential)"]
+    API["🛡 DemoApi :5005<br/>ASP.NET Core + JwtBearer<br/>(Resource Server)"]
+  end
+  U --> CLI
+  CLI -- "Lab 3: Auth Code + PKCE<br/>(qua system browser)" --> KC
+  W -- "Lab 4: client_credentials" --> KC
+  CLI -- "Bearer access token" --> API
+  W -- "Bearer access token" --> API
+  API -.->|"Lab 2: tải discovery + JWKS<br/>rồi cache"| KC
+</pre>
+<div class="caption">4 thành phần của lab. API chỉ “nói chuyện” với Keycloak để lấy metadata/khóa công khai; việc xác minh từng token diễn ra cục bộ trong API.</div>
+</div>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Thành phần</th><th>Vai trò OAuth/OIDC</th><th>Loại client</th><th>Địa chỉ</th><th>Làm ở lab</th></tr></thead>
+<tbody>
+<tr><td><b>Keycloak</b> (realm <code>demo</code>)</td><td>Authorization Server + OpenID Provider (OP)</td><td>—</td><td><code>http://localhost:8080</code></td><td>Lab 1</td></tr>
+<tr><td><b>DemoApi</b></td><td>Resource Server (RS)</td><td>Đăng ký trong Keycloak là client <code>demo-api</code> chỉ để làm <b>audience</b></td><td><code>http://localhost:5005</code></td><td>Lab 2</td></tr>
+<tr><td><b>demo-client</b></td><td>Client + Relying Party (RP)</td><td><b>Public</b> (không có secret) — vì app desktop không giữ bí mật được</td><td>redirect <code>http://127.0.0.1:7890/</code></td><td>Lab 3</td></tr>
+<tr><td><b>worker</b></td><td>Client (machine-to-machine)</td><td><b>Confidential</b> (có client secret)</td><td>—</td><td>Lab 2, Lab 4</td></tr>
+</tbody></table></div>
+
+<p>Thuật ngữ dùng xuyên suốt (định nghĩa đầy đủ ở <a href="m03-oauth-oidc.html#oauth-roles">M03</a>):</p>
+<ul>
+<li><b>IdP</b> (Identity Provider — nhà cung cấp danh tính): hệ thống xác thực người dùng và phát hành token. Ở đây là Keycloak.</li>
+<li><b>Realm</b> (Keycloak): một “không gian” độc lập chứa user, client, cấu hình. Mỗi realm có issuer riêng, ví dụ <code>http://localhost:8080/realms/demo</code>.</li>
+<li><b>Client</b>: ứng dụng xin token. <b>Public client</b> không thể giữ bí mật (app desktop/mobile/SPA). <b>Confidential client</b> chạy trên server, giữ được <code>client_secret</code>.</li>
+<li><b>Access token</b>: “thẻ” để gọi API. <b>ID token</b>: “biên nhận đăng nhập” gửi cho client, cho biết ai vừa đăng nhập (<a href="m03-oauth-oidc.html#id-vs-access">so sánh</a>).</li>
+<li><b>Scope</b>: phạm vi quyền client xin (ví dụ <code>orders.read</code>). <b>Audience</b> (<code>aud</code>): token này dành cho <i>ai</i> (API nào được phép nhận).</li>
+<li><b>JWKS</b> (JSON Web Key Set): danh sách khóa công khai của IdP để kiểm tra chữ ký JWT. <b><code>kid</code></b> (key ID): mã khóa ghi trong header JWT để biết dùng khóa nào.</li>
+</ul>
+
+<h3 id="chuan-bi">Input / Chuẩn bị</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>Cần có</th><th>Ghi chú</th><th>Kiểm tra</th></tr></thead>
+<tbody>
+<tr><td>Hoàn thành Module 01–03</td><td>Đặc biệt <a href="m03-oauth-oidc.html#auth-code-pkce">Authorization Code + PKCE</a>, <a href="m03-oauth-oidc.html#client-credentials">Client Credentials</a>, <a href="m02-crypto-session-token.html#jwt-validation">JWT validation</a>.</td><td>Vẽ lại được sequence Auth Code + PKCE.</td></tr>
+<tr><td><b>.NET SDK 10</b> (LTS hiện hành)</td><td>.NET 10 là bản LTS phát hành 11/2025, hỗ trợ 3 năm. Code lab cũng chạy được trên .NET 8/9 với thay đổi nhỏ.</td><td><code>dotnet --version</code> → <code>10.0.x</code></td></tr>
+<tr><td><b>Docker Desktop</b></td><td>Để chạy Keycloak không cần cài Java.</td><td><code>docker version</code></td></tr>
+<tr><td>IDE</td><td>Visual Studio / Rider / VS Code + C# Dev Kit.</td><td>—</td></tr>
+<tr><td>IdP</td><td><b>Keycloak</b> (trang này dùng) hoặc <b>Microsoft Entra ID</b> (tenant dev/test của tổ chức). Ghi chú cho Entra ở cuối Lab 3.</td><td>—</td></tr>
+<tr><td>Công cụ</td><td>Browser DevTools (tab <b>Network</b>, bật <b>Preserve log</b>), jwt.ms hoặc jwt.io (chỉ cho token lab), curl/Postman, Fiddler (tùy chọn), extension <b>SAML-tracer</b> (Lab 5), <code>jq</code> (tùy chọn, để format JSON).</td><td><code>curl --version</code></td></tr>
+</tbody></table></div>
+
+<div class="callout warn"><span class="callout-title">⚠️ Windows + curl</span>
+Trong <b>Windows PowerShell 5.1</b>, <code>curl</code> là alias của <code>Invoke-WebRequest</code>, không phải curl thật. Hãy gõ <code>curl.exe</code>, hoặc chạy các lệnh curl của trang này trong <b>Git Bash</b>/WSL. Trang có kèm phiên bản PowerShell (<code>Invoke-RestMethod</code>) cho các lệnh lấy token quan trọng.</div>
+
+<div class="callout danger"><span class="callout-title">🔒 Lưu ý bảo mật (bắt buộc đọc)</span>
+<ul>
+<li><b>Không dán token của môi trường production</b> vào công cụ decode online (jwt.io, jwt.ms…). Token lab trên localhost thì không sao. Trang này có sẵn một <a href="#jwt-decoder">bộ decode chạy hoàn toàn trong trình duyệt</a>.</li>
+<li>Lab dùng HTTP và <code>RequireHttpsMetadata = false</code> <b>chỉ cho localhost</b>. Production bắt buộc HTTPS.</li>
+<li><code>start-dev</code> của Keycloak, admin <code>admin/admin</code>, <code>IdentityModelEventSource.ShowPII = true</code>, và việc in token ra console — tất cả <b>chỉ dành cho lab</b>. Đừng để lọt lên production (xem <a href="appendix.html#dotnet-pitfalls">lỗi .NET hay gặp</a>).</li>
+</ul></div>
+
+<h3 id="repo-structure">Gợi ý cấu trúc repo</h3>
+<pre data-title="auth-lab/ (cấu trúc thư mục)"><code class="language-plaintext">auth-lab/
+├─ README.md                 ← hướng dẫn chạy (mẫu ở mục Deliverables)
+├─ keycloak/
+│  └─ realm-demo.json        ← (tùy chọn) Partial export realm để người khác import
+├─ DemoApi/                  ← Lab 2: ASP.NET Core Web API
+│  ├─ Program.cs
+│  └─ appsettings.Development.json
+├─ DemoClient/               ← Lab 3: console app Auth Code + PKCE
+│  └─ Program.cs
+├─ scripts/
+│  ├─ get-worker-token.sh    ← Lab 2/4: client_credentials
+│  └─ refresh.sh             ← Lab 4
+└─ docs/
+   ├─ error-table.md         ← Deliverable 2
+   └─ pkce-capture.md        ← Deliverable 3 (ảnh chụp / ghi chú request–response)</code></pre>
+
+<!-- ===================================================== -->
+<div class="lab-task" id="lab1-box">
+<div class="lab-head"><h3 id="lab1">Lab 1 — Cấu hình IdP (Keycloak)</h3><span class="badge must">Must</span><span class="chip">⏱ 20 phút</span></div>
+<div class="lab-body">
+
+<h4>(a) Mục tiêu</h4>
+<p>Có một IdP chạy local với đủ “nhân vật” cho các lab sau: realm <code>demo</code>, user <code>alice</code>, client public <code>demo-client</code> (Auth Code + PKCE S256), API <code>demo-api</code> được dùng làm <b>audience</b>, client scope <code>orders.read</code>/<code>orders.write</code>, và client confidential <code>worker</code> (Client Credentials). Biết đọc discovery document và JWKS.</p>
+
+<h4>(b) Yêu cầu / đề bài</h4>
+<ol>
+<li>Keycloak 26.x chạy ở <code>http://localhost:8080</code>, đăng nhập được admin console.</li>
+<li>Realm <code>demo</code> có user <code>alice</code> đăng nhập được (mật khẩu không bị bắt đổi).</li>
+<li>Client <code>demo-client</code>: public, chỉ bật Standard flow, PKCE method <code>S256</code>, redirect URI đúng <code>http://127.0.0.1:7890/</code>.</li>
+<li>Client scope <code>orders.read</code> và <code>orders.write</code>, mỗi scope có Audience mapper thêm <code>demo-api</code> vào <code>aud</code> của access token.</li>
+<li>Client <code>worker</code>: confidential, bật Service accounts roles, được gán 2 scope trên.</li>
+<li><b>Nộp:</b> một bảng ghi lại <code>issuer</code>, <code>authorization_endpoint</code>, <code>token_endpoint</code>, <code>jwks_uri</code>, <code>introspection_endpoint</code>, <code>revocation_endpoint</code> và <code>kid</code> của khóa ký RS256; ảnh chụp tab “Evaluate” cho thấy access token chứa <code>"aud": "demo-api"</code> khi xin scope <code>orders.read</code>.</li>
+</ol>
+
+<div class="diagram">
+<pre class="mermaid">
+flowchart LR
+  subgraph R["Realm demo"]
+    A["👤 User alice"]
+    DC["demo-client<br/>public · Standard flow<br/>PKCE S256"]
+    WK["worker<br/>confidential<br/>Service accounts roles"]
+    DA["demo-api<br/>(chỉ là audience)"]
+    S1["Client scope orders.read<br/>+ Audience mapper"]
+    S2["Client scope orders.write<br/>+ Audience mapper"]
+  end
+  S1 -- "Included Client Audience" --> DA
+  S2 -- "Included Client Audience" --> DA
+  DC -- "Optional" --> S1
+  DC -- "Optional" --> S2
+  WK -- "Optional" --> S1
+  WK -- "Optional" --> S2
+</pre>
+<div class="caption">Bản đồ cấu hình Lab 1. Client scope là “gói” mapper + quyền; client xin scope nào thì token mang mapper của scope đó.</div>
+</div>
+
+<h4>(c) Hướng dẫn từng bước</h4>
+<div class="callout info"><span class="callout-title">ℹ️ Tên menu Keycloak</span>
+Hướng dẫn viết theo admin console Keycloak 26.x (tài liệu <a href="https://www.keycloak.org/docs/latest/server_admin/" target="_blank" rel="noopener">Server Administration Guide</a>). Giao diện thay đổi nhẹ giữa các bản minor (ví dụ vị trí chọn realm, vị trí PKCE). Nếu không thấy đúng tên, tìm trường có ý nghĩa tương đương.</div>
+
+<ol class="steps">
+<li><b>Chạy Keycloak bằng Docker.</b>
+<pre data-title="Terminal (bash / PowerShell đều chạy được trên 1 dòng)"><code class="language-bash">docker run --name kc -p 8080:8080 -e KC_BOOTSTRAP_ADMIN_USERNAME=admin -e KC_BOOTSTRAP_ADMIN_PASSWORD=admin quay.io/keycloak/keycloak:26.8.2 start-dev</code></pre>
+<ul>
+<li><i>Vì sao:</i> <code>start-dev</code> chạy chế độ phát triển (HTTP, DB nhúng, không cần cấu hình hostname). Biến <code>KC_BOOTSTRAP_ADMIN_*</code> tạo admin tạm thời lần đầu. Phiên bản Keycloak cũ (trước 26) dùng <code>KEYCLOAK_ADMIN</code>/<code>KEYCLOAK_ADMIN_PASSWORD</code>. Ghim tag phiên bản (<code>26.8.2</code>, bản mới tại thời điểm viết) để lab lặp lại được; dùng tag <code>26.8</code> hoặc bản 26.x mới hơn cũng được.</li>
+<li><i>Kiểm tra:</i> log có dòng tương tự <code>Running the server in development mode. DO NOT use this configuration in production.</code>; mở <code>http://localhost:8080</code> thấy trang đăng nhập admin.</li>
+<li><i>Lưu ý:</i> dữ liệu nằm <b>trong container</b>. <code>docker stop kc</code> / <code>docker start kc</code> giữ nguyên cấu hình; <code>docker rm kc</code> là mất hết realm (lúc đó API sẽ gặp lỗi <code>kid</code> không tìm thấy vì khóa ký đã đổi).</li>
+</ul></li>
+
+<li><b>Đăng nhập admin console</b> bằng <code>admin</code>/<code>admin</code>.
+<ul><li><i>Kiểm tra:</i> có thể thấy banner cảnh báo đây là <b>temporary admin</b> — bình thường với lab.</li></ul></li>
+
+<li><b>Tạo realm <code>demo</code>.</b> Mở danh sách realm (dropdown góc trên-trái, hoặc mục <b>Manage realms</b> ở menu trái tùy phiên bản) → <b>Create realm</b> → Realm name: <code>demo</code> → <b>Create</b>.
+<ul>
+<li><i>Vì sao:</i> không làm việc trong realm <code>master</code> (realm quản trị). Realm <code>demo</code> sẽ có issuer riêng.</li>
+<li><i>Kiểm tra:</i> mở <code>http://localhost:8080/realms/demo/.well-known/openid-configuration</code> — trả JSON.</li>
+</ul></li>
+
+<li><b>Tạo user test <code>alice</code>.</b> Menu <b>Users</b> → <b>Create new user</b> (hoặc <b>Add user</b>) → Username <code>alice</code>, Email <code>alice@example.com</code>, First name <code>Alice</code>, Last name <code>Nguyen</code>, bật <b>Email verified</b> → <b>Create</b>. Sang tab <b>Credentials</b> → <b>Set password</b> → nhập mật khẩu (ví dụ <code>Alice@123</code>) → tắt <b>Temporary</b> → <b>Save</b>.
+<ul>
+<li><i>Vì sao:</i> nếu để <b>Temporary = On</b>, lần đăng nhập đầu Keycloak bắt đổi mật khẩu — làm rối luồng lab. Điền đủ email/họ tên để Keycloak không hiện màn hình “Update account information” (user profile mặc định yêu cầu các trường này).</li>
+<li><i>Kiểm tra:</i> mở <code>http://localhost:8080/realms/demo/account</code> (Account Console) bằng cửa sổ ẩn danh, đăng nhập alice thành công ngay.</li>
+</ul></li>
+
+<li><b>Tạo client <code>demo-api</code></b> (đại diện cho Web API). <b>Clients</b> → <b>Create client</b> → Client type <b>OpenID Connect</b>, Client ID <code>demo-api</code> → <b>Next</b> → Capability config: <b>Client authentication</b> Off, bỏ chọn <b>Standard flow</b> và <b>Direct access grants</b> → <b>Next</b> → <b>Save</b>.
+<ul>
+<li><i>Vì sao:</i> API không đăng nhập ai cả; ta chỉ cần một client tên <code>demo-api</code> để Audience mapper tham chiếu. Tài liệu Keycloak ghi rõ mapper <b>không thêm audience</b> nếu client được tham chiếu bị disable hoặc không tồn tại.</li>
+<li><i>Kiểm tra:</i> <code>demo-api</code> xuất hiện trong danh sách Clients. (Nếu UI không cho lưu khi bỏ hết flow, để Standard flow bật nhưng <b>không</b> khai báo redirect URI — không ai đăng nhập qua client này được.)</li>
+</ul></li>
+
+<li><b>Tạo client scope <code>orders.read</code> có Audience mapper.</b>
+<ol>
+<li>Menu <b>Client scopes</b> → <b>Create client scope</b> → Name <code>orders.read</code>, Type <b>None</b>, Protocol <b>OpenID Connect</b>, <b>Include in token scope</b> On → <b>Save</b>.</li>
+<li>Tab <b>Mappers</b> → <b>Configure a new mapper</b> (hoặc <b>Add mapper → By configuration</b>) → chọn <b>Audience</b> → Name <code>aud-demo-api</code>, <b>Included Client Audience</b> = <code>demo-api</code>, <b>Add to access token</b> On, <b>Add to ID token</b> Off → <b>Save</b>.</li>
+<li>Lặp lại cho <code>orders.write</code> (cùng mapper <code>aud-demo-api</code>).</li>
+</ol>
+<ul>
+<li><i>Vì sao Audience mapper:</i> mặc định, access token của Keycloak thường có <code>aud</code> = <code>account</code> (client nội bộ của Keycloak) hoặc không chứa API của bạn. API của ta kiểm tra <code>aud == demo-api</code> → phải dạy Keycloak thêm giá trị này. Gắn mapper vào <b>scope</b> nghĩa là: “client nào xin <code>orders.read</code> thì token dành cho <code>demo-api</code>”.</li>
+<li><i>Vì sao Type None:</i> ta sẽ gán scope cho từng client ở bước sau, không gán tự động cho mọi client trong realm.</li>
+<li><i>Vì sao Include in token scope:</i> để chuỗi <code>orders.read</code> xuất hiện trong claim <code>scope</code> của access token — policy của API dựa vào đó.</li>
+<li><i>Vì sao có thêm <code>orders.write</code>:</i> để Lab 2 tạo được token <b>đúng audience nhưng thiếu scope</b> <code>orders.read</code> (kịch bản 403).</li>
+</ul></li>
+
+<li><b>Tạo client public <code>demo-client</code>.</b> <b>Clients</b> → <b>Create client</b>:
+<ol>
+<li>General settings: Client type <b>OpenID Connect</b>, Client ID <code>demo-client</code> → <b>Next</b>.</li>
+<li>Capability config: <b>Client authentication</b> <b>Off</b> (= public client), <b>Authorization</b> Off, Authentication flow: chỉ chọn <b>Standard flow</b>; bỏ <b>Direct access grants</b>, <b>Implicit flow</b>. <b>PKCE Method</b> = <code>S256</code> → <b>Next</b>.</li>
+<li>Login settings: <b>Valid redirect URIs</b> = <code>http://127.0.0.1:7890/</code> (có dấu <code>/</code> cuối), <b>Valid post logout redirect URIs</b> = <code>http://127.0.0.1:7890/</code>, <b>Web origins</b> để trống → <b>Save</b>.</li>
+<li>Tab <b>Client scopes</b> của <code>demo-client</code> → <b>Add client scope</b> → chọn <code>orders.read</code>, <code>orders.write</code> → <b>Add ▾ → Optional</b>.</li>
+</ol>
+<div class="callout warn"><span class="callout-title">⚠️ Vị trí cài đặt PKCE thay đổi theo phiên bản</span>
+Tài liệu Keycloak hiện hành đặt <b>PKCE Method</b> (giá trị: trống / <code>S256</code> / <code>plain</code>) trong <b>Settings → Capability config</b>. Release notes Keycloak 26.3.0 ghi nhận việc <b>chuyển</b> cài đặt này từ tab <b>Advanced</b> sang tab <b>Settings</b>. Nếu bạn dùng bản cũ hơn: tab <b>Advanced</b> → mục <b>Advanced settings</b> → <b>Proof Key for Code Exchange Code Challenge Method</b> = <code>S256</code>. Để <b>trống</b> nghĩa là PKCE chỉ được áp dụng khi client tự gửi tham số — <i>không bắt buộc</i>.</div>
+<ul>
+<li><i>Vì sao public:</i> console/WPF app được cài trên máy người dùng — ai cũng có thể dịch ngược lấy secret. PKCE thay thế vai trò “chứng minh tôi là người đã bắt đầu flow” (<a href="m03-oauth-oidc.html#pkce">M03 — PKCE</a>).</li>
+<li><i>Vì sao tắt Direct access grants:</i> đó là ROPC (client cầm mật khẩu user) — bị loại khỏi OAuth 2.1 và Security BCP (<a href="m03-oauth-oidc.html#ropc-implicit">M03</a>).</li>
+<li><i>Vì sao 127.0.0.1:</i> RFC 8252 (OAuth cho native app) khuyến nghị loopback IP literal thay vì <code>localhost</code>. Keycloak so khớp redirect URI <b>chính xác, phân biệt hoa thường</b> → <code>http://127.0.0.1:7890</code> (thiếu <code>/</code>) hay <code>http://localhost:7890/</code> đều bị từ chối.</li>
+<li><i>Kiểm tra:</i> tab <b>Client scopes → Evaluate</b> (tab con) → chọn user <code>alice</code>, ô <b>Scope parameter</b> chọn thêm <code>orders.read</code> → xem <b>Generated access token</b>: có <code>"aud"</code> chứa <code>demo-api</code> và <code>"scope"</code> chứa <code>orders.read</code>. Bỏ <code>orders.read</code> → <code>demo-api</code> biến mất khỏi <code>aud</code>.</li>
+</ul></li>
+
+<li><b>Default hay Optional?</b> — hiểu trước khi chọn.
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+<b>Default</b> giống món “đi kèm combo”: gọi combo là luôn có, không cần nói. <b>Optional</b> giống món “gọi thêm”: chỉ có khi bạn nói rõ trong order (tham số <code>scope</code>).</div>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>Default client scope</th><th>Optional client scope</th></tr></thead>
+<tbody>
+<tr><td>Khi nào áp dụng</td><td><b>Luôn luôn</b>, bất kể tham số <code>scope</code> client gửi.</td><td>Chỉ khi client <b>xin</b> nó trong tham số <code>scope</code>.</td></tr>
+<tr><td>Hệ quả với lab</td><td>Mọi token của client đều có <code>aud=demo-api</code> + <code>orders.read</code>.</td><td>Chỉ token xin <code>scope=... orders.read</code> mới có.</td></tr>
+<tr><td>Ưu điểm</td><td>Đơn giản, client không cần biết tên scope.</td><td>Đúng tinh thần <b>least privilege</b>: xin quyền nào nhận quyền đó; tái hiện được lỗi “thiếu scope”.</td></tr>
+<tr><td>Dùng trong lab</td><td>—</td><td>✅ Chọn Optional cho cả <code>demo-client</code> và <code>worker</code>.</td></tr>
+</tbody></table></div>
+</li>
+
+<li><b>Tạo client confidential <code>worker</code>.</b> <b>Clients</b> → <b>Create client</b> → Client ID <code>worker</code> → <b>Next</b> → <b>Client authentication</b> <b>On</b>, bỏ <b>Standard flow</b> và <b>Direct access grants</b>, chọn <b>Service accounts roles</b> → <b>Next</b> → <b>Save</b>. Tab <b>Credentials</b> → copy <b>Client Secret</b>. Tab <b>Client scopes</b> → <b>Add client scope</b> → <code>orders.read</code>, <code>orders.write</code> → <b>Optional</b>.
+<ul>
+<li><i>Vì sao:</i> “Service accounts roles” chính là bật <b>Client Credentials grant</b> cho client này (theo tài liệu Keycloak). Client confidential vì worker chạy trên server, giữ được secret.</li>
+<li><i>Kiểm tra:</i>
+<pre data-title="bash (Git Bash / WSL)"><code class="language-bash">export KC=http://localhost:8080/realms/demo
+export WORKER_SECRET='dán-secret-vào-đây'
+curl -s -X POST "$KC/protocol/openid-connect/token" \
+  -d grant_type=client_credentials -d client_id=worker \
+  -d client_secret="$WORKER_SECRET" -d scope=orders.read | jq .</code></pre>
+<pre data-title="PowerShell"><code class="language-powershell">$KC = "http://localhost:8080/realms/demo"
+$env:WORKER_SECRET = "dán-secret-vào-đây"
+$t = Invoke-RestMethod -Method Post -Uri "$KC/protocol/openid-connect/token" -Body @{
+  grant_type = "client_credentials"; client_id = "worker"
+  client_secret = $env:WORKER_SECRET; scope = "orders.read" }
+$t | Format-List</code></pre>
+Phải nhận được JSON có <code>access_token</code>, <code>token_type: "Bearer"</code>, <code>expires_in: 300</code> (mặc định 5 phút).</li>
+</ul></li>
+
+<li><b>Đọc discovery document và JWKS.</b>
+<pre data-title="bash"><code class="language-bash">curl -s $KC/.well-known/openid-configuration | jq '{issuer, authorization_endpoint, token_endpoint, jwks_uri, userinfo_endpoint, end_session_endpoint, introspection_endpoint, revocation_endpoint, pushed_authorization_request_endpoint, code_challenge_methods_supported}'
+curl -s $KC/protocol/openid-connect/certs | jq '.keys[] | {kid, kty, alg, use}'</code></pre>
+<ul>
+<li><i>Vì sao:</i> đây chính là thứ <code>AddJwtBearer</code> làm tự động khi bạn đặt <code>Authority</code>: tải discovery → lấy <code>issuer</code> và <code>jwks_uri</code> → tải khóa công khai (<a href="m03-oauth-oidc.html#discovery-jwks">M03 — Discovery &amp; JWKS</a>).</li>
+<li><i>Kiểm tra:</i> lấy header của access token ở bước 9 (dùng <a href="#jwt-decoder">bộ decode</a>) → <code>kid</code> trong header phải trùng với <code>kid</code> của một khóa <code>"use": "sig"</code>, <code>"alg": "RS256"</code> trong JWKS.</li>
+</ul></li>
+
+<li>(Tùy chọn, khuyến nghị) <b>Lưu cấu hình:</b> <b>Realm settings</b> → menu <b>Action</b> (góc trên-phải) → <b>Partial export</b> (bật export clients) → lưu thành <code>keycloak/realm-demo.json</code> trong repo. Secret sẽ bị che trong file export.</li>
+</ol>
+
+<h4>(d) Kết quả mong đợi</h4>
+<pre data-title="Discovery (rút gọn — giá trị thật trên máy bạn)"><code class="language-json">{
+  "issuer": "http://localhost:8080/realms/demo",
+  "authorization_endpoint": "http://localhost:8080/realms/demo/protocol/openid-connect/auth",
+  "token_endpoint": "http://localhost:8080/realms/demo/protocol/openid-connect/token",
+  "jwks_uri": "http://localhost:8080/realms/demo/protocol/openid-connect/certs",
+  "userinfo_endpoint": "http://localhost:8080/realms/demo/protocol/openid-connect/userinfo",
+  "end_session_endpoint": "http://localhost:8080/realms/demo/protocol/openid-connect/logout",
+  "introspection_endpoint": "http://localhost:8080/realms/demo/protocol/openid-connect/token/introspect",
+  "revocation_endpoint": "http://localhost:8080/realms/demo/protocol/openid-connect/revoke",
+  "pushed_authorization_request_endpoint": "http://localhost:8080/realms/demo/protocol/openid-connect/ext/par/request",
+  "code_challenge_methods_supported": ["plain", "S256"]
+}</code></pre>
+<pre data-title="JWKS (rút gọn, ví dụ)"><code class="language-json">{ "kid": "pX3k...Qw", "kty": "RSA", "alg": "RS256",    "use": "sig" }
+{ "kid": "9fLm...Za", "kty": "RSA", "alg": "RSA-OAEP", "use": "enc" }</code></pre>
+<p>Khóa <code>use: enc</code> dùng cho mã hóa, <b>không</b> dùng để kiểm tra chữ ký access token. Issuer phụ thuộc vào <b>hostname bạn dùng để gọi Keycloak</b>: gọi bằng <code>127.0.0.1:8080</code> thì issuer sẽ là <code>http://127.0.0.1:8080/realms/demo</code> — khác <code>localhost</code>! Hãy dùng <b>thống nhất <code>localhost:8080</code></b> trong toàn bộ lab.</p>
+
+<h4>(e) Lỗi thường gặp &amp; cách xử lý</h4>
+<div class="table-wrap"><table>
+<thead><tr><th>Hiện tượng</th><th>Nguyên nhân</th><th>Cách xử lý</th></tr></thead>
+<tbody>
+<tr><td><code>port is already allocated</code> khi docker run</td><td>Cổng 8080 đã bị app khác dùng.</td><td>Dùng <code>-p 8081:8080</code> và sửa mọi URL trong lab thành <code>:8081</code>.</td></tr>
+<tr><td><code>Conflict. The container name "/kc" is already in use</code></td><td>Container cũ còn tồn tại.</td><td><code>docker start -a kc</code> để chạy lại (giữ dữ liệu), hoặc <code>docker rm kc</code> để tạo mới (mất dữ liệu).</td></tr>
+<tr><td>Đăng nhập alice bị bắt đổi mật khẩu / cập nhật thông tin</td><td>Temporary = On, hoặc thiếu email/họ tên.</td><td>Đặt lại mật khẩu với Temporary Off; điền đủ thông tin; xóa “Required user actions”.</td></tr>
+<tr><td>Evaluate không có <code>demo-api</code> trong <code>aud</code></td><td>Chưa chọn <code>orders.read</code> trong Scope parameter; mapper chưa bật “Add to access token”; client <code>demo-api</code> sai tên/bị disable.</td><td>Kiểm tra lại từng điểm.</td></tr>
+<tr><td>Token client_credentials: <code>unauthorized_client</code></td><td>Chưa bật Service accounts roles cho <code>worker</code>.</td><td>Bật và Save.</td></tr>
+<tr><td><code>invalid_client</code></td><td>Sai secret (thường do copy thiếu ký tự) hoặc client đang là public.</td><td>Copy lại secret từ tab Credentials; Client authentication = On.</td></tr>
+<tr><td><code>invalid_scope</code></td><td>Xin scope chưa được gán cho client.</td><td>Gán scope ở tab Client scopes của client đó.</td></tr>
+</tbody></table></div>
+
+<h4>(f) Câu hỏi tự kiểm tra</h4>
+<details><summary>Vì sao <code>demo-client</code> là public còn <code>worker</code> là confidential?</summary><p><code>demo-client</code> chạy trên máy người dùng: mọi secret nhúng trong app đều lấy ra được, nên coi như không có secret và dùng PKCE. <code>worker</code> chạy trên server do ta kiểm soát, giữ được secret, nên xác thực client bằng <code>client_secret</code>.</p></details>
+<details><summary>Nếu gắn <code>orders.read</code> là Default cho <code>demo-client</code>, điều gì thay đổi?</summary><p>Mọi access token của <code>demo-client</code> sẽ luôn có <code>aud=demo-api</code> và <code>scope</code> chứa <code>orders.read</code>, kể cả khi client không xin. Tiện nhưng vi phạm least privilege, và bạn không tái hiện được kịch bản “thiếu scope”.</p></details>
+<details><summary><code>kid</code> dùng để làm gì?</summary><p>IdP có thể có nhiều khóa (đang dùng, sắp xoay vòng…). <code>kid</code> trong header JWT cho API biết dùng khóa nào trong JWKS để kiểm tra chữ ký. Khi gặp <code>kid</code> lạ, JwtBearer sẽ tải lại metadata/JWKS.</p></details>
+
+</div></div>
+
+<!-- ===================================================== -->
+<div class="lab-task" id="lab2-box">
+<div class="lab-head"><h3 id="lab2">Lab 2 — ASP.NET Core Web API xác minh JWT</h3><span class="badge must">Must</span><span class="chip">⏱ 30 phút</span></div>
+<div class="lab-body">
+
+<h4>(a) Mục tiêu</h4>
+<p>Viết <code>DemoApi</code> bảo vệ endpoint bằng JWT Bearer, rồi <b>cố tình gửi token sai</b> theo 6 kịch bản để thấy API phản ứng thế nào ở tầng <b>authentication</b> (401) và <b>authorization</b> (403) — xem lại <a href="m01-fundamentals.html#401-403">401 vs 403</a>.</p>
+
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Đầu đọc thẻ ở cửa phòng Orders kiểm tra theo thứ tự: <b>(1)</b> có thẻ không, <b>(2)</b> con dấu thật không (chữ ký), <b>(3)</b> do đúng lễ tân của tòa nhà này cấp không (<code>iss</code>), <b>(4)</b> thẻ có ghi “dùng cho phòng Orders” không (<code>aud</code>), <b>(5)</b> còn hạn không (<code>exp</code>). Hỏng bất kỳ bước nào → “Tôi không biết bạn là ai” = <b>401</b>. Qua hết rồi mới hỏi: “thẻ của bạn có quyền <i>đọc đơn hàng</i> không?” — không có → “Tôi biết bạn là ai nhưng bạn không được vào” = <b>403</b>.</div>
+
+<h4>(b) Yêu cầu / đề bài</h4>
+<ol>
+<li>API chạy ở <code>http://localhost:5005</code> với 4 endpoint: <code>/public</code> (ai cũng gọi được), <code>/me</code> (chỉ cần token hợp lệ), <code>/orders</code> (cần scope <code>orders.read</code>), <code>/profile</code> (policy yêu cầu claim <code>sub</code> — dùng cho kịch bản 6).</li>
+<li>Tái hiện <b>6 kịch bản</b> bên dưới. Với mỗi kịch bản ghi lại: status code, header <code>WWW-Authenticate</code>, dòng log quan trọng (mã <code>IDX</code>), và giải thích nguyên nhân.</li>
+<li><b>Nộp:</b> bảng lỗi theo mẫu ở mục <a href="#error-table">#error-table</a> (tối thiểu 5 kịch bản — <b>Deliverable 2, Core</b>) + source code API trong repo.</li>
+</ol>
+
+<h4>(c) Hướng dẫn từng bước</h4>
+<ol class="steps">
+<li><b>Tạo project và thêm package.</b>
+<pre data-title="Terminal"><code class="language-bash">mkdir auth-lab &amp;&amp; cd auth-lab
+dotnet new webapi -n DemoApi
+cd DemoApi
+dotnet add package Microsoft.AspNetCore.Authentication.JwtBearer</code></pre>
+<ul>
+<li><i>Vì sao:</i> template <code>webapi</code> của .NET 10 tạo minimal API. Handler JWT Bearer nằm trong package riêng <code>Microsoft.AspNetCore.Authentication.JwtBearer</code> (phiên bản 10.0.x khớp với SDK).</li>
+<li><i>Kiểm tra:</i> <code>DemoApi.csproj</code> có <code>PackageReference</code> tới JwtBearer.</li>
+</ul></li>
+
+<li><b>Thay toàn bộ <code>Program.cs</code></b> bằng code sau (dựa trên code roadmap, bổ sung <code>using</code>, logging để thấy lỗi IDX, và công tắc cho kịch bản 6).
+<pre data-title="DemoApi/Program.cs"><code class="language-csharp">using System.Security.Claims;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Logging;
+
+var builder = WebApplication.CreateBuilder(args);
+
+// [LAB] Công tắc cho kịch bản 6:  dotnet run -- --Lab:MapInboundClaims=true
+var mapInboundClaims = builder.Configuration.GetValue("Lab:MapInboundClaims", false);
+
+// [LAB] Hiện giá trị thật (aud, iss...) trong thông báo IDX thay vì "[PII ... is hidden]".
+// CHỈ dùng khi dev. Production: KHÔNG bật (log sẽ chứa dữ liệu nhạy cảm).
+if (builder.Environment.IsDevelopment())
+{
+    IdentityModelEventSource.ShowPII = true;
+}
+
+builder.Services
+    .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(o =&gt;
+    {
+        o.Authority = "http://localhost:8080/realms/demo"; // -&gt; tải discovery + JWKS, kiểm tra iss
+        o.Audience = "demo-api";                           // -&gt; token phải có aud chứa demo-api
+        o.RequireHttpsMetadata = false;   // CHỈ dùng cho lab localhost
+        o.MapInboundClaims = mapInboundClaims; // lab mặc định false: giữ nguyên tên claim sub, scope...
+        o.IncludeErrorDetails = true;     // mặc định đã là true: đưa error_description vào WWW-Authenticate
+        // Mặc định ClockSkew = 5 phút (token hết hạn vẫn được chấp nhận thêm 5 phút).
+        // Lab giảm xuống 30 giây để kịch bản "token hết hạn" không phải chờ lâu.
+        o.TokenValidationParameters.ClockSkew = TimeSpan.FromSeconds(30);
+
+        o.Events = new JwtBearerEvents
+        {
+            OnAuthenticationFailed = ctx =&gt;
+            {
+                LabLog(ctx.HttpContext).LogWarning("[LAB] Token bị từ chối: {Message}", ctx.Exception.Message);
+                return Task.CompletedTask;
+            },
+            OnChallenge = ctx =&gt;
+            {
+                LabLog(ctx.HttpContext).LogWarning("[LAB] 401 challenge. error={Error} description={Description}",
+                    ctx.Error ?? "(none)", ctx.ErrorDescription ?? "(none)");
+                return Task.CompletedTask;
+            },
+            OnForbidden = ctx =&gt;
+            {
+                LabLog(ctx.HttpContext).LogWarning("[LAB] 403 forbidden. Claims: {Claims}",
+                    string.Join(", ", ctx.HttpContext.User.Claims.Select(c =&gt; c.Type)));
+                return Task.CompletedTask;
+            }
+        };
+    });
+
+builder.Services.AddAuthorization(o =&gt;
+{
+    // Keycloak đặt scope trong MỘT claim "scope", các giá trị cách nhau bởi dấu cách.
+    o.AddPolicy("orders.read", p =&gt; p.RequireAssertion(ctx =&gt;
+        ctx.User.FindFirst("scope")?.Value
+            .Split(' ').Contains("orders.read") == true));
+
+    // [LAB] Policy cho kịch bản 6: phụ thuộc vào TÊN claim "sub".
+    o.AddPolicy("has-sub", p =&gt; p.RequireClaim("sub"));
+});
+
+var app = builder.Build();
+
+app.UseAuthentication();   // 1. đọc token -&gt; HttpContext.User
+app.UseAuthorization();    // 2. kiểm tra policy
+
+app.MapGet("/public", () =&gt; "ok");
+
+app.MapGet("/me", (ClaimsPrincipal u) =&gt;
+        u.Claims.Select(c =&gt; new { c.Type, c.Value }))
+   .RequireAuthorization();
+
+app.MapGet("/orders", () =&gt; new[] { "order-1" })
+   .RequireAuthorization("orders.read");
+
+app.MapGet("/profile", (ClaimsPrincipal u) =&gt; new { sub = u.FindFirst("sub")?.Value })
+   .RequireAuthorization("has-sub");
+
+app.Run("http://localhost:5005");
+
+static ILogger LabLog(HttpContext http) =&gt;
+    http.RequestServices.GetRequiredService&lt;ILoggerFactory&gt;().CreateLogger("Lab.Auth");</code></pre>
+<ul>
+<li><i>Vì sao <code>app.Run("http://localhost:5005")</code>:</i> cố định cổng, không phụ thuộc <code>launchSettings.json</code>.</li>
+<li><i>Vì sao <code>ShowPII</code>:</i> mặc định thư viện <code>Microsoft.IdentityModel</code> che giá trị trong log (thông báo kiểu <code>[PII of type 'System.String' is hidden]</code>) — tốt cho production nhưng khó học.</li>
+<li><i>Vì sao Events:</i> để thấy rõ trên console lý do từ chối; trong dự án thật, dùng logging chuẩn là đủ.</li>
+</ul></li>
+
+<li><b>Bật log chi tiết cho authentication/authorization.</b>
+<pre data-title="DemoApi/appsettings.Development.json"><code class="language-json">{
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft.AspNetCore": "Warning",
+      "Microsoft.AspNetCore.Authentication": "Debug",
+      "Microsoft.AspNetCore.Authorization": "Information",
+      "Lab.Auth": "Information"
+    }
+  }
+}</code></pre>
+<ul><li><i>Kiểm tra:</i> <code>dotnet run</code> → console in <code>Now listening on: http://localhost:5005</code>; <code>curl -i http://localhost:5005/public</code> → <code>200 ok</code>.</li></ul></li>
+
+<li><b>Chuẩn bị cách lấy token.</b> Chọn cách trung thực, không “ăn gian”:
+<div class="table-wrap"><table>
+<thead><tr><th>Cách</th><th>Dùng cho kịch bản</th><th>Ghi chú</th></tr></thead>
+<tbody>
+<tr><td><b>worker + client_credentials</b> (curl)</td><td>1, 2, 3, 4, 6</td><td>✅ Khuyến nghị: nhanh, chuẩn, không cần mật khẩu user. Token không có người dùng thật (<code>sub</code> là service account).</td></tr>
+<tr><td><b>DemoClient (Lab 3)</b></td><td>5 (ID token), 6</td><td>✅ Token của user thật alice. Làm Lab 3 rồi quay lại kịch bản 5.</td></tr>
+<tr><td>Client test riêng bật <b>Direct access grants</b> (ROPC)</td><td>Bất kỳ</td><td>⚠️ Chỉ nếu bạn muốn token user mà chưa làm Lab 3. Tạo client <b>riêng</b> tên <code>lab-ropc</code>, <b>không</b> bật trên <code>demo-client</code>, xóa sau lab. ROPC bị loại khỏi OAuth 2.1 — <b>không dùng production</b>.</td></tr>
+</tbody></table></div>
+<pre data-title="bash — hàm tiện ích (dán vào Git Bash)"><code class="language-bash">export KC=http://localhost:8080/realms/demo
+export API=http://localhost:5005
+# Lấy token worker; tham số 1 = scope (có thể rỗng)
+worker_token() {
+  curl -s -X POST "$KC/protocol/openid-connect/token" \
+    -d grant_type=client_credentials -d client_id=worker \
+    -d client_secret="$WORKER_SECRET" ${1:+-d scope="$1"} | jq -r .access_token
+}
+# Decode phần payload của JWT (không kiểm tra chữ ký - chỉ để đọc)
+jwt_payload() {
+  local p=$(echo -n "$1" | cut -d. -f2 | tr '_-' '/+')
+  while [ $(( ${#p} % 4 )) -ne 0 ]; do p="$p="; done
+  echo "$p" | base64 -d | jq .
+}</code></pre>
+<pre data-title="PowerShell — tương đương"><code class="language-powershell">function Get-WorkerToken([string]$Scope) {
+  $body = @{ grant_type="client_credentials"; client_id="worker"; client_secret=$env:WORKER_SECRET }
+  if ($Scope) { $body.scope = $Scope }
+  (Invoke-RestMethod -Method Post -Uri "http://localhost:8080/realms/demo/protocol/openid-connect/token" -Body $body).access_token
+}
+function Decode-Jwt([string]$Jwt) {
+  $p = $Jwt.Split('.')[1].Replace('-', '+').Replace('_', '/')
+  switch ($p.Length % 4) { 2 { $p += '==' } 3 { $p += '=' } }
+  [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($p)) | ConvertFrom-Json | ConvertTo-Json -Depth 5
+}
+# Gọi API và xem status + header: dùng curl.exe (không phải alias curl)
+# curl.exe -i -H "Authorization: Bearer $tok" http://localhost:5005/orders</code></pre>
+</li>
+
+<li><b>Kiểm tra “happy path” trước.</b>
+<pre data-title="bash"><code class="language-bash">TOK=$(worker_token orders.read)
+jwt_payload "$TOK"                       # phải thấy aud chứa demo-api, scope chứa orders.read
+curl -i -H "Authorization: Bearer $TOK" $API/me
+curl -i -H "Authorization: Bearer $TOK" $API/orders</code></pre>
+<ul><li><i>Kiểm tra:</i> cả hai trả <code>HTTP/1.1 200 OK</code>. <code>/orders</code> trả <code>["order-1"]</code>. Nếu chưa được 200, <b>đừng sang kịch bản lỗi</b> — sửa trước (xem (e)).</li></ul></li>
+
+<li><b>Lần lượt tái hiện 6 kịch bản</b> (chi tiết từng kịch bản ở bảng (d) bên dưới). Mỗi kịch bản: chạy lệnh → chép status + <code>WWW-Authenticate</code> + dòng log <code>[LAB]</code>/<code>IDX</code> vào bảng lỗi.</li>
+</ol>
+
+<div class="diagram">
+<pre class="mermaid">
+flowchart TD
+  R["Request GET /orders"] --> H{"Có header<br/>Authorization: Bearer ...?"}
+  H -- "Không" --> A1["401<br/>WWW-Authenticate: Bearer<br/>(không có error)"]
+  H -- "Có" --> V{"JwtBearer kiểm tra<br/>chữ ký (kid/JWKS), iss, aud, exp/nbf"}
+  V -- "Sai" --> A2["401 + error=invalid_token<br/>error_description = lý do<br/>log IDX10xxx"]
+  V -- "Đúng" --> P["Tạo ClaimsPrincipal<br/>(MapInboundClaims đổi tên claim?)"]
+  P --> Z{"Policy orders.read:<br/>claim scope chứa orders.read?"}
+  Z -- "Không" --> F["403 Forbidden<br/>không có error trong header<br/>log: Authorization failed"]
+  Z -- "Có" --> OK["200 OK"]
+  V -.->|"Không tải được metadata<br/>(Keycloak tắt)"| E5["500<br/>log IDX20803"]
+</pre>
+<div class="caption">Flowchart chẩn đoán 401 vs 403 trong pipeline ASP.NET Core: <code>UseAuthentication</code> quyết định “bạn là ai” (401), <code>UseAuthorization</code> quyết định “được làm gì” (403).</div>
+</div>
+
+<h4>(d) Kết quả mong đợi — 6 kịch bản</h4>
+
+<h5 id="lab2-s1">Kịch bản 1 — Không gửi token → 401</h5>
+<pre data-title="bash"><code class="language-bash">curl -i $API/orders</code></pre>
+<pre data-title="Response"><code class="language-plaintext">HTTP/1.1 401 Unauthorized
+WWW-Authenticate: Bearer
+Content-Length: 0</code></pre>
+<p>Không có <code>error=</code> vì đây không phải token sai mà là <b>không có</b> token (RFC 6750 quy định không gửi mã lỗi khi request thiếu thông tin xác thực). Log: <code>AuthenticationScheme: Bearer was challenged.</code></p>
+
+<h5 id="lab2-s2">Kịch bản 2 — Token sai <code>aud</code> → 401</h5>
+<p><b>Cách tạo:</b> lấy token worker <b>không</b> xin scope nào → Audience mapper không chạy → <code>aud</code> không chứa <code>demo-api</code>.</p>
+<pre data-title="bash"><code class="language-bash">TOK=$(worker_token)            # không có scope
+jwt_payload "$TOK" | jq .aud   # thường là "account" (hoặc không có aud)
+curl -i -H "Authorization: Bearer $TOK" $API/me</code></pre>
+<pre data-title="Response + log (ví dụ)"><code class="language-plaintext">HTTP/1.1 401 Unauthorized
+WWW-Authenticate: Bearer error="invalid_token", error_description="The audience 'account' is invalid"
+
+warn: Lab.Auth[0] [LAB] Token bị từ chối: IDX10214: Audience validation failed. Audiences: 'account'.
+      Did not match: validationParameters.ValidAudience: 'demo-api' or validationParameters.ValidAudiences: 'null'.</code></pre>
+<p>Giá trị <code>aud</code> thực tế phụ thuộc cấu hình realm (Keycloak thường thêm <code>account</code> khi token chứa role của client <code>account</code>). Nếu token hoàn toàn không có <code>aud</code>, thông báo sẽ khác (ví dụ <code>IDX10206</code>) nhưng vẫn là 401. Ý nghĩa: <b>chữ ký hợp lệ nhưng token không dành cho API này</b> — phải từ chối (<a href="m02-crypto-session-token.html#jwt-validation">M02</a>).</p>
+
+<h5 id="lab2-s3">Kịch bản 3 — Token hết hạn → 401</h5>
+<p><b>Cách tạo:</b> client <code>worker</code> → tab <b>Advanced</b> → mục <b>Advanced settings</b> → <b>Access Token Lifespan</b> = 1 phút → Save (hoặc đặt ở cấp realm: <b>Realm settings → Tokens → Access Token Lifespan</b>, mặc định 5 phút). Lấy token, chờ <b>&gt; 1 phút + 30 giây ClockSkew</b>, rồi gọi.</p>
+<pre data-title="bash"><code class="language-bash">TOK=$(worker_token orders.read)
+sleep 100
+curl -i -H "Authorization: Bearer $TOK" $API/me</code></pre>
+<pre data-title="Response + log (ví dụ)"><code class="language-plaintext">HTTP/1.1 401 Unauthorized
+WWW-Authenticate: Bearer error="invalid_token", error_description="The token expired at '11/10/2026 08:15:42'"
+
+warn: Lab.Auth[0] [LAB] Token bị từ chối: IDX10223: Lifetime validation failed. The token is expired.
+      ValidTo (UTC): '11/10/2026 08:15:42', Current time (UTC): '11/10/2026 08:16:20'.</code></pre>
+<div class="callout warn"><span class="callout-title">⚠️ Bẫy ClockSkew</span>Nếu không giảm <code>ClockSkew</code>, token hết hạn vẫn được chấp nhận thêm <b>5 phút</b> — nhiều người tưởng “API không kiểm tra exp”. Nhớ đặt lại Access Token Lifespan về mặc định sau kịch bản này.</div>
+
+<h5 id="lab2-s4">Kịch bản 4 — Token hợp lệ nhưng thiếu scope <code>orders.read</code> → 403</h5>
+<p><b>Cách tạo:</b> xin <code>orders.write</code> thay vì <code>orders.read</code> → <code>aud</code> vẫn có <code>demo-api</code> (vì <code>orders.write</code> cũng có Audience mapper) nhưng <code>scope</code> không chứa <code>orders.read</code>.</p>
+<pre data-title="bash"><code class="language-bash">TOK=$(worker_token orders.write)
+curl -i -H "Authorization: Bearer $TOK" $API/me       # 200 - token hợp lệ
+curl -i -H "Authorization: Bearer $TOK" $API/orders   # 403 - thiếu quyền</code></pre>
+<pre data-title="Response + log (ví dụ)"><code class="language-plaintext">HTTP/1.1 403 Forbidden
+Content-Length: 0
+(KHÔNG có header WWW-Authenticate kèm error)
+
+info: Microsoft.AspNetCore.Authorization.DefaultAuthorizationService[2]
+      Authorization failed. These requirements were not met:
+      AssertionRequirement: Handler assertion should evaluate to true.
+info: ...JwtBearerHandler[13] AuthenticationScheme: Bearer was forbidden.</code></pre>
+<p>Đây là ranh giới quan trọng nhất: <b>authentication thành công</b> (đã biết caller là ai) nhưng <b>authorization thất bại</b> → 403, không phải 401.</p>
+
+<h5 id="lab2-s5">Kịch bản 5 — Gửi ID token thay access token → 401</h5>
+<p><b>Cách tạo:</b> chạy DemoClient ở <a href="#lab3">Lab 3</a>, lấy giá trị <code>id_token</code> (được lưu ra file <code>tokens/id_token.txt</code>).</p>
+<pre data-title="bash"><code class="language-bash">IDT=$(cat ../DemoClient/tokens/id_token.txt)
+jwt_payload "$IDT" | jq '{aud, azp, typ, nonce}'
+curl -i -H "Authorization: Bearer $IDT" $API/me</code></pre>
+<pre data-title="Response (ví dụ)"><code class="language-plaintext">HTTP/1.1 401 Unauthorized
+WWW-Authenticate: Bearer error="invalid_token", error_description="The audience 'demo-client' is invalid"</code></pre>
+<p><b>Lý do quan sát được:</b> ID token có chữ ký hợp lệ, đúng issuer, còn hạn — nhưng <code>aud</code> = <code>demo-client</code> (ID token dành cho <b>client</b>, không dành cho API). Keycloak còn đặt claim riêng <code>"typ": "ID"</code> (access token là <code>"Bearer"</code>), nhưng JwtBearer mặc định không kiểm tra claim này — chính kiểm tra <code>aud</code> đã chặn. Xem <a href="m03-oauth-oidc.html#id-vs-access">M03 — ID token vs access token</a>.</p>
+
+<h5 id="lab2-s6">Kịch bản 6 — Bỏ <code>MapInboundClaims = false</code> → claim bị đổi tên</h5>
+<pre data-title="Terminal"><code class="language-bash">dotnet run -- --Lab:MapInboundClaims=true
+# terminal khác:
+TOK=$(worker_token orders.read)
+curl -s -H "Authorization: Bearer $TOK" $API/me | jq '.[] | select(.type | test("sub|nameidentifier|scope"))'
+curl -i -H "Authorization: Bearer $TOK" $API/profile
+curl -i -H "Authorization: Bearer $TOK" $API/orders</code></pre>
+<pre data-title="Kết quả (ví dụ)"><code class="language-plaintext">{ "type": "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier", "value": "5b1c...-service-account-id" }
+{ "type": "scope", "value": "orders.read profile email" }
+
+/profile  -&gt; HTTP/1.1 403 Forbidden   (policy has-sub tìm claim "sub" nhưng nó đã thành ...nameidentifier)
+/orders   -&gt; HTTP/1.1 200 OK          (claim "scope" KHÔNG bị đổi tên)</code></pre>
+<div class="callout info"><span class="callout-title">ℹ️ Điểm hay bị hiểu sai (đã kiểm tra mã nguồn Microsoft.IdentityModel)</span>
+Bảng ánh xạ mặc định (<code>JsonWebTokenHandler.DefaultInboundClaimTypeMap</code>) đổi <code>sub</code> → <code>ClaimTypes.NameIdentifier</code>, <code>email</code> → <code>ClaimTypes.Email</code>, <code>scp</code> → <code>http://schemas.microsoft.com/identity/claims/scope</code>… nhưng <b>không</b> đổi claim tên <code>scope</code>. Vì vậy với Keycloak (dùng <code>scope</code>), policy <code>orders.read</code> vẫn chạy; thứ hỏng là mọi chỗ đọc <code>sub</code>. Với <b>Entra ID</b> (dùng <code>scp</code>), policy kiểm tra <code>scp</code> cũng sẽ hỏng → 403. Bài học: tắt mapping (<code>MapInboundClaims = false</code>) để tên claim trong code <b>giống hệt</b> trong token.</div>
+<p>Nhớ chạy lại API <b>không</b> có tham số sau kịch bản này.</p>
+
+<h4>(e) Lỗi thường gặp &amp; cách xử lý</h4>
+<div class="table-wrap"><table>
+<thead><tr><th>Hiện tượng</th><th>Nguyên nhân</th><th>Cách xử lý</th></tr></thead>
+<tbody>
+<tr><td>500, exception <code>The MetadataAddress or Authority must use HTTPS...</code></td><td>Quên <code>RequireHttpsMetadata = false</code> khi Authority là <code>http://</code>.</td><td>Đặt false <b>chỉ cho lab</b>.</td></tr>
+<tr><td>500, log <code>IDX20803: Unable to obtain configuration from ...</code></td><td>Keycloak chưa chạy / sai URL Authority / sai tên realm.</td><td>Mở URL discovery bằng browser để kiểm tra.</td></tr>
+<tr><td>401 <code>The issuer '...' is invalid</code> (IDX10205)</td><td>Token lấy qua <code>127.0.0.1:8080</code> nhưng Authority là <code>localhost:8080</code> (hoặc ngược lại).</td><td>Dùng thống nhất một hostname.</td></tr>
+<tr><td>Luôn 401 kể cả token đúng</td><td>Gọi <code>UseAuthorization()</code> trước <code>UseAuthentication()</code>.</td><td>Đúng thứ tự: Authentication rồi Authorization.</td></tr>
+<tr><td>Thông báo IDX chỉ có <code>[PII ... is hidden]</code></td><td>Chưa bật <code>ShowPII</code> hoặc không chạy ở môi trường Development.</td><td>Kiểm tra <code>ASPNETCORE_ENVIRONMENT=Development</code>.</td></tr>
+<tr><td>Token hết hạn mà vẫn 200</td><td>ClockSkew mặc định 5 phút.</td><td>Chờ thêm hoặc giảm ClockSkew (lab).</td></tr>
+<tr><td>Sau khi <code>docker rm kc</code> và tạo lại, token mới vẫn 401 “signature key was not found”</td><td>Khóa realm mới; token cũ ký bằng khóa đã mất. (Token mới thì JwtBearer tự tải lại JWKS khi gặp <code>kid</code> lạ.)</td><td>Lấy token mới; nếu vẫn lỗi, khởi động lại API.</td></tr>
+</tbody></table></div>
+
+<h4>(f) Câu hỏi tự kiểm tra</h4>
+<details><summary>Vì sao kịch bản 1 không có <code>error="invalid_token"</code> còn kịch bản 2 có?</summary><p>Kịch bản 1 không có token nào để đánh giá — handler chỉ “challenge” yêu cầu xác thực. Kịch bản 2 có token nhưng token không qua được validation → handler đặt <code>error="invalid_token"</code> và mô tả lý do (vì <code>IncludeErrorDetails = true</code>).</p></details>
+<details><summary>Ở production có nên trả <code>error_description</code> chi tiết không?</summary><p>Thông tin như “audience invalid” giúp client debug và thường không quá nhạy cảm, nhưng nhiều tổ chức chọn tắt (<code>IncludeErrorDetails = false</code>) để không lộ cấu hình. Dù chọn gì, log phía server phải đủ chi tiết; nhưng <b>không</b> bật <code>ShowPII</code> ở production.</p></details>
+<details><summary>API có gọi Keycloak cho mỗi request không?</summary><p>Không. API tải discovery + JWKS rồi cache (ConfigurationManager tự làm mới định kỳ hoặc khi gặp <code>kid</code> lạ). Mỗi token được xác minh cục bộ bằng khóa công khai — đó cũng là lý do token đã thu hồi vẫn được chấp nhận đến khi hết hạn (xem Lab 4).</p></details>
+
+</div></div>
+
+<!-- ===================================================== -->
+<div class="lab-task" id="lab3-box">
+<div class="lab-head"><h3 id="lab3">Lab 3 — Client dùng Authorization Code + PKCE</h3><span class="badge must">Must</span><span class="chip">⏱ 30 phút</span></div>
+<div class="lab-body">
+
+<h4>(a) Mục tiêu</h4>
+<p>Viết một console app .NET (có thể chuyển sang WPF) đăng nhập alice qua <b>system browser</b> + <b>loopback redirect</b>, dùng thư viện <code>Duende.IdentityModel.OidcClient</code> (trước đây tên <code>IdentityModel.OidcClient</code>). Tự bắt và đọc từng gói tin của flow; so sánh ID token với access token; gọi API.</p>
+
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+<b>PKCE</b> giống xé đôi một tấm vé: app giữ nửa bí mật (<code>code_verifier</code>), chỉ gửi trước cho Keycloak “dấu vân tay” của nửa đó (<code>code_challenge</code> = SHA-256 của verifier). Khi đổi <code>code</code> lấy token, app phải đưa nửa vé thật ra; kẻ trộm chỉ nhặt được <code>code</code> trên đường redirect thì không có nửa vé nên không đổi được. <b>state</b> là “số thứ tự” để app biết phản hồi quay về đúng là của lần đăng nhập mình khởi tạo. <b>nonce</b> là “mã niêm phong” app gửi đi và phải thấy lại y nguyên bên trong ID token. <i>Giới hạn của phép so sánh:</i> verifier không bị “xé” thật — challenge là hash một chiều của nó.</div>
+
+<h4>(b) Yêu cầu / đề bài</h4>
+<ol>
+<li>Console app <code>DemoClient</code> mở trình duyệt mặc định, alice đăng nhập, app nhận <code>code</code> qua <code>http://127.0.0.1:7890/</code>, đổi lấy token.</li>
+<li>Ghi lại (bằng console log + DevTools/Fiddler): <b>authorization request</b> (<code>code_challenge</code>, <code>code_challenge_method</code>, <code>state</code>, <code>nonce</code>, <code>redirect_uri</code>, <code>scope</code>), <b>callback</b> (<code>code</code>, <code>state</code>), <b>token response</b>.</li>
+<li>Decode ID token và access token, điền bảng so sánh <code>aud</code>, <code>azp</code>, <code>nonce</code>, <code>scope</code>.</li>
+<li>Gọi <code>/me</code> và <code>/orders</code> của DemoApi bằng access token → cả hai 200.</li>
+<li><b>Nộp:</b> ghi chú/ảnh chụp request–response của Authorization Code + PKCE (<b>Deliverable 3, Core</b>) + source code client.</li>
+</ol>
+
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  actor U as alice
+  participant App as DemoClient (console)
+  participant L as HttpListener 127.0.0.1:7890
+  participant B as System browser
+  participant KC as Keycloak realm demo
+  participant API as DemoApi :5005
+  App->>App: Sinh state, nonce, code_verifier<br/>code_challenge = BASE64URL(SHA256(verifier))
+  App->>L: Start listener
+  App->>B: Mở /auth?response_type=code&amp;client_id=demo-client<br/>&amp;redirect_uri=http://127.0.0.1:7890/&amp;scope=openid profile email orders.read<br/>&amp;code_challenge=...&amp;code_challenge_method=S256&amp;state=...&amp;nonce=...
+  B->>KC: GET /protocol/openid-connect/auth
+  KC-->>B: Trang đăng nhập
+  U->>B: Nhập username + password
+  B->>KC: POST form đăng nhập
+  KC-->>B: 302 Location http://127.0.0.1:7890/?state=...&amp;code=...
+  B->>L: GET /?state=...&amp;code=...
+  L-->>B: HTML - bạn có thể đóng tab
+  App->>App: So sánh state nhận về với state đã gửi
+  App->>KC: POST /token grant_type=authorization_code<br/>code, code_verifier, redirect_uri, client_id
+  KC->>KC: SHA256(code_verifier) khớp code_challenge?
+  KC-->>App: id_token, access_token, refresh_token
+  App->>App: Kiểm tra nonce trong ID token
+  App->>API: GET /orders + Authorization Bearer access_token
+  API-->>App: 200 order-1
+</pre>
+<div class="caption">Sequence thực tế của Lab 3 (loopback 127.0.0.1:7890). Bước 13 là “back channel”: browser không nhìn thấy token.</div>
+</div>
+
+<h4>(c) Hướng dẫn từng bước</h4>
+<ol class="steps">
+<li><b>Tạo project.</b>
+<pre data-title="Terminal (trong thư mục auth-lab)"><code class="language-bash">dotnet new console -n DemoClient
+cd DemoClient
+dotnet add package Duende.IdentityModel.OidcClient</code></pre>
+<ul><li><i>Kiểm tra:</i> package phiên bản 7.x (tại thời điểm viết: 7.1.1). Nó kéo theo <code>Duende.IdentityModel</code>.</li></ul></li>
+
+<li><b>Hiểu 3 quyết định thiết kế trong code</b> trước khi dán:
+<ul>
+<li><b>Tách <code>PrepareLoginAsync</code> / <code>ProcessResponseAsync</code></b> thay vì <code>LoginAsync</code> + <code>IBrowser</code>: để <b>in ra URL authorization</b> và <b>URL callback</b> — đúng mục đích quan sát của lab. (Cách <code>LoginAsync</code> + <code>IBrowser</code> được ghi ở bước 5.)</li>
+<li><b><code>DisablePushedAuthorization = true</code>:</b> Keycloak quảng bá endpoint PAR (Pushed Authorization Requests) trong discovery, và OidcClient <b>tự động dùng PAR</b> nếu có. Khi đó URL trên browser chỉ còn <code>client_id</code> + <code>request_uri</code>, bạn sẽ không thấy <code>code_challenge</code>. Tắt PAR <b>chỉ để quan sát</b>; PAR là tính năng bảo mật tốt cho production.</li>
+<li><b>Tự gửi <code>nonce</code>:</b> OidcClient 7.x (đã kiểm tra mã nguồn) chỉ gửi <code>state</code> + PKCE, <b>không</b> tự gửi <code>nonce</code>. Ta thêm <code>nonce</code> qua tham số front-channel và tự kiểm tra trong ID token — để thấy cơ chế này hoạt động (<a href="m03-oauth-oidc.html#state-nonce">M03 — state &amp; nonce</a>).</li>
+</ul></li>
+
+<li><b>Dán <code>Program.cs</code>.</b>
+<pre data-title="DemoClient/Program.cs"><code class="language-csharp">using System.Diagnostics;
+using System.Net;
+using System.Net.Http.Headers;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using Duende.IdentityModel.Client;      // Parameters
+using Duende.IdentityModel.OidcClient;  // OidcClient, OidcClientOptions
+
+const string Authority   = "http://localhost:8080/realms/demo";
+const string RedirectUri = "http://127.0.0.1:7890/";   // PHẢI khớp tuyệt đối với Keycloak
+const string ApiBase     = "http://localhost:5005";
+
+var options = new OidcClientOptions
+{
+    Authority   = Authority,
+    ClientId    = "demo-client",                       // public client: KHÔNG có secret
+    RedirectUri = RedirectUri,
+    Scope       = "openid profile email orders.read",  // orders.read -&gt; aud demo-api
+    DisablePushedAuthorization = true,                  // [LAB] để thấy tham số trên URL
+    LoadProfile = false                                 // không gọi userinfo, giữ output gọn
+};
+// Ghi chú: mặc định OidcClient KHÔNG kiểm tra chữ ký ID token (Policy.RequireIdentityTokenSignature = false)
+// vì ID token nhận trực tiếp từ token endpoint. Production nên dùng HTTPS và cân nhắc gắn IdentityTokenValidator.
+var oidc = new OidcClient(options);
+
+// 1) nonce do ta tự sinh và gửi kèm
+var nonce = Base64Url(RandomNumberGenerator.GetBytes(16));
+var extra = new Parameters();
+extra.Add("nonce", nonce);
+
+// 2) Chuẩn bị: OidcClient sinh state + code_verifier + code_challenge và dựng URL
+var state = await oidc.PrepareLoginAsync(extra);
+if (state.IsError) { Console.WriteLine($"Lỗi chuẩn bị: {state.Error} {state.ErrorDescription}"); return; }
+
+Console.WriteLine("=== AUTHORIZATION REQUEST ===");
+Console.WriteLine(state.StartUrl);
+Console.WriteLine($"state         = {state.State}");
+Console.WriteLine($"code_verifier = {state.CodeVerifier}  (bí mật - KHÔNG nằm trong URL)");
+Console.WriteLine($"nonce         = {nonce}");
+
+// 3) Mở listener loopback TRƯỚC khi mở browser
+using var http = new HttpListener();
+http.Prefixes.Add(RedirectUri);
+http.Start();
+
+Process.Start(new ProcessStartInfo(state.StartUrl) { UseShellExecute = true });
+Console.WriteLine("\nĐã mở trình duyệt, đang chờ callback...");
+
+// 4) Nhận callback từ browser
+var ctx = await http.GetContextAsync();
+var callback = ctx.Request.RawUrl ?? "";
+Console.WriteLine("\n=== CALLBACK ===");
+Console.WriteLine(ctx.Request.Url);
+
+var html = Encoding.UTF8.GetBytes("&lt;html&gt;&lt;body&gt;&lt;h3&gt;Đăng nhập xong. Bạn có thể đóng tab này.&lt;/h3&gt;&lt;/body&gt;&lt;/html&gt;");
+ctx.Response.ContentType = "text/html; charset=utf-8";
+ctx.Response.ContentLength64 = html.Length;
+await ctx.Response.OutputStream.WriteAsync(html);
+ctx.Response.Close();
+http.Stop();
+
+// 5) Kiểm tra state + đổi code lấy token (gửi code_verifier)
+var result = await oidc.ProcessResponseAsync(callback, state);
+if (result.IsError) { Console.WriteLine($"Lỗi: {result.Error} {result.ErrorDescription}"); return; }
+
+Console.WriteLine("\n=== TOKEN RESPONSE (raw) ===");
+Console.WriteLine(result.TokenResponse.Raw);
+
+// 6) Kiểm tra nonce bằng tay + so sánh claim
+var idPayload = DecodePayload(result.IdentityToken);
+var atPayload = DecodePayload(result.AccessToken);
+var nonceInToken = idPayload.TryGetProperty("nonce", out var n) ? n.GetString() : null;
+Console.WriteLine($"\nnonce khớp? {nonceInToken == nonce}");
+
+Console.WriteLine("\n=== SO SÁNH ===");
+foreach (var claim in new[] { "aud", "azp", "nonce", "scope", "typ", "sub", "iss" })
+    Console.WriteLine($"{claim,-6} | ID token: {Show(idPayload, claim),-40} | Access token: {Show(atPayload, claim)}");
+
+// Lưu token ra file để dùng ở Lab 2 (kịch bản 5) và Lab 4 (refresh). CHỈ LAB.
+Directory.CreateDirectory("tokens");
+File.WriteAllText("tokens/id_token.txt", result.IdentityToken);
+File.WriteAllText("tokens/access_token.txt", result.AccessToken);
+File.WriteAllText("tokens/refresh_token.txt", result.RefreshToken ?? "");
+
+// 7) Gọi API
+using var api = new HttpClient { BaseAddress = new Uri(ApiBase) };
+api.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", result.AccessToken);
+foreach (var path in new[] { "/me", "/orders" })
+{
+    var resp = await api.GetAsync(path);
+    Console.WriteLine($"\nGET {path} -&gt; {(int)resp.StatusCode} {resp.StatusCode}");
+    Console.WriteLine($"WWW-Authenticate: {resp.Headers.WwwAuthenticate}");
+    Console.WriteLine(await resp.Content.ReadAsStringAsync());
+}
+
+// ---------- helpers ----------
+static string Base64Url(byte[] bytes) =&gt;
+    Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+
+static JsonElement DecodePayload(string jwt)
+{
+    var p = jwt.Split('.')[1].Replace('-', '+').Replace('_', '/');
+    p = p.PadRight(p.Length + (4 - p.Length % 4) % 4, '=');
+    return JsonDocument.Parse(Convert.FromBase64String(p)).RootElement.Clone();
+}
+
+static string Show(JsonElement e, string name) =&gt;
+    e.TryGetProperty(name, out var v) ? v.ToString() : "(không có)";</code></pre>
+</li>
+
+<li><b>Chạy.</b> Bật DemoApi (Lab 2) ở terminal khác, rồi:
+<pre data-title="Terminal"><code class="language-bash">dotnet run</code></pre>
+<ul>
+<li><i>Song song:</i> trước khi đăng nhập, mở DevTools (F12) trên tab browser vừa bật → tab <b>Network</b> → bật <b>Preserve log</b>. Tìm request <code>auth?...</code>, request POST đăng nhập, và response <b>302</b> có header <code>Location: http://127.0.0.1:7890/?state=...&amp;code=...</code>. Token request (bước 13) đi từ app, <b>không</b> hiện trong DevTools — muốn thấy thì dùng Fiddler, hoặc xem dòng “TOKEN RESPONSE” trong console.</li>
+<li><i>Kiểm tra:</i> console in ra 3 khối REQUEST / CALLBACK / TOKEN RESPONSE, <code>nonce khớp? True</code>, và 2 lời gọi API đều <code>200</code>.</li>
+</ul></li>
+
+<li><b>(Tùy chọn) Chuyển sang <code>LoginAsync</code> + <code>IBrowser</code>.</b> Đây là cách “gọn” khi đưa vào WPF thật (xem <a href="m07-architecture.html#wpf-example">M07 — ví dụ WPF</a>). <code>IBrowser</code> có một method <code>InvokeAsync(BrowserOptions options, CancellationToken)</code>, trả <code>BrowserResult</code> (namespace <code>Duende.IdentityModel.OidcClient.Browser</code>):
+<pre data-title="LoopbackBrowser.cs"><code class="language-csharp">using System.Diagnostics;
+using System.Net;
+using System.Text;
+using Duende.IdentityModel.OidcClient.Browser;
+
+public sealed class LoopbackBrowser : IBrowser
+{
+    public async Task&lt;BrowserResult&gt; InvokeAsync(BrowserOptions options, CancellationToken ct = default)
+    {
+        using var http = new HttpListener();
+        http.Prefixes.Add(options.EndUrl);            // = RedirectUri
+        http.Start();
+        Process.Start(new ProcessStartInfo(options.StartUrl) { UseShellExecute = true });
+
+        var getCtx = http.GetContextAsync();
+        var done = await Task.WhenAny(getCtx, Task.Delay(options.Timeout, ct));
+        if (done != getCtx)
+            return new BrowserResult { ResultType = BrowserResultType.Timeout };
+
+        var ctx = await getCtx;
+        var bytes = Encoding.UTF8.GetBytes("&lt;html&gt;&lt;body&gt;Bạn có thể đóng tab này.&lt;/body&gt;&lt;/html&gt;");
+        ctx.Response.ContentType = "text/html; charset=utf-8";
+        await ctx.Response.OutputStream.WriteAsync(bytes, ct);
+        ctx.Response.Close();
+
+        return new BrowserResult { ResultType = BrowserResultType.Success, Response = ctx.Request.RawUrl };
+    }
+}
+// Dùng: options.Browser = new LoopbackBrowser();  var result = await oidc.LoginAsync();
+// Nhớ: LoginAsync tự sinh state/PKCE; muốn gửi nonce dùng LoginRequest { FrontChannelExtraParameters = ... }.</code></pre>
+<p>Nếu tên thuộc tính <code>FrontChannelExtraParameters</code> khác trong phiên bản bạn cài, xem IntelliSense của <code>LoginRequest</code> — phần còn lại của API (<code>OidcClientOptions</code>, <code>LoginAsync</code>, <code>LoginResult</code>) theo <a href="https://docs.duendesoftware.com/identitymodel-oidcclient/" target="_blank" rel="noopener">tài liệu Duende</a>.</p></li>
+</ol>
+
+<h4>(d) Kết quả mong đợi</h4>
+<pre data-title="Console (rút gọn, ví dụ)"><code class="language-plaintext">=== AUTHORIZATION REQUEST ===
+http://localhost:8080/realms/demo/protocol/openid-connect/auth?response_type=code&amp;state=Xq3...&amp;code_challenge=E9Mel...cM&amp;code_challenge_method=S256&amp;client_id=demo-client&amp;scope=openid%20profile%20email%20orders.read&amp;redirect_uri=http%3A%2F%2F127.0.0.1%3A7890%2F&amp;nonce=k2V...
+state         = Xq3...
+code_verifier = dBjf...k  (bí mật - KHÔNG nằm trong URL)
+nonce         = k2V...
+
+=== CALLBACK ===
+http://127.0.0.1:7890/?state=Xq3...&amp;session_state=...&amp;iss=http%3A%2F%2Flocalhost%3A8080%2Frealms%2Fdemo&amp;code=4f1e...
+
+=== TOKEN RESPONSE (raw) ===
+{"access_token":"eyJ...","expires_in":300,"refresh_expires_in":1800,"refresh_token":"eyJ...","token_type":"Bearer","id_token":"eyJ...","not-before-policy":0,"session_state":"...","scope":"openid profile email orders.read"}
+
+nonce khớp? True
+GET /me -&gt; 200 OK
+GET /orders -&gt; 200 OK  ["order-1"]</code></pre>
+<p>Callback có thể kèm <code>session_state</code> và <code>iss</code> (tham số issuer trong authorization response, RFC 9207) tùy phiên bản Keycloak.</p>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Claim</th><th>ID token</th><th>Access token</th><th>Giải thích</th></tr></thead>
+<tbody>
+<tr><td><code>aud</code></td><td><code>demo-client</code></td><td><code>["demo-api", "account"]</code> hoặc <code>"demo-api"</code></td><td>ID token dành cho <b>client</b>; access token dành cho <b>API</b> (nhờ Audience mapper).</td></tr>
+<tr><td><code>azp</code></td><td><code>demo-client</code></td><td><code>demo-client</code></td><td>“Authorized party” — client đã xin token. Giống nhau ở cả hai.</td></tr>
+<tr><td><code>nonce</code></td><td>= giá trị app gửi</td><td>(không có)</td><td>Từ Keycloak 25, <code>nonce</code> chỉ còn trong ID token.</td></tr>
+<tr><td><code>scope</code></td><td>(thường không có)</td><td><code>openid profile email orders.read</code></td><td>Scope là chuyện ủy quyền → nằm trong access token.</td></tr>
+<tr><td><code>typ</code> (claim riêng Keycloak)</td><td><code>ID</code></td><td><code>Bearer</code></td><td>Không phải header <code>typ</code> của JWT.</td></tr>
+<tr><td><code>sub</code>, <code>iss</code></td><td>giống nhau</td><td>giống nhau</td><td>Cùng user, cùng IdP. Khóa định danh user = <code>iss</code> + <code>sub</code> (<a href="m03-oauth-oidc.html#iss-sub">M03</a>).</td></tr>
+</tbody></table></div>
+
+<h4>(e) Lỗi thường gặp &amp; cách xử lý</h4>
+<div class="table-wrap"><table>
+<thead><tr><th>Hiện tượng</th><th>Nguyên nhân</th><th>Cách xử lý</th></tr></thead>
+<tbody>
+<tr><td>Trang Keycloak báo <b>Invalid parameter: redirect_uri</b></td><td>Redirect URI không khớp tuyệt đối (thiếu <code>/</code>, dùng <code>localhost</code> thay <code>127.0.0.1</code>, sai cổng).</td><td>Sửa cho giống hệt trong client <code>demo-client</code>.</td></tr>
+<tr><td>Keycloak báo thiếu <code>code_challenge</code> / PKCE</td><td>Client đặt PKCE S256 nhưng app không gửi (ví dụ tự viết flow bằng tay).</td><td>Dùng OidcClient hoặc gửi đủ <code>code_challenge</code> + <code>code_challenge_method=S256</code>.</td></tr>
+<tr><td><code>HttpListenerException: Access is denied</code></td><td>Windows yêu cầu quyền URL ACL cho prefix này trên một số máy.</td><td>Chạy (admin) một lần: <code>netsh http add urlacl url=http://127.0.0.1:7890/ user=%USERNAME%</code>, hoặc đổi sang <code>TcpListener</code>.</td></tr>
+<tr><td>Cổng 7890 bị chiếm</td><td>Lần chạy trước chưa thoát.</td><td>Tắt process cũ; hoặc đổi cổng ở cả code và Keycloak.</td></tr>
+<tr><td>URL chỉ có <code>request_uri=urn:...</code></td><td>OidcClient dùng PAR.</td><td>Đặt <code>DisablePushedAuthorization = true</code> (chỉ để quan sát).</td></tr>
+<tr><td><code>invalid_grant</code> “Code not valid” khi đổi token</td><td>Code đã dùng rồi / hết hạn (rất ngắn) / gửi sai <code>redirect_uri</code>.</td><td>Đăng nhập lại; không đổi code hai lần.</td></tr>
+<tr><td><code>invalid_grant</code> “PKCE verification failed”</td><td><code>code_verifier</code> không khớp challenge.</td><td>Dùng đúng đối tượng <code>state</code> của lần PrepareLogin tương ứng.</td></tr>
+<tr><td>GET /orders → 401 audience</td><td>Quên <code>orders.read</code> trong <code>Scope</code>.</td><td>Thêm scope.</td></tr>
+</tbody></table></div>
+
+<div class="callout example"><span class="callout-title">💡 Nếu dùng Microsoft Entra ID: MSAL.NET</span>
+Với Entra ID, thư viện chuẩn cho desktop là <b>MSAL.NET</b> (<code>Microsoft.Identity.Client</code>): <code>PublicClientApplicationBuilder.Create(clientId).WithAuthority(...).WithRedirectUri("http://localhost").Build()</code> rồi <code>AcquireTokenInteractive(scopes)</code>. MSAL tự lo PKCE, state, loopback, cache và refresh. Khác biệt cần nhớ: scope của API có dạng <code>api://&lt;app-id&gt;/orders.read</code>, claim scope trong token là <b><code>scp</code></b> (không phải <code>scope</code>) — nên policy của API phải đọc <code>scp</code>, và nếu để <code>MapInboundClaims</code> mặc định thì <code>scp</code> bị đổi tên (xem kịch bản 6).</div>
+
+<h4>(f) Câu hỏi tự kiểm tra</h4>
+<details><summary>Vì sao <code>code_verifier</code> không bao giờ xuất hiện trên URL?</summary><p>URL đi qua browser, lịch sử, log proxy, có thể bị app khác chặn redirect. Chỉ <code>code_challenge</code> (hash một chiều) đi qua front channel; verifier chỉ đi qua back channel (POST tới token endpoint). Kẻ trộm <code>code</code> không có verifier thì không đổi được token.</p></details>
+<details><summary><code>state</code> và <code>nonce</code> chống lại điều gì, khác nhau ra sao?</summary><p><code>state</code> gắn callback với request đã gửi → chống CSRF/login injection ở redirect (client kiểm tra trước khi đổi code). <code>nonce</code> nằm trong ID token → chống replay ID token, gắn token với phiên đăng nhập của client (kiểm tra sau khi nhận token).</p></details>
+<details><summary>Vì sao không cần <code>client_secret</code> khi đổi code?</summary><p><code>demo-client</code> là public client; PKCE đóng vai “bằng chứng” rằng bên đổi code là bên đã khởi tạo flow.</p></details>
+
+</div></div>
+
+<!-- ===================================================== -->
+<div class="lab-task" id="lab4-box">
+<div class="lab-head"><h3 id="lab4">Lab 4 — Client Credentials, refresh, introspection</h3><span class="badge should">Should</span><span class="chip">⏱ 20 phút</span></div>
+<div class="lab-body">
+
+<h4>(a) Mục tiêu</h4>
+<p>Quan sát token <b>không có người dùng thật</b> (Client Credentials), cơ chế <b>refresh token rotation</b> và phát hiện dùng lại, và hai endpoint quản lý vòng đời token: <b>introspection</b> (RFC 7662) và <b>revocation</b> (RFC 7009). Lý thuyết ở <a href="m02-crypto-session-token.html#token-lifecycle">M02 — Token lifecycle</a> và <a href="m02-crypto-session-token.html#introspection-revocation">M02 — Introspection &amp; Revocation</a>.</p>
+
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+<b>Access token</b> giống thẻ ra vào có hạn 5 phút. <b>Refresh token</b> giống giấy hẹn đổi thẻ mới ở quầy lễ tân. Với <b>rotation</b>, mỗi lần đổi, lễ tân thu giấy hẹn cũ và đưa giấy mới — ai cầm giấy cũ quay lại là bị phát hiện. <b>Introspection</b> là gọi điện hỏi lễ tân “thẻ này còn hiệu lực không?”. <b>Revocation</b> là báo lễ tân “hủy thẻ/giấy này”. <i>Giới hạn:</i> đầu đọc thẻ ở cửa (API JWT) không gọi điện hỏi lễ tân — thẻ đã hủy vẫn mở được cửa đến khi hết hạn, trừ khi API dùng introspection.</div>
+
+<h4>(b) Yêu cầu / đề bài</h4>
+<ol>
+<li>Lấy token bằng <code>grant_type=client_credentials</code> cho <code>worker</code>, gọi API thành công; chỉ ra các claim cho thấy đây là token của <b>ứng dụng</b>, không phải của người.</li>
+<li>Bật refresh token rotation; dùng refresh token (từ Lab 3) để refresh; dùng lại refresh token cũ và ghi lại phản hồi.</li>
+<li>Gọi introspection cho access token và refresh token; revoke refresh token; introspect lại; thử gọi API bằng access token cũ.</li>
+<li><b>Nộp:</b> log các lệnh + response (Deliverable 4 — lộ trình Full) và 3 câu kết luận.</li>
+</ol>
+
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant W as worker (curl)
+  participant KC as Keycloak token endpoint
+  participant API as DemoApi
+  W->>KC: POST /token<br/>grant_type=client_credentials<br/>client_id=worker, client_secret=***, scope=orders.read
+  KC->>KC: Xác thực client (secret)<br/>Lấy quyền của service account
+  KC-->>W: access_token (không có refresh_token mặc định)
+  W->>API: GET /orders + Bearer access_token
+  API->>API: Kiểm tra chữ ký, iss, aud=demo-api, exp<br/>scope chứa orders.read
+  API-->>W: 200 order-1
+  Note over W,API: Không có user, không có browser, không có consent
+</pre>
+<div class="caption">Client Credentials: client tự xác thực và nhận token cho chính nó.</div>
+</div>
+
+<h4>(c) Hướng dẫn từng bước</h4>
+<ol class="steps">
+<li><b>Client Credentials.</b>
+<pre data-title="bash"><code class="language-bash">curl -s -X POST "$KC/protocol/openid-connect/token" \
+  -u "worker:$WORKER_SECRET" \
+  -d grant_type=client_credentials -d scope=orders.read | tee cc.json | jq .
+TOK=$(jq -r .access_token cc.json)
+jwt_payload "$TOK" | jq '{sub, azp, preferred_username, aud, scope}'
+curl -i -H "Authorization: Bearer $TOK" $API/orders</code></pre>
+<ul>
+<li><i>Vì sao <code>-u</code>:</i> gửi credential của client bằng HTTP Basic (<code>client_secret_basic</code>) — tương đương <code>-d client_id -d client_secret</code> (<code>client_secret_post</code>). Keycloak chấp nhận cả hai.</li>
+<li><i>Kiểm tra:</i> response <b>không có</b> <code>refresh_token</code> (Keycloak mặc định không cấp refresh token cho client credentials — client cứ xin token mới khi cần). Payload: <code>azp = "worker"</code>, <code>preferred_username = "service-account-worker"</code>, <code>sub</code> là ID của user “service account” gắn với client. API trả 200.</li>
+</ul></li>
+
+<li><b>Bật refresh token rotation.</b> <b>Realm settings</b> → tab <b>Tokens</b> (hoặc <b>Sessions/Tokens</b> tùy phiên bản) → bật <b>Revoke Refresh Token</b>. Trường <b>Refresh Token Max Reuse</b> xuất hiện → để <code>0</code> → <b>Save</b>.
+<ul>
+<li><i>Vì sao:</i> theo tài liệu Keycloak, khi bật, Keycloak thu hồi refresh token đã dùng và phát hành refresh token mới mà client phải dùng. <b>Max Reuse</b> = số lần một refresh token được dùng lại (0 = chỉ dùng đúng 1 lần).</li>
+<li><i>Kiểm tra:</i> chạy lại DemoClient (Lab 3) để có refresh token mới <b>sau khi</b> bật cấu hình (<code>tokens/refresh_token.txt</code>).</li>
+</ul></li>
+
+<li><b>Refresh lần 1 (hợp lệ) rồi dùng lại token cũ.</b>
+<pre data-title="bash"><code class="language-bash">RT1=$(cat ../DemoClient/tokens/refresh_token.txt)
+refresh() { curl -s -X POST "$KC/protocol/openid-connect/token" \
+  -d grant_type=refresh_token -d client_id=demo-client -d refresh_token="$1"; }
+
+refresh "$RT1" | tee r1.json | jq '{has_access: (.access_token != null), refresh_token: (.refresh_token[0:20])}'
+RT2=$(jq -r .refresh_token r1.json)
+
+refresh "$RT1" | jq .     # dùng lại RT1 -&gt; bị từ chối
+refresh "$RT2" | jq '{has_access: (.access_token != null)}'   # RT2 còn dùng được không? Ghi lại!</code></pre>
+<ul>
+<li><i>Vì sao không có secret:</i> <code>demo-client</code> là public client.</li>
+<li><i>Kiểm tra:</i> lần dùng lại RT1 trả <b>HTTP 400</b> với <code>"error": "invalid_grant"</code>. <code>error_description</code> (theo mã nguồn Keycloak) là <code>Maximum allowed refresh token reuse exceeded</code> khi dùng lại token đã dùng, hoặc <code>Stale token</code> khi một token mới hơn đã được dùng. Nếu tắt Revoke Refresh Token, dùng lại RT1 sẽ <b>thành công</b> — thử để so sánh.</li>
+</ul>
+<div class="callout info"><span class="callout-title">ℹ️ “Reuse detection” ở Keycloak khác một số IdP</span>
+Một số IdP (theo khuyến nghị OAuth Security BCP) khi phát hiện dùng lại sẽ <b>thu hồi cả chuỗi</b> refresh token (kể cả RT2) vì coi là dấu hiệu bị đánh cắp. Hành vi của Keycloak có thể chỉ từ chối token cũ. Hãy <b>tự quan sát</b> lời gọi cuối với RT2 và ghi vào báo cáo — đó chính là mục đích của lab.</div></li>
+
+<li><b>Introspection.</b>
+<pre data-title="bash"><code class="language-bash">AT=$(jq -r .access_token r1.json)
+curl -s -X POST "$KC/protocol/openid-connect/token/introspect" \
+  -u "worker:$WORKER_SECRET" -d token="$AT" | jq '{active, client_id, username, scope, aud, exp, token_type}'</code></pre>
+<ul>
+<li><i>Vì sao dùng <code>worker</code>:</i> introspection endpoint yêu cầu <b>bên gọi xác thực</b> (thường là resource server có credential). Public client không nên/không thể gọi.</li>
+<li><i>Kiểm tra:</i> <code>"active": true</code> cùng các claim của token. Token rác/hết hạn → chỉ <code>{"active": false}</code>.</li>
+</ul></li>
+
+<li><b>Revocation rồi introspect lại.</b>
+<pre data-title="bash"><code class="language-bash">curl -i -X POST "$KC/protocol/openid-connect/revoke" \
+  -d client_id=demo-client -d token="$RT2" -d token_type_hint=refresh_token
+# -&gt; HTTP/1.1 200 OK, body rỗng
+
+curl -s -X POST "$KC/protocol/openid-connect/token/introspect" -u "worker:$WORKER_SECRET" -d token="$RT2" | jq .active
+refresh "$RT2" | jq .                                    # -&gt; 400 invalid_grant
+curl -s -X POST "$KC/protocol/openid-connect/token/introspect" -u "worker:$WORKER_SECRET" -d token="$AT" | jq .active
+curl -i -H "Authorization: Bearer $AT" $API/orders      # API JWT vẫn 200 cho tới khi AT hết hạn!</code></pre>
+<ul>
+<li><i>Vì sao:</i> RFC 7009 quy định server trả <b>200</b> kể cả khi token đã vô hiệu từ trước (để không lộ thông tin). Sau revoke, refresh token chết ngay. Access token có thể vẫn <code>active</code> hoặc không khi introspect (tùy việc Keycloak có đóng phiên client hay không — ghi lại kết quả thực tế), nhưng <b>DemoApi vẫn chấp nhận</b> vì nó xác minh JWT cục bộ, không hỏi Keycloak.</li>
+<li><i>Kiểm tra:</i> bạn rút ra được: “muốn thu hồi tức thì ở API → access token ngắn hạn, hoặc API dùng introspection/token tham chiếu (opaque)”.</li>
+</ul></li>
+</ol>
+
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant C as demo-client
+  participant KC as Keycloak
+  participant RS as worker (vai trò RS gọi introspect)
+  C->>KC: refresh_token=RT1
+  KC-->>C: access_token AT2 + refresh_token RT2 (RT1 bị đánh dấu đã dùng)
+  C->>KC: refresh_token=RT1 (dùng lại)
+  KC-->>C: 400 invalid_grant
+  RS->>KC: POST /token/introspect token=AT2 (Basic auth worker)
+  KC-->>RS: active true, scope, client_id, username...
+  C->>KC: POST /revoke token=RT2
+  KC-->>C: 200 (body rỗng)
+  RS->>KC: introspect token=RT2
+  KC-->>RS: active false
+</pre>
+<div class="caption">Refresh rotation, introspection và revocation trong Lab 4.</div>
+</div>
+
+<h4>(d) Kết quả mong đợi</h4>
+<pre data-title="client_credentials response (ví dụ)"><code class="language-json">{
+  "access_token": "eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICJwWDNr...",
+  "expires_in": 300,
+  "refresh_expires_in": 0,
+  "token_type": "Bearer",
+  "not-before-policy": 0,
+  "scope": "orders.read profile email"
+}</code></pre>
+<pre data-title="Dùng lại refresh token (ví dụ)"><code class="language-json">{ "error": "invalid_grant", "error_description": "Maximum allowed refresh token reuse exceeded" }</code></pre>
+<pre data-title="Introspection — active (rút gọn, ví dụ)"><code class="language-json">{
+  "active": true,
+  "client_id": "demo-client",
+  "username": "alice",
+  "token_type": "Bearer",
+  "scope": "openid profile email orders.read",
+  "aud": ["demo-api", "account"],
+  "exp": 1794301234
+}</code></pre>
+<pre data-title="Introspection — inactive"><code class="language-json">{ "active": false }</code></pre>
+
+<h4>(e) Lỗi thường gặp &amp; cách xử lý</h4>
+<div class="table-wrap"><table>
+<thead><tr><th>Hiện tượng</th><th>Nguyên nhân</th><th>Cách xử lý</th></tr></thead>
+<tbody>
+<tr><td>Refresh: <code>invalid_grant</code> “Token is not active”/“Session not active”</td><td>Refresh token hết hạn (gắn với SSO Session Idle/Max) hoặc đã logout.</td><td>Đăng nhập lại (chạy Lab 3).</td></tr>
+<tr><td>Refresh: <code>invalid_client</code> / <code>unauthorized_client</code></td><td>Sai <code>client_id</code> (refresh token chỉ dùng được bởi client đã nhận nó).</td><td>Dùng <code>client_id=demo-client</code>.</td></tr>
+<tr><td>Introspect trả 401</td><td>Không gửi credential, hoặc dùng public client.</td><td>Dùng <code>-u worker:secret</code>.</td></tr>
+<tr><td>Dùng lại RT1 vẫn thành công</td><td>Chưa bật Revoke Refresh Token, hoặc RT1 được cấp <b>trước</b> khi bật.</td><td>Bật, Save, đăng nhập lại để lấy RT mới.</td></tr>
+</tbody></table></div>
+
+<h4>(f) Câu hỏi tự kiểm tra</h4>
+<details><summary>Token client_credentials có đại diện cho alice không?</summary><p>Không. Nó đại diện cho <b>ứng dụng</b> worker (service account). Mọi quyết định phân quyền dựa trên “ứng dụng nào”, không phải “người nào”. Không dùng flow này để giả làm user.</p></details>
+<details><summary>Vì sao revoke xong mà API vẫn nhận access token?</summary><p>API xác minh JWT cục bộ (chữ ký + exp), không hỏi IdP. Thu hồi chỉ có hiệu lực ở nơi có hỏi IdP (refresh, introspection). Giải pháp: access token ngắn hạn; với tài nguyên nhạy cảm, introspection hoặc token opaque.</p></details>
+
+</div></div>
+
+<!-- ===================================================== -->
+<div class="lab-task" id="lab5-box">
+<div class="lab-head"><h3 id="lab5">Lab 5 — Đọc SAML Response</h3><span class="badge nice">Nice</span><span class="chip">⏱ 20 phút</span></div>
+<div class="lab-body">
+
+<h4>(a) Mục tiêu</h4>
+<p>Nhìn tận mắt một <b>SAML AuthnRequest</b> và <b>SAML Response</b> thật, chú giải các trường bảo mật quan trọng. Lý thuyết ở <a href="m04-saml.html">Module 04</a> (<a href="m04-saml.html#response-vs-assertion">Response vs Assertion</a>, <a href="m04-saml.html#saml-validation">kiểm tra bảo mật SAML</a>).</p>
+
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+SAML giống một <b>lá thư giới thiệu có đóng dấu</b> (XML ký số). App (SP) viết “phiếu yêu cầu” (AuthnRequest) gửi qua tay người dùng tới IdP; IdP gửi lại lá thư (Response) qua tay người dùng, trong đó có “giấy chứng nhận” (Assertion) ghi: ai (NameID), do ai cấp (Issuer), cho ai đọc (Audience), có hiệu lực tới khi nào (Conditions), trả lời phiếu nào (InResponseTo). Người dùng chỉ là “người đưa thư” — nên app phải kiểm tra con dấu và từng dòng.</div>
+
+<h4>(b) Yêu cầu / đề bài</h4>
+<ol>
+<li>Dựng một luồng SAML SP-initiated chạy được (khuyến nghị: hoàn toàn local bằng hai realm Keycloak).</li>
+<li>Dùng SAML-tracer bắt AuthnRequest và Response.</li>
+<li><b>Nộp:</b> bản XML (đã che thông tin cá nhân) có chú giải Issuer, NameID, Audience, Conditions, <code>InResponseTo</code>, Destination; ghi rõ binding đã dùng.</li>
+</ol>
+
+<h4>(c) Hướng dẫn từng bước — phương án local: Keycloak đóng cả hai vai</h4>
+<p>Realm <code>demo</code> = <b>SAML IdP</b>. Realm mới <code>sp-realm</code> = <b>SP</b> (dùng tính năng <i>Identity Brokering</i> của Keycloak: realm này tin tưởng realm demo qua SAML). Không phụ thuộc dịch vụ ngoài.</p>
+<ol class="steps">
+<li><b>Cài SAML-tracer</b> — extension mã nguồn mở của dự án SimpleSAMLphp, có trên Firefox Add-ons và Chrome Web Store (chú ý có các extension trùng tên của nhà phát triển khác; chọn bản của SimpleSAMLphp).</li>
+<li><b>Tạo realm <code>sp-realm</code></b> (giống bước 3 Lab 1).</li>
+<li><b>Trong <code>sp-realm</code>, thêm SAML Identity Provider.</b> Menu <b>Identity providers</b> → chọn <b>SAML v2.0</b> → Alias <code>demo-saml</code> → ô <b>SAML entity descriptor</b> nhập <code>http://localhost:8080/realms/demo/protocol/saml/descriptor</code> (Keycloak tự đọc metadata của IdP) → ghi lại <b>Service provider entity ID</b> (mặc định thường là <code>http://localhost:8080/realms/sp-realm</code>) và <b>Redirect URI</b> hiển thị (dạng <code>http://localhost:8080/realms/sp-realm/broker/demo-saml/endpoint</code> — đây là <b>ACS URL</b>) → <b>Add/Save</b>.
+<ul><li><i>Vì sao:</i> metadata chứa entity ID, endpoint SSO và certificate của IdP — đây là cách thiết lập trust trong SAML.</li></ul></li>
+<li><b>Trong realm <code>demo</code>, tạo SAML client cho SP.</b> <b>Clients</b> → <b>Create client</b> → Client type <b>SAML</b> → Client ID = <b>đúng</b> Service provider entity ID ở bước trên → Next → <b>Valid redirect URIs</b> = ACS URL ở bước trên → Save. Trong tab <b>Keys</b>, tắt <b>Client signature required</b> (vì SP lab không ký AuthnRequest) . NameID format để mặc định hoặc chọn <code>email</code>/<code>username</code>.
+<ul><li><i>Vì sao:</i> trong SAML, Client ID của SP <b>chính là</b> entity ID — IdP dùng nó để biết đặt gì vào Audience.</li>
+<li><i>Kiểm tra:</i> tên trường có thể khác chút tùy phiên bản (ví dụ “Assertion Consumer Service POST Binding URL” ở tab Advanced). Nếu IdP báo lỗi về ACS, khai báo URL này ở đó.</li></ul></li>
+<li><b>Chạy luồng.</b> Mở SAML-tracer → cửa sổ ẩn danh mở <code>http://localhost:8080/realms/sp-realm/account</code> → trên trang login chọn nút <b>demo-saml</b> → đăng nhập alice ở realm demo → quay về sp-realm (lần đầu có thể có màn hình “first broker login” để hoàn tất hồ sơ).
+<ul><li><i>Kiểm tra:</i> SAML-tracer đánh dấu (nhãn SAML) ít nhất 2 request: một request tới <code>/realms/demo/protocol/saml</code> chứa <code>SAMLRequest</code>, và một POST tới <code>/realms/sp-realm/broker/demo-saml/endpoint</code> chứa <code>SAMLResponse</code>. Tab “SAML” của tracer hiện XML đã decode.</li></ul></li>
+</ol>
+
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant B as Browser + SAML-tracer
+  participant SP as SP - realm sp-realm (broker)
+  participant IdP as IdP - realm demo (SAML client)
+  B->>SP: Mở account console, chọn demo-saml
+  SP-->>B: Chuyển hướng kèm SAMLRequest (AuthnRequest ID=_a1b2)
+  B->>IdP: AuthnRequest tới SSO endpoint
+  IdP-->>B: Form đăng nhập
+  B->>IdP: Gửi username/password của alice
+  IdP-->>B: Trang HTML tự POST SAMLResponse
+  B->>SP: POST ACS /broker/demo-saml/endpoint (InResponseTo=_a1b2)
+  SP->>SP: Kiểm tra chữ ký, Issuer, Destination, Audience, Conditions, InResponseTo
+  SP-->>B: Tạo phiên tại sp-realm
+</pre>
+<div class="caption">SP-initiated SSO trong Lab 5 (<a href="m04-saml.html#sp-initiated">M04 — SP-initiated</a>). Response đi qua browser bằng HTTP-POST binding.</div>
+</div>
+
+<div class="callout tip"><span class="callout-title">🔁 Phương án thay thế (công khai)</span>
+<b>Mock SAML</b> (<code>https://mocksaml.com</code>, mã nguồn <code>boxyhq/mock-saml</code>) là IdP thử nghiệm miễn phí, metadata ở <code>/api/saml/metadata</code>; ghi rõ “Not for production use”. Bạn có thể dùng nó làm IdP cho <code>sp-realm</code> thay vì realm demo. Lưu ý: dịch vụ công khai có thể thay đổi/ngừng; các dịch vụ cũ như samltest.id không còn hoạt động. Phương án local ở trên luôn chạy được.</div>
+
+<h4>(d) Kết quả mong đợi — SAML Response có chú giải (rút gọn, ví dụ)</h4>
+<pre data-title="SAMLResponse (decode từ SAML-tracer)"><code class="language-xml">&lt;samlp:Response
+    ID="ID_7c1f..."
+    InResponseTo="ID_a1b2..."                 &lt;!-- ① phải = ID của AuthnRequest SP đã gửi --&gt;
+    Destination="http://localhost:8080/realms/sp-realm/broker/demo-saml/endpoint"  &lt;!-- ② phải = ACS URL của SP --&gt;
+    IssueInstant="2026-11-10T08:30:01Z" Version="2.0"&gt;
+  &lt;saml:Issuer&gt;http://localhost:8080/realms/demo&lt;/saml:Issuer&gt;   &lt;!-- ③ phải = IdP đã tin cậy --&gt;
+  &lt;samlp:Status&gt;&lt;samlp:StatusCode Value="urn:oasis:names:tc:SAML:2.0:status:Success"/&gt;&lt;/samlp:Status&gt;
+  &lt;saml:Assertion ID="ID_9d3e..." IssueInstant="2026-11-10T08:30:01Z" Version="2.0"&gt;
+    &lt;saml:Issuer&gt;http://localhost:8080/realms/demo&lt;/saml:Issuer&gt;
+    &lt;ds:Signature&gt;...&lt;/ds:Signature&gt;          &lt;!-- ④ chữ ký: kiểm tra bằng cert trong metadata --&gt;
+    &lt;saml:Subject&gt;
+      &lt;saml:NameID Format="urn:oasis:names:tc:SAML:1.1:nameid-format:unspecified"&gt;alice&lt;/saml:NameID&gt;  &lt;!-- ⑤ ai --&gt;
+      &lt;saml:SubjectConfirmation Method="urn:oasis:names:tc:SAML:2.0:cm:bearer"&gt;
+        &lt;saml:SubjectConfirmationData InResponseTo="ID_a1b2..."
+            NotOnOrAfter="2026-11-10T08:35:01Z"
+            Recipient="http://localhost:8080/realms/sp-realm/broker/demo-saml/endpoint"/&gt;
+      &lt;/saml:SubjectConfirmation&gt;
+    &lt;/saml:Subject&gt;
+    &lt;saml:Conditions NotBefore="2026-11-10T08:30:00Z" NotOnOrAfter="2026-11-10T08:31:00Z"&gt;  &lt;!-- ⑥ thời hạn --&gt;
+      &lt;saml:AudienceRestriction&gt;
+        &lt;saml:Audience&gt;http://localhost:8080/realms/sp-realm&lt;/saml:Audience&gt;  &lt;!-- ⑦ phải = entity ID của SP --&gt;
+      &lt;/saml:AudienceRestriction&gt;
+    &lt;/saml:Conditions&gt;
+    &lt;saml:AuthnStatement AuthnInstant="2026-11-10T08:30:01Z" SessionIndex="..."/&gt;
+    &lt;saml:AttributeStatement&gt;...&lt;/saml:AttributeStatement&gt;
+  &lt;/saml:Assertion&gt;
+&lt;/samlp:Response&gt;</code></pre>
+<div class="table-wrap"><table>
+<thead><tr><th>Trường</th><th>Ý nghĩa</th><th>SP phải kiểm tra</th><th>Tương đương OIDC</th></tr></thead>
+<tbody>
+<tr><td><b>Issuer</b></td><td>Ai phát hành</td><td>= entity ID IdP đã cấu hình trust</td><td><code>iss</code></td></tr>
+<tr><td><b>NameID</b></td><td>Định danh subject theo format</td><td>Dùng làm khóa liên kết account (ổn định, không đổi)</td><td><code>sub</code></td></tr>
+<tr><td><b>Audience</b></td><td>Assertion dành cho SP nào</td><td>= entity ID của chính mình</td><td><code>aud</code></td></tr>
+<tr><td><b>Conditions</b> (NotBefore/NotOnOrAfter)</td><td>Cửa sổ hiệu lực</td><td>Thời gian hiện tại nằm trong cửa sổ (có clock skew nhỏ)</td><td><code>nbf</code>/<code>exp</code></td></tr>
+<tr><td><b>InResponseTo</b></td><td>Trả lời AuthnRequest nào</td><td>= ID request đã gửi (SP-initiated); chống unsolicited/replay</td><td>~ <code>state</code>/<code>nonce</code></td></tr>
+<tr><td><b>Destination</b> / Recipient</td><td>Endpoint nhận</td><td>= ACS URL của mình</td><td>~ <code>redirect_uri</code></td></tr>
+</tbody></table></div>
+
+<h4>(e) Lỗi thường gặp &amp; cách xử lý</h4>
+<div class="table-wrap"><table>
+<thead><tr><th>Hiện tượng</th><th>Nguyên nhân</th><th>Cách xử lý</th></tr></thead>
+<tbody>
+<tr><td>IdP báo “Invalid requester” / client not found</td><td>Client ID của SAML client ≠ entity ID mà SP gửi trong AuthnRequest.</td><td>Copy đúng Service provider entity ID.</td></tr>
+<tr><td>IdP báo lỗi chữ ký request</td><td>“Client signature required” bật nhưng SP không ký.</td><td>Tắt (lab) hoặc bật ký AuthnRequest ở SP.</td></tr>
+<tr><td>SP báo “Invalid destination”/redirect URI</td><td>ACS URL khai báo ở IdP sai.</td><td>Dùng đúng URL <code>/broker/demo-saml/endpoint</code>.</td></tr>
+<tr><td>SAML-tracer không hiện gì</td><td>Mở tracer sau khi bắt đầu luồng.</td><td>Mở tracer trước, làm lại trong cửa sổ mới.</td></tr>
+</tbody></table></div>
+
+<h4>(f) Câu hỏi tự kiểm tra</h4>
+<details><summary>SAML Response và Assertion khác nhau thế nào trong XML vừa bắt?</summary><p><code>&lt;samlp:Response&gt;</code> là message bao ngoài (Destination, InResponseTo, Status). <code>&lt;saml:Assertion&gt;</code> nằm bên trong, chứa tuyên bố về subject (NameID, Conditions, AuthnStatement, Attributes). Chữ ký có thể ở Response, ở Assertion, hoặc cả hai.</p></details>
+<details><summary>Vì sao không tự viết code parse XML để kiểm tra chữ ký?</summary><p>Rủi ro XML Signature Wrapping, XXE, canonicalization sai. Dùng thư viện SAML trưởng thành (<a href="m04-saml.html#saml-validation">M04</a>).</p></details>
+
+</div></div>
+
+<!-- ===================================================== -->
+<h2 id="jwt-decoder">Công cụ: decode JWT ngay trong trang (không gửi đi đâu)</h2>
+<div class="widget">
+<div class="w-title">🧪 Decode header &amp; payload của JWT (chạy 100% trong trình duyệt)</div>
+<p>Dán access token hoặc ID token từ lab. Công cụ <b>không kiểm tra chữ ký</b> — chỉ để đọc. Thời gian <code>exp</code>/<code>iat</code> được đổi sang giờ địa phương.</p>
+<textarea id="jwtIn" rows="4" style="width:100%;font-family:'JetBrains Mono',monospace;font-size:.85rem" placeholder="eyJhbGciOi..."></textarea>
+<div class="btn-row"><button class="btn" id="jwtGo">Decode</button><button class="btn" id="jwtClear">Xóa</button></div>
+<div class="out" id="jwtOut"></div>
+</div>
+
+<!-- ===================================================== -->
+<h2 id="error-table">Bảng lỗi mẫu: kịch bản → status → header/log → nguyên nhân → cách sửa</h2>
+<p>Đây là mẫu cho <b>Deliverable 2</b> <span class="badge core">Core</span>. Khi nộp, thay cột “Header/log” bằng <b>giá trị thật</b> bạn bắt được. Bảng này cũng là nguồn cho <a href="m07-architecture.html#troubleshooting">troubleshooting guide ở M07</a>.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>#</th><th>Kịch bản lỗi</th><th>Status</th><th><code>WWW-Authenticate</code> / log</th><th>Nguyên nhân</th><th>Cách sửa</th></tr></thead>
+<tbody>
+<tr><td>1</td><td>Không gửi token</td><td>401</td><td><code>Bearer</code> (không error) · log <code>Bearer was challenged</code></td><td>Thiếu header Authorization</td><td>Client gắn <code>Authorization: Bearer &lt;access_token&gt;</code></td></tr>
+<tr><td>2</td><td>Token sai <code>aud</code></td><td>401</td><td><code>error="invalid_token", error_description="The audience 'account' is invalid"</code> · <code>IDX10214</code></td><td>Token không dành cho API này (thiếu Audience mapper / không xin scope)</td><td>Xin đúng scope; cấu hình audience ở IdP. <b>Không</b> tắt <code>ValidateAudience</code></td></tr>
+<tr><td>3</td><td>Token hết hạn</td><td>401</td><td><code>error_description="The token expired at '...'"</code> · <code>IDX10223</code></td><td><code>exp</code> + ClockSkew đã qua</td><td>Client refresh / xin token mới; đồng bộ giờ hệ thống</td></tr>
+<tr><td>4</td><td>Thiếu scope <code>orders.read</code></td><td>403</td><td>Không có error · log <code>Authorization failed. These requirements were not met</code>, <code>Bearer was forbidden</code></td><td>Token hợp lệ nhưng không đủ quyền</td><td>Client xin scope; admin gán scope cho client</td></tr>
+<tr><td>5</td><td>Gửi ID token thay access token</td><td>401</td><td><code>The audience 'demo-client' is invalid</code> · <code>IDX10214</code></td><td>ID token có <code>aud</code> = client</td><td>Client gửi <code>access_token</code>, không gửi <code>id_token</code></td></tr>
+<tr><td>6</td><td>Bỏ <code>MapInboundClaims=false</code>, policy đọc <code>sub</code></td><td>403</td><td>Log <code>ClaimsAuthorizationRequirement ... sub</code>; <code>/me</code> thấy <code>.../nameidentifier</code></td><td>Inbound claim mapping đổi tên <code>sub</code> (và <code>scp</code> với Entra)</td><td><code>MapInboundClaims = false</code></td></tr>
+<tr><td>7</td><td>Sai issuer (localhost vs 127.0.0.1)</td><td>401</td><td><code>The issuer '...' is invalid</code> · <code>IDX10205</code></td><td>Token được phát hành dưới hostname khác Authority</td><td>Thống nhất hostname/issuer; cấu hình hostname cho Keycloak production</td></tr>
+<tr><td>8</td><td>Chữ ký sai (sửa 1 ký tự payload)</td><td>401</td><td><code>The signature is invalid</code> (hoặc mô tả tương đương) · <code>IDX10511</code>/<code>IDX10503</code></td><td>Token bị chỉnh sửa / ký bằng khóa khác</td><td>Không chỉnh token; kiểm tra Authority đúng realm</td></tr>
+<tr><td>9</td><td>Khóa ký không tìm thấy (realm tạo lại)</td><td>401</td><td><code>The signature key was not found</code></td><td><code>kid</code> trong token không có trong JWKS hiện tại</td><td>Lấy token mới; JwtBearer tự refresh JWKS khi gặp <code>kid</code> lạ</td></tr>
+<tr><td>10</td><td>Keycloak không chạy / sai Authority</td><td>500</td><td>Log <code>IDX20803: Unable to obtain configuration from ...</code></td><td>API không tải được discovery/JWKS</td><td>Kiểm tra URL discovery; health check IdP</td></tr>
+<tr><td>11</td><td><code>UseAuthorization()</code> trước <code>UseAuthentication()</code></td><td>401 với mọi token</td><td><code>Bearer</code> challenge dù token đúng</td><td>Sai thứ tự middleware</td><td>Authentication trước Authorization</td></tr>
+<tr><td>12</td><td>Token hết hạn nhưng vẫn 200</td><td>200</td><td>—</td><td>ClockSkew mặc định 5 phút</td><td>Hiểu và chấp nhận, hoặc giảm ClockSkew có cân nhắc</td></tr>
+</tbody></table></div>
+
+<!-- ===================================================== -->
+<h2 id="hieu-lam">Các hiểu lầm cần tránh khi làm lab</h2>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Lỗi audience thì tắt <code>ValidateAudience</code> cho nhanh.</span><span class="f-label">Thực tế</span><span>Khi đó API nhận cả token dành cho API khác (kể cả ID token). Sửa cấu hình ở IdP (Audience mapper), không tắt kiểm tra.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Token hợp lệ nhưng thiếu quyền thì trả 401.</span><span class="f-label">Thực tế</span><span>401 = không xác thực được. Thiếu scope/quyền là <b>403</b>.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Revoke token là API lập tức từ chối.</span><span class="f-label">Thực tế</span><span>API xác minh JWT cục bộ sẽ chấp nhận đến khi <code>exp</code> (+ ClockSkew).</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Desktop app nên dùng client secret cho “an toàn hơn”.</span><span class="f-label">Thực tế</span><span>Secret trong app cài trên máy người dùng không còn là bí mật. Dùng public client + PKCE (<a href="m07-architecture.html#desktop">M07 — Desktop</a>).</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Cứ bật Direct access grants để lấy token cho tiện.</span><span class="f-label">Thực tế</span><span>Đó là ROPC — client cầm mật khẩu user, không hỗ trợ MFA/SSO tốt, bị loại khỏi OAuth 2.1. Chỉ dùng trên client test riêng, xóa sau lab.</span></div>
+
+<!-- ===================================================== -->
+<h2 id="tom-tat">Tóm tắt nhanh</h2>
+<ul>
+<li>Keycloak: realm = không gian riêng có issuer riêng; client <b>public</b> (desktop, PKCE) vs <b>confidential</b> (server, secret).</li>
+<li>Audience không tự có: Keycloak cần <b>Audience mapper</b> (gắn vào client scope) để <code>aud</code> chứa <code>demo-api</code>.</li>
+<li><b>Default</b> client scope luôn áp dụng; <b>Optional</b> chỉ khi client xin trong tham số <code>scope</code>.</li>
+<li><code>AddJwtBearer</code> + <code>Authority</code> = tự tải discovery + JWKS, kiểm tra chữ ký, <code>iss</code>, <code>aud</code>, <code>exp</code> cục bộ.</li>
+<li>Token sai (thiếu, sai aud/iss/chữ ký, hết hạn) → <b>401</b> + <code>WWW-Authenticate</code>; token đúng nhưng thiếu quyền → <b>403</b>.</li>
+<li>ID token có <code>aud</code> = client → API từ chối. API chỉ nhận <b>access token</b>.</li>
+<li><code>MapInboundClaims = false</code> giữ nguyên tên claim; mặc định <code>sub</code> → <code>nameidentifier</code>, <code>scp</code> → <code>.../identity/claims/scope</code>.</li>
+<li>PKCE: <code>code_challenge</code> đi qua browser, <code>code_verifier</code> chỉ đi back channel. <code>state</code> kiểm callback, <code>nonce</code> kiểm ID token.</li>
+<li>Client Credentials: token của <b>ứng dụng</b>, không có user, thường không có refresh token.</li>
+<li>Rotation làm refresh token cũ bị từ chối (<code>invalid_grant</code>); revoke không làm API JWT từ chối access token ngay.</li>
+</ul>
+
+<!-- ===================================================== -->
+<h2 id="output">Output / Deliverables</h2>
+<ul class="checklist">
+<li><span><b>Repo demo chạy được</b> (API + client) kèm README hướng dẫn chạy. <span class="badge core">Core</span></span></li>
+<li><span><b>Bảng</b> “kịch bản lỗi → status code → <code>WWW-Authenticate</code>/log → nguyên nhân” cho tối thiểu 5 kịch bản ở Lab 2 (mẫu ở <a href="#error-table">#error-table</a>). <span class="badge core">Core</span></span></li>
+<li><span><b>Ghi chú/ảnh chụp</b> request–response của Authorization Code + PKCE (authorization request, callback, token response). <span class="badge core">Core</span></span></li>
+<li><span><b>Kết quả Lab 4 và Lab 5</b> (lộ trình Full).</span></li>
+</ul>
+<p>Xem thêm tổng hợp deliverables toàn lộ trình ở <a href="appendix.html#deliverables">Phụ lục</a>.</p>
+
+<h3 id="readme-mau">README mẫu</h3>
+<pre data-title="README.md"><code class="language-plaintext"># auth-lab — OAuth/OIDC với Keycloak + ASP.NET Core (.NET 10)
+
+## Yêu cầu
+- .NET SDK 10.x, Docker Desktop, (tùy chọn) jq, Git Bash
+
+## 1. Chạy Keycloak
+docker run --name kc -p 8080:8080 -e KC_BOOTSTRAP_ADMIN_USERNAME=admin \
+  -e KC_BOOTSTRAP_ADMIN_PASSWORD=admin quay.io/keycloak/keycloak:26.8.2 start-dev
+- Import keycloak/realm-demo.json (Create realm -&gt; Resource file) HOẶC cấu hình tay theo docs/lab1.md
+- Tạo user alice / đặt password (Temporary = Off)
+- Lấy secret client worker: Clients -&gt; worker -&gt; Credentials
+
+## 2. Chạy API
+cd DemoApi &amp;&amp; dotnet run          # http://localhost:5005
+
+## 3. Chạy client (Auth Code + PKCE)
+cd DemoClient &amp;&amp; dotnet run       # mở browser, đăng nhập alice
+
+## 4. Token máy-máy
+export WORKER_SECRET=...; ./scripts/get-worker-token.sh orders.read
+
+## Kịch bản lỗi đã tái hiện
+Xem docs/error-table.md
+
+## Cảnh báo
+Chỉ dùng cho lab: HTTP, RequireHttpsMetadata=false, ShowPII=true, admin/admin, start-dev,
+in/lưu token ra file. KHÔNG dùng production.</code></pre>
+
+<h2 id="knowledge-check">Knowledge Check (tự luận)</h2>
+<p>Tự trả lời trước, sau đó mở đáp án gợi ý để so sánh.</p>
+<details><summary>Vì sao <code>MapInboundClaims = false</code> giúp tránh lỗi policy?</summary>
+<p>Mặc định handler đổi tên một số claim theo bảng ánh xạ cũ của Microsoft: <code>sub</code> → <code>http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier</code>, <code>scp</code> → <code>http://schemas.microsoft.com/identity/claims/scope</code>, <code>email</code> → <code>ClaimTypes.Email</code>… Policy viết theo tên trong token (<code>RequireClaim("sub")</code>, đọc <code>scp</code>) sẽ không tìm thấy claim → 403 dù token đúng. Tắt mapping để tên claim trong <code>ClaimsPrincipal</code> giống hệt trong JWT — điều bạn thấy khi decode là điều code nhận được.</p></details>
+<details><summary>API trả 401 hay 403 khi token hợp lệ nhưng thiếu scope?</summary>
+<p><b>403 Forbidden.</b> Authentication đã thành công (biết caller là ai); thất bại ở authorization. Response 403 không mang <code>error="invalid_token"</code>. (RFC 6750 có mã <code>insufficient_scope</code> cho trường hợp này; ASP.NET Core mặc định không tự thêm nó vào header — có thể tùy biến nếu muốn.)</p></details>
+<details><summary>API lấy public key để xác minh chữ ký ở đâu, khi nào làm mới?</summary>
+<p>Từ <code>jwks_uri</code> trong discovery document (<code>{Authority}/.well-known/openid-configuration</code>), ở đây là <code>/realms/demo/protocol/openid-connect/certs</code>. JwtBearer tải lần đầu khi cần, cache lại, làm mới định kỳ (mặc định của ConfigurationManager là theo chu kỳ tính bằng giờ) và <b>làm mới ngay</b> khi gặp token có <code>kid</code> không có trong cache (<code>RefreshOnIssuerKeyNotFound</code>, mặc định bật) — để hỗ trợ xoay vòng khóa.</p></details>
+<details><summary>Vì sao ID token bị API từ chối dù chữ ký hợp lệ?</summary>
+<p>Vì ID token dành cho <b>client</b>: <code>aud</code> = <code>demo-client</code>, không phải <code>demo-api</code>. Chữ ký chỉ chứng minh “Keycloak đã phát hành token này”, không chứng minh “token này dành cho tôi”. Ngoài ra ID token không mang scope ủy quyền. API phải kiểm tra <code>aud</code> và chỉ nhận access token.</p></details>
+
+<div class="callout tip"><span class="callout-title">✅ Tiêu chí hoàn thành</span>
+Demo được <b>login → gọi API thành công</b>, tái hiện được <b>ít nhất 3 lỗi khác nhau</b> và giải thích nguyên nhân từ log/header.</div>
+
+<h2 id="quiz">Quiz trắc nghiệm</h2>
+<div id="quiz"></div>
+
+</main>
+<script>
+window.QUIZ = [
+  { q: "Bạn gọi <code>/orders</code> bằng token worker xin <code>scope=orders.write</code>. Token có <code>aud</code> chứa <code>demo-api</code>, chữ ký hợp lệ. API trả gì?",
+    options: ["401 với error=\"invalid_token\"", "400 Bad Request", "200 OK", "403 Forbidden"],
+    answer: 3,
+    explain: "Token qua được authentication (chữ ký, iss, aud, exp đều đúng) nhưng policy <code>orders.read</code> không thỏa → <b>403</b>. Xem <a href='#lab2-s4'>kịch bản 4</a>." },
+  { q: "Header <code>WWW-Authenticate: Bearer error=\"invalid_token\", error_description=\"The audience 'account' is invalid\"</code>. Nguyên nhân khả dĩ nhất?",
+    options: ["Client chưa xin scope có Audience mapper nên aud không chứa demo-api", "Token hết hạn", "Policy orders.read sai", "Keycloak đang tắt"],
+    answer: 0,
+    explain: "Audience mapper gắn vào client scope <code>orders.read</code>/<code>orders.write</code>. Không xin scope → không có <code>demo-api</code> trong <code>aud</code> → IDX10214." },
+  { q: "Bạn gửi request không có header Authorization tới endpoint yêu cầu xác thực. Header trả về là gì?",
+    options: ["<code>WWW-Authenticate: Bearer</code> (không có error)", "<code>WWW-Authenticate: Bearer error=\"invalid_token\"</code>", "<code>WWW-Authenticate: Bearer error=\"insufficient_scope\"</code>", "Không có header WWW-Authenticate"],
+    answer: 0,
+    explain: "Không có token thì không có lỗi token để báo; handler chỉ challenge với <code>Bearer</code>. Mã lỗi chỉ thêm khi token có nhưng không hợp lệ." },
+  { q: "Bạn đặt Access Token Lifespan = 1 phút, chờ 2 phút rồi gọi API (code roadmap gốc, không chỉnh ClockSkew). Kết quả?",
+    options: ["401 vì token hết hạn", "403", "500", "200 vì ClockSkew mặc định 5 phút vẫn chấp nhận"],
+    answer: 3,
+    explain: "<code>TokenValidationParameters.ClockSkew</code> mặc định 5 phút. Token hết hạn 1 phút vẫn được chấp nhận. Lab giảm ClockSkew xuống 30 giây để thấy lỗi IDX10223 nhanh hơn." },
+  { q: "Gửi ID token (lấy từ Lab 3) tới <code>/me</code>. Vì sao bị 401?",
+    options: ["Chữ ký ID token không hợp lệ", "ID token không có claim sub", "<code>aud</code> của ID token là demo-client, không phải demo-api", "ID token luôn hết hạn ngay"],
+    answer: 2,
+    explain: "ID token dành cho client. Chữ ký và iss vẫn đúng, nhưng kiểm tra audience thất bại: <i>The audience 'demo-client' is invalid</i>." },
+  { q: "Bỏ <code>MapInboundClaims = false</code> trong API dùng Keycloak. Những điều nào xảy ra?",
+    options: ["Claim <code>sub</code> xuất hiện với tên <code>http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier</code>", "Policy <code>RequireClaim(\"sub\")</code> trả 403", "Claim <code>scope</code> của Keycloak bị đổi tên nên policy orders.read luôn 403", "Mọi request đều 401"],
+    answer: [0, 1],
+    explain: "Bảng ánh xạ mặc định đổi <code>sub</code> (và <code>scp</code> của Entra) nhưng <b>không</b> đổi claim tên <code>scope</code>. Vì vậy với Keycloak, policy đọc <code>scope</code> vẫn chạy; policy đọc <code>sub</code> thì hỏng." },
+  { q: "Vì sao trong DemoClient ta đặt <code>DisablePushedAuthorization = true</code>?",
+    options: ["Keycloak không hỗ trợ PAR", "PAR không an toàn", "Keycloak quảng bá PAR và OidcClient tự dùng PAR, khiến URL trên browser chỉ còn request_uri — ta tắt để quan sát tham số", "Để bỏ qua PKCE"],
+    answer: 2,
+    explain: "Với PAR, tham số (code_challenge, state…) được POST trực tiếp tới IdP; browser chỉ thấy <code>request_uri</code>. Tốt cho production, nhưng lab cần nhìn thấy tham số." },
+  { q: "Trong flow Lab 3, giá trị nào <b>không bao giờ</b> được đi qua browser?",
+    options: ["code_challenge", "state", "code_verifier", "code"],
+    answer: 2,
+    explain: "<code>code_verifier</code> chỉ gửi qua back channel (POST tới token endpoint). Đó là lý do kẻ trộm <code>code</code> không đổi được token." },
+  { q: "Keycloak báo <i>Invalid parameter: redirect_uri</i>. Client cấu hình <code>http://127.0.0.1:7890/</code>. App gửi giá trị nào có thể gây lỗi?",
+    options: ["<code>http://127.0.0.1:7890</code>", "<code>http://localhost:7890/</code>", "<code>http://127.0.0.1:7891/</code>", "<code>http://127.0.0.1:7890/</code>"],
+    answer: [0, 1, 2],
+    explain: "Keycloak so khớp chính xác (trừ khi dùng wildcard). Thiếu dấu <code>/</code>, đổi host hay đổi cổng đều bị từ chối." },
+  { q: "Cấu hình client scope <code>orders.read</code> là <b>Optional</b> cho demo-client. Điều gì đúng?",
+    options: ["Mọi token của demo-client luôn có orders.read", "Optional nghĩa là user phải bấm đồng ý", "Chỉ khi demo-client gửi orders.read trong tham số scope thì token mới có orders.read và aud demo-api", "Optional chỉ áp dụng cho SAML"],
+    answer: 2,
+    explain: "Optional client scope chỉ áp dụng khi được yêu cầu qua tham số <code>scope</code>; Default thì luôn áp dụng." },
+  { q: "Token lấy bằng <code>grant_type=client_credentials</code> cho worker. Phát biểu nào đúng?",
+    options: ["Token đại diện cho ứng dụng worker (service account), azp = worker", "Token đại diện cho alice vì alice là user duy nhất", "Response luôn có refresh_token", "Phải mở browser để lấy token"],
+    answer: 0,
+    explain: "Client Credentials không có user. Keycloak gắn token với service account của client (<code>preferred_username</code> dạng <code>service-account-worker</code>) và mặc định không cấp refresh token." },
+  { q: "Bật Revoke Refresh Token (Max Reuse = 0). Bạn refresh bằng RT1 nhận RT2, rồi dùng lại RT1. Kết quả mong đợi?",
+    options: ["200, nhận thêm RT3", "401 từ DemoApi", "Keycloak xóa user alice", "400 invalid_grant"],
+    answer: 3,
+    explain: "Keycloak từ chối refresh token đã dùng: <code>invalid_grant</code> (mô tả như <i>Maximum allowed refresh token reuse exceeded</i> hoặc <i>Stale token</i>)." },
+  { q: "Bạn revoke refresh token, rồi gọi DemoApi bằng access token cũ (còn hạn). Điều gì xảy ra và vì sao?",
+    options: ["401 vì API nhận thông báo thu hồi từ Keycloak", "200 vì API xác minh JWT cục bộ, không hỏi Keycloak", "403 vì scope bị xóa", "500 vì JWKS bị đổi"],
+    answer: 1,
+    explain: "JwtBearer chỉ kiểm tra chữ ký/claim cục bộ. Muốn thu hồi có hiệu lực ngay: access token ngắn hạn, hoặc API dùng introspection." },
+  { q: "Ai nên gọi introspection endpoint trong lab?",
+    options: ["demo-client (public)", "Browser của user", "Một client đã xác thực như worker hoặc resource server có credential", "Bất kỳ ai không cần xác thực"],
+    answer: 2,
+    explain: "Introspection (RFC 7662) yêu cầu bên gọi được xác thực, thường là resource server. Lab dùng <code>-u worker:secret</code>." },
+  { q: "API trả <b>500</b> và log có <code>IDX20803: Unable to obtain configuration from ...</code>. Nguyên nhân?",
+    options: ["Token hết hạn", "Thiếu scope", "API không tải được discovery/JWKS (Keycloak tắt, sai Authority/realm)", "Sai thứ tự middleware"],
+    answer: 2,
+    explain: "Không có metadata thì không thể xác minh token; handler ném exception → 500. Kiểm tra URL discovery bằng browser." },
+  { q: "Bạn lấy token qua <code>http://127.0.0.1:8080/...</code> nhưng API đặt <code>Authority = http://localhost:8080/realms/demo</code>. Lỗi gì?",
+    options: ["IDX10205 issuer invalid → 401", "IDX10214 audience invalid", "403", "Không lỗi, vì cùng một máy"],
+    answer: 0,
+    explain: "Keycloak dev đặt issuer theo hostname của request. <code>http://127.0.0.1:8080/realms/demo</code> ≠ <code>http://localhost:8080/realms/demo</code> → issuer không khớp." },
+  { q: "Trong SAML Response vừa bắt ở Lab 5, những trường nào SP phải so khớp với cấu hình/request của chính nó?",
+    options: ["Audience = entity ID của SP", "Destination = ACS URL của SP", "InResponseTo = ID AuthnRequest đã gửi (SP-initiated)", "NameID phải là email"],
+    answer: [0, 1, 2],
+    explain: "Audience, Destination/Recipient và InResponseTo đều phải khớp. NameID có nhiều format; không bắt buộc là email (<a href='m04-saml.html#saml-validation'>M04</a>)." },
+  { q: "Vì sao không bật Direct access grants trên <code>demo-client</code> để lấy token cho nhanh?",
+    options: ["Vì Keycloak không hỗ trợ", "Vì đó là ROPC: client cầm mật khẩu user, bị loại khỏi OAuth 2.1; nếu cần cho lab thì tạo client test riêng và xóa sau", "Vì sẽ làm hỏng PKCE của mọi client", "Vì Direct access grants chỉ cho SAML"],
+    answer: 1,
+    explain: "ROPC phá vỡ mô hình “client không thấy mật khẩu”, không hỗ trợ tốt MFA/SSO. Xem <a href='m03-oauth-oidc.html#ropc-implicit'>M03</a>." }
+];
+</script>
+<script>
+(function () {
+  var inp = document.getElementById('jwtIn');
+  var out = document.getElementById('jwtOut');
+  function b64url(s) {
+    s = s.replace(/-/g, '+').replace(/_/g, '/');
+    while (s.length % 4) s += '=';
+    var bin = atob(s);
+    var bytes = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return new TextDecoder().decode(bytes);
+  }
+  function esc(s) { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+  document.getElementById('jwtGo').addEventListener('click', function () {
+    var t = (inp.value || '').trim();
+    var parts = t.split('.');
+    if (parts.length < 2) { out.innerHTML = '⚠️ Không phải JWT (cần dạng header.payload.signature).'; return; }
+    try {
+      var h = JSON.parse(b64url(parts[0]));
+      var p = JSON.parse(b64url(parts[1]));
+      var notes = [];
+      ['exp', 'iat', 'nbf', 'auth_time'].forEach(function (k) {
+        if (typeof p[k] === 'number') notes.push(k + ' = ' + new Date(p[k] * 1000).toLocaleString());
+      });
+      if (typeof p.exp === 'number') notes.push(p.exp * 1000 < Date.now() ? '⛔ Token ĐÃ HẾT HẠN' : '✅ Token còn hạn');
+      if (p.typ) notes.push('Claim typ (Keycloak) = ' + p.typ + (p.typ === 'ID' ? ' → đây là ID token, đừng gửi cho API' : ''));
+      out.innerHTML = '<b>Header</b><pre>' + esc(JSON.stringify(h, null, 2)) + '</pre><b>Payload</b><pre>' +
+        esc(JSON.stringify(p, null, 2)) + '</pre>' + (notes.length ? '<b>Ghi chú</b><ul><li>' + notes.map(esc).join('</li><li>') + '</li></ul>' : '');
+    } catch (e) {
+      out.innerHTML = '⚠️ Không decode được: ' + esc(String(e.message || e));
+    }
+  });
+  document.getElementById('jwtClear').addEventListener('click', function () { inp.value = ''; out.innerHTML = ''; });
+})();
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

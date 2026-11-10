@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Auth Standards Roadmap</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<main class="content">
+
+<div class="hero">
+  <div class="breadcrumb">Tài liệu học tập &amp; chuẩn bị Technical Sharing</div>
+  <h1>Lộ trình Authentication Standards 10–15 giờ</h1>
+  <p class="lead">Từ khái niệm Identity / AuthN / AuthZ, qua mật mã học, session &amp; token, OAuth 2.0 / 2.1, OpenID Connect, SAML, Kerberos, FIDO2/Passkey, đến bảo mật và kiến trúc thực tế cho Web, Desktop, Mobile, API — kèm lab ASP.NET Core + Keycloak.</p>
+  <div class="meta-row">
+    <span class="chip">👥 Fresher / Junior / Middle Developer</span>
+    <span class="chip">⏱ Core 10h · Full 15h</span>
+    <span class="chip">🧪 1 Lab hands-on (.NET)</span>
+    <span class="chip">📝 Quiz trắc nghiệm mỗi module</span>
+  </div>
+</div>
+
+<h2 id="modules">Các module</h2>
+<div class="grid cols-3">
+  <a class="card module-card" href="m01-fundamentals.html"><span class="mnum">Module 01</span><span class="mtitle">Identity &amp; Authentication Fundamentals</span><span class="mtime">Full 1 giờ · Core 45 phút</span><span class="mstatus" data-status-for="m01-fundamentals.html"></span></a>
+  <a class="card module-card" href="m02-crypto-session-token.html"><span class="mnum">Module 02</span><span class="mtitle">Cryptography, Session, Token &amp; HTTP Auth Schemes</span><span class="mtime">Full 2 giờ · Core 1.5 giờ</span><span class="mstatus" data-status-for="m02-crypto-session-token.html"></span></a>
+  <a class="card module-card" href="m03-oauth-oidc.html"><span class="mnum">Module 03 · Trọng tâm</span><span class="mtitle">OAuth 2.0 / OAuth 2.1 &amp; OpenID Connect</span><span class="mtime">Full 3 giờ · Core 2.5 giờ</span><span class="mstatus" data-status-for="m03-oauth-oidc.html"></span></a>
+  <a class="card module-card" href="lab.html"><span class="mnum">Lab</span><span class="mtitle">Hands-on OAuth/OIDC với ASP.NET Core + Keycloak</span><span class="mtime">Full 2 giờ · Core 1.5 giờ</span><span class="mstatus" data-status-for="lab.html"></span></a>
+  <a class="card module-card" href="m04-saml.html"><span class="mnum">Module 04</span><span class="mtitle">SAML 2.0 &amp; Enterprise SSO</span><span class="mtime">Full 1.5 giờ · Core 45 phút</span><span class="mstatus" data-status-for="m04-saml.html"></span></a>
+  <a class="card module-card" href="m05-enterprise-passwordless.html"><span class="mnum">Module 05</span><span class="mtitle">Enterprise Authentication &amp; Passwordless</span><span class="mtime">Full 1.5 giờ · Core 45 phút</span><span class="mstatus" data-status-for="m05-enterprise-passwordless.html"></span></a>
+  <a class="card module-card" href="m06-authz-security.html"><span class="mnum">Module 06</span><span class="mtitle">Authorization &amp; Authentication Security</span><span class="mtime">Full 2 giờ · Core 1.5 giờ</span><span class="mstatus" data-status-for="m06-authz-security.html"></span></a>
+  <a class="card module-card" href="m07-architecture.html"><span class="mnum">Module 07</span><span class="mtitle">Authentication Architecture &amp; Practical Cases</span><span class="mtime">Full 2 giờ · Core 45 phút</span><span class="mstatus" data-status-for="m07-architecture.html"></span></a>
+  <a class="card module-card" href="appendix.html"><span class="mnum">Phụ lục</span><span class="mtitle">Ánh xạ .NET, chủ đề nâng cao, bộ tài liệu đầu ra, rubric, tài liệu tham khảo</span><span class="mtime">Tra cứu</span></a>
+</div>
+
+<h2 id="tong-quan">Tổng quan thời lượng</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>Module</th><th>Nội dung</th><th>Full (15h)</th><th>Core (10h)</th></tr></thead>
+<tbody>
+<tr><td>01</td><td><a href="m01-fundamentals.html">Identity &amp; Authentication Fundamentals</a></td><td>1 giờ</td><td>45 phút</td></tr>
+<tr><td>02</td><td><a href="m02-crypto-session-token.html">Cryptography, Session, Token &amp; HTTP Auth Schemes</a></td><td>2 giờ</td><td>1.5 giờ</td></tr>
+<tr><td>03</td><td><a href="m03-oauth-oidc.html">OAuth 2.0 / OAuth 2.1 &amp; OpenID Connect</a></td><td>3 giờ</td><td>2.5 giờ</td></tr>
+<tr><td><b>Lab</b></td><td><a href="lab.html"><b>Hands-on OAuth/OIDC với ASP.NET Core</b></a></td><td><b>2 giờ</b></td><td><b>1.5 giờ</b></td></tr>
+<tr><td>04</td><td><a href="m04-saml.html">SAML 2.0 &amp; Enterprise SSO</a></td><td>1.5 giờ</td><td>45 phút</td></tr>
+<tr><td>05</td><td><a href="m05-enterprise-passwordless.html">Enterprise Authentication &amp; Passwordless</a></td><td>1.5 giờ</td><td>45 phút</td></tr>
+<tr><td>06</td><td><a href="m06-authz-security.html">Authorization &amp; Authentication Security</a></td><td>2 giờ</td><td>1.5 giờ</td></tr>
+<tr><td>07</td><td><a href="m07-architecture.html">Authentication Architecture &amp; Practical Cases</a></td><td>2 giờ</td><td>45 phút</td></tr>
+<tr><td><b>Tổng</b></td><td></td><td><b>15 giờ</b></td><td><b>10 giờ</b></td></tr>
+</tbody></table></div>
+
+<h3 id="thu-tu-hoc">Thứ tự học khuyến nghị</h3>
+<p class="muted small">Mỗi module dùng lại kiến thức và deliverable của module trước. Đi theo thứ tự từ trái sang phải, từ trên xuống dưới.</p>
+<div class="roadmap">
+  <a class="rm-step" href="m01-fundamentals.html"><span class="rm-num">01</span><span class="rm-phase">Nền tảng</span><span class="rm-title">Identity &amp; AuthN Fundamentals</span><span class="rm-desc">AuthN vs AuthZ, IdP / RP / SP, SSO, MFA</span></a>
+  <a class="rm-step" href="m02-crypto-session-token.html"><span class="rm-num">02</span><span class="rm-phase">Nền tảng</span><span class="rm-title">Crypto, Session &amp; Token</span><span class="rm-desc">Hash, chữ ký, cookie, JWT, HTTP auth, API key</span></a>
+  <a class="rm-step key" href="m03-oauth-oidc.html"><span class="rm-num">03</span><span class="rm-phase">Trọng tâm</span><span class="rm-title">OAuth 2.0 / 2.1 &amp; OIDC</span><span class="rm-desc">Code + PKCE, Client Credentials, ID token</span></a>
+  <a class="rm-step lab" href="lab.html"><span class="rm-num">LAB</span><span class="rm-phase">Thực hành</span><span class="rm-title">ASP.NET Core + Keycloak</span><span class="rm-desc">API xác minh JWT, client PKCE, tái hiện 401/403</span></a>
+  <a class="rm-step" href="m04-saml.html"><span class="rm-num">04</span><span class="rm-phase">Doanh nghiệp</span><span class="rm-title">SAML 2.0 &amp; Enterprise SSO</span><span class="rm-desc">SP-initiated, Response vs Assertion</span></a>
+  <a class="rm-step" href="m05-enterprise-passwordless.html"><span class="rm-num">05</span><span class="rm-phase">Doanh nghiệp</span><span class="rm-title">Enterprise &amp; Passwordless</span><span class="rm-desc">LDAP, AD, Kerberos, WebAuthn, Passkey</span></a>
+  <a class="rm-step" href="m06-authz-security.html"><span class="rm-num">06</span><span class="rm-phase">Bảo mật</span><span class="rm-title">Authorization &amp; Security</span><span class="rm-desc">RBAC/ABAC, CSRF/XSS, AiTM, token storage</span></a>
+  <a class="rm-step" href="m07-architecture.html"><span class="rm-num">07</span><span class="rm-phase">Tổng hợp</span><span class="rm-title">Architecture &amp; Cases</span><span class="rm-desc">SPA, Desktop, S2S, troubleshooting</span></a>
+</div>
+
+<h2 id="nhan-uu-tien">Nhãn ưu tiên &amp; lộ trình Core 10 giờ</h2>
+<div class="grid cols-3">
+  <div class="card"><h4>Must <span class="badge must">Must</span></h4><p>Bắt buộc cho cả Core và Full. Phải giải thích được và áp dụng được.</p></div>
+  <div class="card"><h4>Should <span class="badge should">Should</span></h4><p>Học đầy đủ trong lộ trình Full; lộ trình Core chỉ đọc lướt để biết khái niệm.</p></div>
+  <div class="card"><h4>Nice <span class="badge nice">Nice</span></h4><p>Chỉ cần biết tên, use case và “không phải là gì”.</p></div>
+</div>
+<p>Deliverable có nhãn <span class="badge core">Core</span> là bắt buộc cho lộ trình Core; các deliverable còn lại chỉ bắt buộc cho lộ trình Full.</p>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Module</th><th>Must</th><th>Should</th><th>Nice</th></tr></thead>
+<tbody>
+<tr><td>01</td><td>Identity/Account/Credential; AuthN vs AuthZ; IdP/RP/SP/AS/RS; SSO vs Federation; MFA</td><td>Authentication factors và phương thức</td><td>—</td></tr>
+<tr><td>02</td><td>Hash vs encryption vs signature; password hashing; session/cookie; access/ID/refresh token; JWT validation; HTTP auth schemes và API key</td><td>PKI/CA, JWE, key rotation, session management chi tiết, introspection/revocation</td><td>HMAC chi tiết</td></tr>
+<tr><td>03</td><td>Roles; Authorization Code + PKCE; Client Credentials; <code>state</code>/<code>nonce</code>/redirect URI; OIDC và ID token vs access token; định danh bằng <code>iss</code> + <code>sub</code></td><td>OAuth 2.1; Device flow; Discovery/JWKS; logout; social login và account linking</td><td>ROPC/Implicit (vì sao không dùng); multi-tenant; On-Behalf-Of</td></tr>
+<tr><td>Lab</td><td>Lab 1–3</td><td>Lab 4</td><td>Lab 5 (SAML)</td></tr>
+<tr><td>04</td><td>SP-initiated flow; Response vs Assertion; checklist validation</td><td>IdP-initiated; bindings; so sánh OIDC/SAML</td><td>XML canonicalization; SLO; WS-Federation</td></tr>
+<tr><td>05</td><td>LDAP vs AD; Kerberos tổng quan; WebAuthn/passkey</td><td>Kerberos TGT/TGS chi tiết; UP vs UV; passkey sync/recovery</td><td>NTLM; RADIUS/TACACS+; certificate/smart card</td></tr>
+<tr><td>06</td><td>401 vs 403; RBAC; authorization trong API; CSRF/XSS; token theft; token storage; điểm yếu của MFA và AiTM</td><td>ABAC/ACL/ReBAC; password guidance theo NIST; recovery flow</td><td>Policy engine</td></tr>
+<tr><td>07</td><td>Quy trình thiết kế; kiến trúc SPA, Desktop, Service-to-Service; ví dụ WPF + API</td><td>Server-side web; mobile; provisioning/offboarding; troubleshooting</td><td>Windows domain/enterprise network</td></tr>
+</tbody></table></div>
+
+<h2 id="dau-vao">Kiến thức đầu vào chung</h2>
+<div class="grid cols-2">
+<div class="card"><h4>Nên có trước</h4>
+<ul>
+<li>HTTP request/response, headers, status codes.</li>
+<li>HTTPS/TLS ở mức khái niệm.</li>
+<li>Client–Server architecture, REST API.</li>
+<li>Web application và API hoạt động như thế nào.</li>
+<li>Database, user/account, role/permission cơ bản.</li>
+</ul></div>
+<div class="card"><h4>Cho phần Lab</h4>
+<ul>
+<li>.NET SDK (bản LTS hiện hành).</li>
+<li>Docker Desktop.</li>
+<li>Biết tạo project ASP.NET Core Web API cơ bản.</li>
+</ul>
+<p><b>Không cần</b> biết trước OAuth, OIDC, SAML hay mật mã học chuyên sâu.</p></div>
+</div>
+
+<h2 id="ket-qua">Kết quả đầu ra tổng thể</h2>
+<p>Sau khi hoàn thành lộ trình, người học có thể:</p>
+<ol>
+<li>Phân biệt Identification, Authentication, Authorization, Accounting và Federation. → <a href="m01-fundamentals.html">M01</a></li>
+<li>Giải thích vai trò của IdP, Client, Relying Party, Service Provider, Authorization Server và Resource Server. → <a href="m01-fundamentals.html#vai-tro">M01</a>, <a href="m03-oauth-oidc.html">M03</a></li>
+<li>Giải thích session, cookie, access token, ID token, refresh token, JWT, opaque token, API key và các HTTP authentication scheme (Basic, Bearer). → <a href="m02-crypto-session-token.html">M02</a></li>
+<li>Mô tả các luồng OAuth 2.0 quan trọng, đặc biệt Authorization Code + PKCE và Client Credentials. → <a href="m03-oauth-oidc.html">M03</a></li>
+<li>Giải thích OIDC bổ sung lớp xác thực danh tính trên OAuth 2.0 như thế nào. → <a href="m03-oauth-oidc.html">M03</a></li>
+<li>Mô tả SAML SSO đủ để đọc flow và trao đổi với đội triển khai. → <a href="m04-saml.html">M04</a></li>
+<li>Phân biệt LDAP, Active Directory, Kerberos, NTLM, RADIUS, FIDO2 và WebAuthn. → <a href="m05-enterprise-passwordless.html">M05</a></li>
+<li>Phân biệt Authentication và Authorization; hiểu RBAC, ABAC, ACL. → <a href="m06-authz-security.html">M06</a></li>
+<li>Nhận diện rủi ro phổ biến liên quan đến mật khẩu, session, token, redirect và cấu hình giao thức. → <a href="m06-authz-security.html">M06</a></li>
+<li>Phác thảo kiến trúc xác thực cho Web, Desktop, Mobile, API và service-to-service. → <a href="m07-architecture.html">M07</a></li>
+<li>Đọc log/trace và khoanh vùng lỗi xác thực thường gặp. → <a href="lab.html">Lab</a>, <a href="m07-architecture.html">M07</a></li>
+<li>Trình bày lại kiến thức cho team bằng sơ đồ, ví dụ và câu hỏi kiểm tra. → <a href="appendix.html">Phụ lục</a></li>
+<li>Dựng demo ASP.NET Core Web API xác minh JWT access token từ IdP thực (Keycloak/Entra ID) và client dùng Authorization Code + PKCE; tái hiện và giải thích lỗi 401/403. → <a href="lab.html">Lab</a></li>
+</ol>
+
+<h2 id="cach-hoc">Cách sử dụng tài liệu</h2>
+<div class="flow">
+  <div class="step"><b>1</b>Đọc mục tiêu &amp; Input</div><span class="arrow">→</span>
+  <div class="step"><b>2</b>Học lần lượt nội dung</div><span class="arrow">→</span>
+  <div class="step"><b>3</b>Vẽ lại flow bằng lời của mình</div><span class="arrow">→</span>
+  <div class="step"><b>4</b>Làm Output / Deliverables</div><span class="arrow">→</span>
+  <div class="step"><b>5</b>Làm quiz &amp; Knowledge Check</div><span class="arrow">→</span>
+  <div class="step"><b>6</b>Tra spec với câu chưa chắc</div>
+</div>
+<div class="callout info"><span class="callout-title">Chọn lộ trình</span>
+Lộ trình <b>Core 10 giờ</b> chỉ học các mục <span class="badge must">Must</span> và làm các deliverable có nhãn <span class="badge core">Core</span>. Lộ trình <b>Full 15 giờ</b> học toàn bộ <span class="badge must">Must</span> và <span class="badge should">Should</span>; mục <span class="badge nice">Nice</span> chỉ cần đọc để biết tên. Chỉ chuyển module khi đạt tiêu chí hoàn thành.</div>
+<div class="callout warn"><span class="callout-title">Lưu ý về độ sâu</span>
+Hoàn thành lộ trình giúp nắm nền tảng và các giao thức quan trọng ở mức giải thích, so sánh và thiết kế sơ bộ. Nó <b>không thay thế</b> đào tạo chuyên sâu, security review hoặc kiểm thử độc lập trước khi đưa hệ thống xác thực vào production. Khi có khác biệt giữa bài viết tổng quan và specification, ưu tiên specification hiện hành và tài liệu chính thức của nhà cung cấp.</div>
+
+<h2 id="tien-do">Tiến độ của bạn</h2>
+<p>Tiến độ quiz và checklist deliverable được lưu trong trình duyệt của bạn (localStorage). Thẻ module ở trên hiển thị trạng thái đạt quiz (≥ 80%).</p>
+
+</main>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

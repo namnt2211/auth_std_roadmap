@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M01 · Identity Fundamentals</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<main class="content">
+
+<div class="page-head">
+  <div class="breadcrumb"><a href="index.html">Lộ trình</a> / Module 01</div>
+  <h1>Module 01 — Identity &amp; Authentication Fundamentals</h1>
+  <p class="lead">Xây dựng ngôn ngữ chung và mô hình tư duy trước khi đi vào các giao thức: hệ thống đang xác minh <b>điều gì</b>, <b>ai</b> xác minh, và quyền truy cập được quyết định <b>ở đâu</b>.</p>
+  <div class="meta-row">
+    <span class="chip">⏱ Full 1 giờ · Core 45 phút</span>
+    <span class="chip">📥 Input: client–server, HTTP cơ bản</span>
+    <span class="chip">➡️ Tiếp theo: <a href="m02-crypto-session-token.html">Module 02</a></span>
+  </div>
+</div>
+
+<div class="keypoints"><div class="kp-title">Sau bài này bạn sẽ</div><ul>
+<li>Phân biệt <b>Identity</b>, <b>Account</b>, <b>Identifier</b>, <b>Credential</b></li>
+<li>Không còn nhầm <b>Authentication</b> (bạn là ai) với <b>Authorization</b> (bạn được làm gì)</li>
+<li>Gọi đúng tên các vai trò: <b>IdP, RP, SP, Client, AS, RS</b></li>
+<li>Giải thích được <b>SSO</b> khác <b>Federation</b> thế nào</li>
+<li>Biết thế nào mới thực sự là <b>MFA</b></li>
+<li>Hiểu ý nghĩa của HTTP <b>401</b> và <b>403</b></li>
+</ul></div>
+
+<div class="eli5"><span class="eli5-title">Nói đơn giản — cả module trong một câu chuyện</span>
+Bạn đến một tòa nhà văn phòng. Bạn <b>nói tên</b> với bảo vệ (<i>identification</i>), đưa <b>CCCD</b> để chứng minh (<i>authentication</i>). Bảo vệ đưa thẻ từ — thẻ chỉ mở được <b>tầng 5</b>, không mở phòng giám đốc (<i>authorization</i>). Mỗi lần quẹt thẻ, hệ thống <b>ghi lại</b> (<i>accounting</i>). Các khái niệm của module này chỉ là phiên bản “phần mềm” của câu chuyện đó.</div>
+
+<h2 id="input">Input trước module</h2>
+<ul>
+<li>Hiểu sơ bộ client–server và HTTP.</li>
+<li>Chọn <b>một hệ thống quen thuộc</b> (ví dụ ứng dụng nội bộ có login và phân quyền) để làm ví dụ xuyên suốt.</li>
+<li>Liệt kê được user, account, role, permission và tài nguyên trong hệ thống đó.</li>
+</ul>
+<div class="callout example"><span class="callout-title">💡 Ví dụ xuyên suốt trong module: hệ thống HR nội bộ “Kaopiz HR”</span>
+Nhân viên <b>Nguyễn Văn An</b> đăng nhập vào ứng dụng HR bằng tài khoản công ty (Microsoft Entra ID) để xem bảng lương của mình. Trưởng phòng được xem bảng lương của nhân viên trong phòng. Mọi thao tác xem/sửa đều được ghi log.</div>
+
+<!-- ===================================================== -->
+<h2 id="identity-account">A. Identity, Account, Identifier, Attribute, Credential <span class="badge must">Must</span></h2>
+
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+<b>Identity</b> là “con người bạn” trong một bối cảnh (nhân viên An của công ty). <b>Account</b> giống như <b>thẻ thành viên</b> bạn có ở từng cửa hàng — mỗi nơi một thẻ. <b>Identifier</b> là <b>số in trên thẻ</b> (để tra cứu). <b>Attribute</b> là các thông tin ghi kèm (hạng thẻ, ngày sinh). <b>Credential</b> là thứ <b>chứng minh</b> bạn là chủ thẻ (chữ ký, mã PIN). Biết số thẻ của ai đó (identifier) không có nghĩa bạn là chủ thẻ.</div>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Khái niệm</th><th>Định nghĩa</th><th>Ví dụ với “An”</th></tr></thead>
+<tbody>
+<tr><td><b>Identity</b> (danh tính)</td><td>Tập hợp thông tin/đặc tính dùng để biểu diễn một thực thể <i>trong một ngữ cảnh</i>.</td><td>“An — kỹ sư phòng R&amp;D, mã NV 1024” trong ngữ cảnh công ty.</td></tr>
+<tr><td><b>Account</b> (tài khoản)</td><td>Bản ghi/quan hệ của thực thể với <i>một hệ thống cụ thể</i>. Một người có thể có nhiều account ở nhiều hệ thống.</td><td>Account Entra ID <code>an.nv@company.com</code>, account GitHub <code>annv-dev</code>, account trong DB của app HR (<code>user_id = 57</code>).</td></tr>
+<tr><td><b>Identifier</b> (định danh)</td><td>Giá trị dùng để tham chiếu/nhận diện.</td><td>username, email, employee ID <code>1024</code>, subject identifier <code>sub</code> trong token.</td></tr>
+<tr><td><b>Attribute</b> (thuộc tính)</td><td>Thuộc tính mô tả thực thể.</td><td>Họ tên, phòng ban = R&amp;D, trạng thái = đang làm việc.</td></tr>
+<tr><td><b>Credential</b> (bằng chứng xác thực)</td><td>Bằng chứng được dùng trong quá trình xác thực.</td><td>Mật khẩu, private key, passkey, chứng thư số (certificate).</td></tr>
+</tbody></table></div>
+
+<div class="diagram">
+<pre class="mermaid">
+flowchart TD
+  P(("👤 Con người: An"))
+  P --> I["Identity trong công ty<br/>(tên, phòng ban, mã NV...)"]
+  I --> A1["Account Entra ID<br/>an.nv@company.com"]
+  I --> A2["Account app HR<br/>user_id = 57"]
+  P --> A3["Account GitHub cá nhân<br/>annv-dev"]
+  A1 --> C1["Credential:<br/>mật khẩu + passkey"]
+  A3 --> C3["Credential:<br/>mật khẩu + TOTP"]
+</pre>
+<div class="caption">Một người → có thể có nhiều identity theo ngữ cảnh → nhiều account → mỗi account có credential riêng.</div>
+</div>
+
+<div class="callout warn"><span class="callout-title">⚠️ Lưu ý</span>
+Email hoặc username thường chỉ là <b>identifier</b> — tự nó <b>không chứng minh</b> người dùng là ai (ai cũng gõ được email của người khác). Không đồng nhất identity với account hoặc credential. Ở <a href="m03-oauth-oidc.html">Module 03</a> bạn sẽ thấy vì sao khóa định danh người dùng nên là <code>iss</code> + <code>sub</code> chứ không phải email.</div>
+
+<!-- ===================================================== -->
+<h2 id="iaaa">B. Identification, Authentication, Authorization, Accounting <span class="badge must">Must</span></h2>
+
+<p>Bốn bước này xảy ra <b>theo thứ tự</b> mỗi khi ai đó dùng hệ thống. Viết tắt hay gặp: <b>AuthN</b> = Authentication (xác thực), <b>AuthZ</b> = Authorization (phân quyền / cấp quyền). Hai từ này viết gần giống nhau nên rất hay bị nhầm — mẹo nhớ: Authenti<b>c</b>ation = <b>c</b>hứng minh, Authori<b>z</b>ation = <b>z</b>one (vùng được phép vào).</p>
+
+<div class="grid cols-2">
+  <div class="card acc"><span class="icon">🙋</span><h4>Identification — “Tôi là ai?”</h4><p>Người dùng <b>khai báo</b> mình là ai, ví dụ nhập username. Chưa có gì được chứng minh.</p></div>
+  <div class="card acc"><span class="icon">🔑</span><h4>Authentication (AuthN) — “Chứng minh đi”</h4><p>Hệ thống <b>kiểm tra bằng chứng</b> (credential) để xác minh danh tính/định danh đã khai báo.</p></div>
+  <div class="card acc"><span class="icon">🛂</span><h4>Authorization (AuthZ) — “Được phép làm gì?”</h4><p><b>Quyết định</b> chủ thể đã xác thực được phép thực hiện hành động nào trên tài nguyên nào.</p></div>
+  <div class="card acc"><span class="icon">📒</span><h4>Accounting / Auditing — “Đã xảy ra gì?”</h4><p><b>Ghi nhận</b> hoạt động để theo dõi, kiểm toán và điều tra.</p></div>
+</div>
+
+<h3 id="so-do-tu-duy">Sơ đồ tư duy</h3>
+<div class="diagram">
+<pre class="mermaid">
+flowchart TD
+  A["🗂 Identity / Account"] --> B["🙋 Identification<br/>#quot;Tôi là ai?#quot;"]
+  B --> C["🔑 Authentication<br/>#quot;Chứng minh điều đó#quot;"]
+  C --> D["✅ Authenticated Subject / Principal"]
+  D --> E["🛂 Authorization<br/>#quot;Được phép làm gì?#quot;"]
+  E --> F["📄 Resource / Action"]
+  F --> G["📒 Accounting &amp; Audit<br/>#quot;Đã xảy ra điều gì?#quot;"]
+</pre>
+</div>
+
+<div class="callout example"><span class="callout-title">💡 Ví dụ: An xem bảng lương</span>
+<ol>
+<li><b>Identification:</b> An gõ <code>an.nv@company.com</code> trên trang đăng nhập Microsoft.</li>
+<li><b>Authentication:</b> An nhập mật khẩu và xác nhận bằng passkey trên điện thoại → Entra ID xác minh credential.</li>
+<li><b>Authorization:</b> App HR kiểm tra: An chỉ được xem bảng lương <i>của chính mình</i>; nếu An mở <code>/payroll/88</code> (của người khác) → bị từ chối (HTTP 403).</li>
+<li><b>Accounting:</b> App ghi log “user 57 xem payroll 57 lúc 09:12, IP 10.0.3.4”.</li>
+</ol></div>
+
+<h3 id="401-403">Liên hệ với HTTP: 401 vs 403</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>Status</th><th>Ý nghĩa</th><th>Tầng thất bại</th></tr></thead>
+<tbody>
+<tr><td><code>401 Unauthorized</code></td><td>Chưa xác thực, hoặc credential/token không hợp lệ (tên gọi “Unauthorized” là lịch sử, thực chất là “unauthenticated”).</td><td>Authentication</td></tr>
+<tr><td><code>403 Forbidden</code></td><td>Đã biết bạn là ai, nhưng bạn <b>không đủ quyền</b>.</td><td>Authorization</td></tr>
+</tbody></table></div>
+<p>Chi tiết hơn ở <a href="m06-authz-security.html">Module 06</a> và thực hành ở <a href="lab.html">Lab 2</a>.</p>
+
+<!-- ===================================================== -->
+<h2 id="vai-tro">C. Các thuật ngữ và vai trò <span class="badge must">Must</span></h2>
+
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Hãy nghĩ đến <b>cục xuất nhập cảnh</b>: <b>IdP</b> giống <b>cơ quan cấp hộ chiếu</b> — nơi xác minh bạn là ai và cấp giấy tờ. <b>RP/SP</b> giống <b>khách sạn</b> — họ không tự xác minh bạn mà <b>tin vào hộ chiếu</b> do cơ quan kia cấp. Trong OAuth, <b>Authorization Server</b> là quầy <b>cấp thẻ ra vào</b> (access token), <b>Resource Server</b> là <b>cửa có máy quẹt thẻ</b> (API), còn <b>Client</b> là ứng dụng cầm thẻ đi quẹt. Các tên gọi khác nhau chủ yếu vì chúng đến từ các giao thức khác nhau (OAuth, OIDC, SAML).</div>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Thuật ngữ</th><th>Ý nghĩa</th><th>Thường gặp ở</th></tr></thead>
+<tbody>
+<tr><td><b>Subject</b></td><td>Thực thể mà một quyết định bảo mật hoặc thao tác đang nói đến (user, service, device…).</td><td>Mọi nơi; claim <code>sub</code> trong JWT</td></tr>
+<tr><td><b>Principal</b></td><td>Danh tính/đại diện bảo mật mà hệ thống dùng để gắn với quyền. Ý nghĩa cụ thể thay đổi theo nền tảng.</td><td>.NET <code>ClaimsPrincipal</code>, Kerberos principal, Java <code>Principal</code></td></tr>
+<tr><td><b>User</b></td><td>Người dùng; không phải lúc nào cũng là principal duy nhất (service account, device cũng có thể là principal).</td><td>—</td></tr>
+<tr><td><b>Identity Provider (IdP)</b></td><td>Quản lý danh tính, thực hiện/hỗ trợ xác thực, phát hành thông tin xác thực/danh tính cho bên tin cậy.</td><td>Entra ID, Okta, Keycloak, Google</td></tr>
+<tr><td><b>Relying Party (RP)</b></td><td>Ứng dụng <b>dựa vào</b> kết quả xác thực do bên khác cung cấp.</td><td>OIDC, WebAuthn</td></tr>
+<tr><td><b>Service Provider (SP)</b></td><td>Ứng dụng/dịch vụ tiêu thụ assertion từ IdP.</td><td>SAML</td></tr>
+<tr><td><b>Client</b></td><td>Ứng dụng khởi tạo yêu cầu tới authorization server hoặc API.</td><td>OAuth</td></tr>
+<tr><td><b>Authorization Server (AS)</b></td><td>Cấp token theo giao thức OAuth.</td><td>OAuth (Keycloak, Entra ID đóng vai trò này)</td></tr>
+<tr><td><b>Resource Server (RS)</b></td><td>API/server bảo vệ tài nguyên và kiểm tra access token.</td><td>OAuth (Web API của bạn)</td></tr>
+<tr><td><b>Identity Federation</b></td><td>Thiết lập quan hệ tin cậy giữa các miền/hệ thống danh tính độc lập.</td><td>SAML, OIDC, WS-Federation</td></tr>
+</tbody></table></div>
+
+<div class="diagram">
+<pre class="mermaid">
+flowchart LR
+  U(("👤 User"))
+  subgraph IdP["Sản phẩm IdP (vd. Keycloak / Entra ID)"]
+    direction TB
+    OP["OpenID Provider (OIDC)"]
+    AS["Authorization Server (OAuth)"]
+    SIDP["SAML IdP"]
+  end
+  RP["Web app / Desktop app<br/>= Client (OAuth)<br/>= Relying Party (OIDC)"]
+  SP["SaaS cũ dùng SAML<br/>= Service Provider"]
+  API["Web API<br/>= Resource Server"]
+  U --> RP
+  U --> SP
+  RP -- "đăng nhập (OIDC)" --> OP
+  RP -- "xin access token" --> AS
+  SP -- "AuthnRequest (SAML)" --> SIDP
+  RP -- "gọi API + access token" --> API
+</pre>
+<div class="caption">Cùng một sản phẩm có thể đóng nhiều vai trò; cùng một ứng dụng có thể vừa là Client vừa là RP. Tên gọi phụ thuộc giao thức đang nói tới.</div>
+</div>
+
+<div class="callout warn"><span class="callout-title">⚠️ Đừng xem mọi thuật ngữ là đồng nghĩa</span>
+Các vai trò trên có thể do các thành phần khác nhau đảm nhiệm <b>hoặc</b> được gộp trong cùng một sản phẩm. “RP” và “SP” gần nghĩa nhau nhưng thuộc hai thế giới giao thức khác nhau (OIDC vs SAML). Viết tắt “AS” trong OAuth là <i>Authorization Server</i>, còn trong Kerberos là <i>Authentication Server</i> — xem <a href="m05-enterprise-passwordless.html#kerberos">Module 05</a>.</div>
+
+<!-- ===================================================== -->
+<h2 id="sso-federation-mfa">D. SSO, Federation, MFA <span class="badge must">Must</span></h2>
+
+<h3 id="sso">Single Sign-On (SSO)</h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Giống <b>vòng đeo tay ở công viên giải trí</b>: bạn mua vé và xác minh <b>một lần ở cổng</b>, sau đó mỗi trò chơi chỉ cần nhìn vòng tay là cho vào. Mỗi trò chơi vẫn tự quản lý hàng chờ của mình (session riêng) — chỉ có “vòng tay” (phiên ở IdP) là dùng chung.</div>
+<p>Người dùng đăng nhập qua <b>một</b> hệ thống xác thực và có thể truy cập <b>nhiều</b> ứng dụng mà không phải nhập lại thông tin đăng nhập mỗi lần, trong phạm vi chính sách và phiên còn hiệu lực.</p>
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  participant U as 👤 User (Browser)
+  participant A as App A (HR)
+  participant I as IdP
+  participant B as App B (Wiki)
+  U->>A: Mở App A
+  A-->>U: Chuyển hướng tới IdP
+  U->>I: Đăng nhập (mật khẩu + MFA)
+  I-->>U: Tạo phiên IdP (cookie của IdP) + gửi kết quả xác thực cho App A
+  U->>A: App A tạo session riêng của App A
+  Note over U,B: Một lúc sau...
+  U->>B: Mở App B
+  B-->>U: Chuyển hướng tới IdP
+  U->>I: Browser gửi kèm cookie phiên IdP
+  I-->>U: Phiên còn hiệu lực → KHÔNG hỏi mật khẩu lại
+  U->>B: App B tạo session riêng của App B
+</pre>
+<div class="caption">SSO: mỗi app vẫn có session riêng; thứ được “chia sẻ” là phiên đăng nhập ở IdP.</div>
+</div>
+
+<h3 id="federation">Federation</h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Federation giống <b>thỏa thuận miễn thị thực</b> giữa hai quốc gia: nước A đồng ý chấp nhận hộ chiếu do nước B cấp. Thỏa thuận đó là <b>quan hệ tin cậy</b>, không phải trải nghiệm đi lại. Trong phần mềm, “thỏa thuận” là việc hai bên trao đổi <b>metadata và certificate</b> để kiểm tra được chữ ký của nhau.</div>
+<p>Các miền bảo mật thiết lập <b>trust</b> để chấp nhận thông tin danh tính/assertion/token do bên kia phát hành. Ví dụ: công ty A cho phép nhân viên của đối tác B đăng nhập bằng tài khoản của B — vì A tin chữ ký của IdP thuộc B (đã trao đổi metadata/certificate).</p>
+
+<div class="grid cols-2">
+<div class="card"><h4>SSO trả lời câu hỏi…</h4><p>“Người dùng có phải đăng nhập lại khi chuyển sang ứng dụng khác không?” — đây là <b>trải nghiệm</b> người dùng.</p></div>
+<div class="card"><h4>Federation trả lời câu hỏi…</h4><p>“Miền bảo mật này có <b>tin</b> danh tính do miền kia phát hành không?” — đây là <b>quan hệ tin cậy</b> giữa các hệ thống.</p></div>
+</div>
+<p>Hai khái niệm thường đi cùng nhau (federated SSO), nhưng có thể tồn tại độc lập: SSO có thể diễn ra hoàn toàn trong một miền (Kerberos trong một Windows domain), và federation có thể tồn tại mà không có trải nghiệm SSO (ví dụ mỗi lần vẫn phải đăng nhập ở IdP vì chính sách bắt buộc).</p>
+
+<h3 id="mfa">Multi-Factor Authentication (MFA)</h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Rút tiền ATM cần <b>thẻ</b> (thứ bạn có) <b>và</b> <b>mã PIN</b> (thứ bạn biết). Kẻ trộm nhìn trộm được PIN vẫn chưa rút được tiền nếu không có thẻ, và ngược lại. Ý tưởng của MFA là: lộ <b>một</b> yếu tố chưa đủ để chiếm tài khoản. Nếu cả hai yếu tố đều là “thứ bạn biết” (hai mật khẩu), một trang lừa đảo có thể hỏi và lấy cả hai cùng lúc — nên không còn tác dụng.</div>
+<p>MFA (Multi-Factor Authentication — xác thực đa yếu tố) dùng <b>ít nhất hai yếu tố thuộc các nhóm độc lập</b>:</p>
+<div class="grid cols-3">
+  <div class="card"><span class="icon">🧠</span><h4>Something you know</h4><p>Mật khẩu, PIN.</p></div>
+  <div class="card"><span class="icon">📱</span><h4>Something you have</h4><p>Thiết bị, điện thoại, security key.</p></div>
+  <div class="card"><span class="icon">👆</span><h4>Something you are</h4><p>Đặc điểm sinh trắc học (vân tay, khuôn mặt).</p></div>
+</div>
+<div class="dodont">
+<div class="do"><h5>✅ Là MFA</h5><ul><li>Mật khẩu + mã TOTP trong app trên điện thoại (know + have).</li><li>Passkey mở khóa bằng vân tay (have: thiết bị giữ private key + are/know: sinh trắc/PIN để mở khóa).</li><li>Smart card + PIN.</li></ul></div>
+<div class="dont"><h5>❌ Không phải MFA</h5><ul><li>Mật khẩu + câu hỏi bảo mật (cả hai đều là “know”).</li><li>Hai mật khẩu khác nhau.</li><li>Hai màn hình nhập liệu liên tiếp cùng một loại yếu tố.</li></ul></div>
+</div>
+<div class="callout info"><span class="callout-title">ℹ️ Sinh trắc học không bị gửi lên server</span>
+Với passkey/Windows Hello/Face ID, sinh trắc học thường được dùng <b>cục bộ</b> để mở khóa authenticator; server chỉ nhận <b>chữ ký số</b>, không nhận ảnh khuôn mặt hay vân tay. Chi tiết ở <a href="m05-enterprise-passwordless.html#webauthn">Module 05 — WebAuthn</a>.</div>
+
+<!-- ===================================================== -->
+<h2 id="factors">E. Authentication factors và phương thức <span class="badge should">Should</span></h2>
+<p>Chỉ cần phân biệt; không cần đi sâu cách triển khai ở module này.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Phương thức</th><th>Yếu tố</th><th>Cách hoạt động (tóm tắt)</th><th>Điểm yếu tiêu biểu</th></tr></thead>
+<tbody>
+<tr><td>Password-based</td><td>Know</td><td>So khớp mật khẩu với hash đã lưu (<a href="m02-crypto-session-token.html#password-hashing">M02</a>).</td><td>Đoán, lộ, tái sử dụng, phishing.</td></tr>
+<tr><td>TOTP / HOTP</td><td>Have</td><td>App sinh mã từ secret chung + thời gian (TOTP, RFC 6238) hoặc bộ đếm (HOTP, RFC 4226).</td><td>Vẫn bị phishing/AiTM (người dùng gõ mã vào trang giả).</td></tr>
+<tr><td>OTP qua SMS / email</td><td>Have (yếu)</td><td>Server gửi mã qua kênh SMS/email.</td><td>SIM swap, chặn SMS, chiếm email; phishing.</td></tr>
+<tr><td>Certificate / public-key</td><td>Have</td><td>Chứng minh sở hữu private key gắn với chứng thư X.509 (smart card, mTLS).</td><td>Cần PKI, cấp phát/thu hồi chứng thư.</td></tr>
+<tr><td>Push-based</td><td>Have</td><td>App xác thực nhận thông báo, người dùng bấm “Chấp nhận”.</td><td>MFA fatigue (push bombing), AiTM.</td></tr>
+<tr><td>Passkey / FIDO2</td><td>Have (+ know/are để mở khóa)</td><td>Ký challenge bằng private key gắn với origin của website.</td><td>Cần quy trình recovery khi mất thiết bị.</td></tr>
+<tr><td>Biometric-assisted</td><td>Are</td><td>Sinh trắc mở khóa authenticator cục bộ.</td><td>Không thay đổi được nếu bị lộ; nên dùng cục bộ.</td></tr>
+</tbody></table></div>
+<p>Mức độ bảo vệ khác nhau và các tấn công cụ thể (SIM swap, MFA fatigue, AiTM) được phân tích ở <a href="m06-authz-security.html#threats">Module 06</a>.</p>
+
+<!-- ===================================================== -->
+<h2 id="hieu-lam">Các hiểu lầm cần tránh</h2>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Đăng nhập thành công là vào được mọi thứ.</span><span class="f-label">Thực tế</span><span>Authentication thành công <b>không</b> có nghĩa được phép truy cập mọi tài nguyên — authorization là bước riêng.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>OAuth 2.0 là giao thức đăng nhập.</span><span class="f-label">Thực tế</span><span>OAuth 2.0 là <b>authorization framework</b> (ủy quyền truy cập). Lớp xác thực danh tính chuẩn hóa là <b>OpenID Connect</b> (<a href="m03-oauth-oidc.html">M03</a>).</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>SSO nghĩa là tất cả ứng dụng dùng chung một session.</span><span class="f-label">Thực tế</span><span>Mỗi ứng dụng thường có session riêng; thứ dùng chung là phiên ở IdP.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Federation = SSO.</span><span class="f-label">Thực tế</span><span>Federation là quan hệ tin cậy giữa các miền; SSO là trải nghiệm đăng nhập một lần. Thường đi cùng nhau nhưng không đồng nghĩa.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Có hai màn hình đăng nhập là MFA.</span><span class="f-label">Thực tế</span><span>MFA cần ≥ 2 yếu tố thuộc các nhóm độc lập, không phải số bước.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>JWT là một chuẩn authentication.</span><span class="f-label">Thực tế</span><span>JWT chỉ là <b>định dạng</b> biểu diễn claims (RFC 7519). Nó được dùng bởi OIDC, OAuth… nhưng tự nó không phải giao thức xác thực (<a href="m02-crypto-session-token.html#jwt">M02</a>).</span></div>
+
+<h2 id="tom-tat">Tóm tắt nhanh</h2>
+<ul>
+<li><b>Identity</b> = con người/thực thể trong một ngữ cảnh. <b>Account</b> = bản ghi của thực thể ở <i>một</i> hệ thống. <b>Credential</b> = bằng chứng để xác thực.</li>
+<li><b>Identifier</b> (email, username) chỉ để tham chiếu — không chứng minh được gì.</li>
+<li>Thứ tự: <b>Identification → Authentication → Authorization → Accounting</b>.</li>
+<li><b>AuthN</b> trả lời “bạn là ai?” (lỗi → <code>401</code>). <b>AuthZ</b> trả lời “bạn được làm gì?” (lỗi → <code>403</code>).</li>
+<li><b>IdP</b> xác thực và phát hành danh tính; <b>RP</b> (OIDC) / <b>SP</b> (SAML) tin vào kết quả đó; <b>AS</b> cấp token, <b>RS</b> (API) kiểm tra token.</li>
+<li><b>SSO</b> là trải nghiệm đăng nhập một lần; <b>Federation</b> là quan hệ tin cậy giữa các miền. Liên quan nhưng không đồng nghĩa.</li>
+<li><b>MFA</b> = ≥ 2 yếu tố thuộc nhóm <b>độc lập</b> (know / have / are), không phải ≥ 2 bước.</li>
+<li>OAuth 2.0 là <b>authorization framework</b>; JWT chỉ là <b>định dạng</b> token.</li>
+</ul>
+
+<!-- ===================================================== -->
+<h2 id="output">Output / Deliverables</h2>
+<ul class="checklist">
+<li><span><b>Glossary</b> giải thích tối thiểu 12 thuật ngữ: Identity, Account, Identifier, Credential, Subject, Principal, Authentication, Authorization, IdP, RP, SP, Federation. <span class="badge core">Core</span> (Core: 1 dòng/thuật ngữ)</span></li>
+<li><span><b>Sơ đồ</b> phân biệt Identification → Authentication → Authorization → Audit. <span class="badge core">Core</span></span></li>
+<li><span><b>Một ví dụ thực tế</b> phân tích được: ai xác thực, hệ thống nào xác thực, ai quyết định quyền truy cập. <span class="badge core">Core</span></span></li>
+<li><span><b>Trả lời được</b> 4 câu hỏi Knowledge Check bên dưới. <span class="badge core">Core</span></span></li>
+</ul>
+
+<h3 id="mau-phan-tich">Mẫu phân tích ví dụ thực tế</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>Câu hỏi</th><th>Ví dụ “Kaopiz HR”</th></tr></thead>
+<tbody>
+<tr><td>Subject là ai?</td><td>Nhân viên An (người dùng cuối).</td></tr>
+<tr><td>Ai/hệ thống nào xác thực?</td><td>Microsoft Entra ID (IdP) — App HR không bao giờ thấy mật khẩu của An.</td></tr>
+<tr><td>Kết quả xác thực đến app bằng gì?</td><td>ID token (OIDC) → App HR tạo session cookie riêng.</td></tr>
+<tr><td>Ai quyết định quyền?</td><td>App HR / HR API (authorization policy: chính chủ hoặc trưởng phòng cùng phòng ban).</td></tr>
+<tr><td>Audit ở đâu?</td><td>Sign-in log ở Entra ID + audit log nghiệp vụ trong HR API.</td></tr>
+</tbody></table></div>
+
+<h2 id="knowledge-check">Knowledge Check (tự luận)</h2>
+<p>Tự trả lời trước, sau đó mở đáp án gợi ý để so sánh.</p>
+<details><summary>Authentication khác Authorization thế nào?</summary>
+<p>Authentication xác minh <b>bạn là ai</b> bằng cách kiểm tra credential. Authorization quyết định <b>bạn được làm gì</b> trên tài nguyên nào. AuthN thất bại → thường 401; AuthN thành công nhưng thiếu quyền → 403.</p></details>
+<details><summary>Identity khác Account thế nào?</summary>
+<p>Identity là tập thông tin biểu diễn một thực thể trong một ngữ cảnh; Account là bản ghi/quan hệ của thực thể đó với <b>một hệ thống cụ thể</b>. Một identity (một người) có thể có nhiều account ở nhiều hệ thống.</p></details>
+<details><summary>SSO khác Federation thế nào?</summary>
+<p>SSO là trải nghiệm đăng nhập một lần dùng nhiều ứng dụng. Federation là quan hệ tin cậy giữa các miền danh tính độc lập để chấp nhận assertion/token của nhau. Federation thường là nền tảng cho SSO xuyên tổ chức, nhưng hai khái niệm không đồng nghĩa.</p></details>
+<details><summary>Vì sao hai mật khẩu không phải MFA?</summary>
+<p>Cả hai đều thuộc nhóm “something you know” — một kẻ tấn công lừa được người dùng (phishing) hoặc dùng keylogger có thể lấy cả hai cùng lúc. MFA yêu cầu các yếu tố thuộc các nhóm <b>độc lập</b> để việc lộ một yếu tố không làm lộ yếu tố kia.</p></details>
+
+<div class="callout tip"><span class="callout-title">✅ Tiêu chí hoàn thành</span>
+Giải thích được các khái niệm trên trong 5 phút bằng ví dụ tự chọn, không nhầm Authentication với Authorization, Identity với Account, SSO với Federation. (Phân biệt OAuth/OIDC được kiểm tra ở <a href="m03-oauth-oidc.html">Module 03</a>.)</div>
+
+<h2 id="quiz">Quiz trắc nghiệm</h2>
+<div id="quiz"></div>
+
+</main>
+<script>
+window.QUIZ = [
+  { q: "Người dùng gõ username vào ô đăng nhập. Bước này là gì?",
+    options: ["Authentication", "Identification", "Authorization", "Accounting"],
+    answer: 1,
+    explain: "Gõ username chỉ là <b>khai báo</b> danh tính (identification). Chưa có bằng chứng nào được kiểm tra." },
+  { q: "Email <code>an@company.com</code> trong một hệ thống thường đóng vai trò gì?",
+    options: ["Credential", "Identifier", "Attribute bảo mật chứng minh danh tính", "Principal"],
+    answer: 1,
+    explain: "Email là <b>identifier</b> — dùng để tham chiếu. Nó không chứng minh được người dùng là ai, vì ai cũng có thể gõ email của người khác." },
+  { q: "Một người có tài khoản ở Entra ID, GitHub và ứng dụng HR. Phát biểu nào đúng?",
+    options: ["Người đó có 3 identity và 3 account bắt buộc giống nhau", "Người đó là một thực thể có nhiều account ở nhiều hệ thống", "Account và identity là một", "Chỉ account Entra ID là identity thật"],
+    answer: 1,
+    explain: "Account là quan hệ của thực thể với <b>một hệ thống cụ thể</b>. Một người có thể có nhiều account." },
+  { q: "API trả về lỗi khi người dùng đã đăng nhập hợp lệ nhưng mở hồ sơ lương của người khác. Lỗi này thuộc tầng nào và status code phù hợp?",
+    options: ["Authentication — 401", "Authorization — 403", "Identification — 400", "Accounting — 500"],
+    answer: 1,
+    explain: "Danh tính đã được xác minh; vấn đề là <b>thiếu quyền</b> → Authorization, trả <code>403 Forbidden</code>." },
+  { q: "Trong giao thức SAML, ứng dụng nhận và xác minh assertion từ IdP được gọi là gì?",
+    options: ["Relying Party", "Resource Server", "Service Provider", "Authorization Server"],
+    answer: 2,
+    explain: "SAML dùng thuật ngữ <b>Service Provider (SP)</b>. OIDC dùng Relying Party (RP)." },
+  { q: "Thành phần nào trong OAuth <b>kiểm tra access token</b> và bảo vệ tài nguyên?",
+    options: ["Authorization Server", "Resource Server", "Client", "Resource Owner"],
+    answer: 1,
+    explain: "Resource Server (API) kiểm tra access token. Authorization Server mới là bên <b>cấp</b> token." },
+  { q: "Những tổ hợp nào là MFA thực sự?",
+    options: ["Mật khẩu + câu hỏi bảo mật", "Mật khẩu + mã TOTP từ app trên điện thoại", "Smart card + PIN", "Hai mật khẩu khác nhau nhập ở hai màn hình"],
+    answer: [1, 2],
+    explain: "MFA cần các yếu tố thuộc nhóm <b>độc lập</b>: TOTP (have) + mật khẩu (know); smart card (have) + PIN (know). Câu hỏi bảo mật và mật khẩu thứ hai đều là “know”." },
+  { q: "Phát biểu nào đúng về SSO?",
+    options: ["Tất cả ứng dụng dùng chung một session duy nhất", "Người dùng đăng nhập một lần ở hệ thống xác thực rồi truy cập nhiều ứng dụng mà không nhập lại credential, trong phạm vi phiên/chính sách còn hiệu lực", "SSO chỉ tồn tại khi có SAML", "SSO đồng nghĩa với Federation"],
+    answer: 1,
+    explain: "Mỗi ứng dụng thường có session riêng; thứ dùng lại là phiên ở IdP. SSO có thể dùng OIDC, SAML, Kerberos…" },
+  { q: "Công ty A cho nhân viên của đối tác B đăng nhập vào hệ thống A bằng tài khoản do B quản lý. Khái niệm nào mô tả chính xác nhất quan hệ này?",
+    options: ["Identity Federation", "Accounting", "RBAC", "Session fixation"],
+    answer: 0,
+    explain: "Hai miền bảo mật độc lập thiết lập <b>trust</b> để chấp nhận danh tính do bên kia phát hành → Federation." },
+  { q: "Khi đăng nhập bằng passkey và mở khóa bằng vân tay, server nhận được gì?",
+    options: ["Ảnh vân tay đã mã hóa", "Hash của vân tay", "Chữ ký số do private key trong authenticator tạo ra", "Mật khẩu được sinh từ vân tay"],
+    answer: 2,
+    explain: "Sinh trắc học chỉ dùng <b>cục bộ</b> để mở khóa authenticator; server nhận bằng chứng mật mã (chữ ký), không nhận dữ liệu sinh trắc." },
+  { q: "Phát biểu nào về OAuth 2.0 là đúng?",
+    options: ["OAuth 2.0 là giao thức authentication thuần túy", "OAuth 2.0 là authorization framework; lớp xác thực danh tính chuẩn hóa là OpenID Connect", "OAuth 2.0 và JWT là một", "OAuth 2.0 thay thế hoàn toàn SAML"],
+    answer: 1,
+    explain: "OAuth tập trung vào ủy quyền truy cập (access token). OIDC xây trên OAuth để chuẩn hóa xác thực (ID token)." },
+  { q: "JWT là gì?",
+    options: ["Một giao thức đăng nhập độc lập", "Một định dạng biểu diễn claims, có thể được ký hoặc mã hóa", "Một loại mật khẩu dùng một lần", "Một thuật toán mã hóa"],
+    answer: 1,
+    explain: "JWT (RFC 7519) là <b>định dạng</b> token. Các giao thức như OIDC dùng JWT làm ID token." },
+  { q: "Vai trò nào ghi nhận “ai đã làm gì, lúc nào” để phục vụ điều tra?",
+    options: ["Identification", "Authorization", "Accounting / Auditing", "Federation"],
+    answer: 2,
+    explain: "Accounting/Auditing ghi nhận hoạt động để theo dõi, kiểm toán và điều tra." },
+  { q: "Phát biểu nào về các thuật ngữ vai trò là đúng?",
+    options: ["IdP, RP, SP, AS luôn là bốn sản phẩm riêng biệt", "Một sản phẩm như Keycloak có thể đồng thời đóng vai trò OpenID Provider, Authorization Server và SAML IdP", "RP và Resource Server là một", "Client luôn là trình duyệt"],
+    answer: 1,
+    explain: "Các vai trò có thể do thành phần khác nhau đảm nhiệm hoặc gộp trong cùng một sản phẩm. Client là <b>ứng dụng</b>, không phải trình duyệt." }
+];
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

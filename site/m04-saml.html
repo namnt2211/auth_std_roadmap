@@ -1,0 +1,783 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M04 · SAML 2.0 &amp; Enterprise SSO</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<main class="content">
+
+<div class="page-head">
+  <div class="breadcrumb"><a href="index.html">Lộ trình</a> / Module 04</div>
+  <h1>Module 04 — SAML 2.0 &amp; Enterprise SSO</h1>
+  <p class="lead">Hiểu SAML 2.0 ở mức kiến trúc và luồng SSO doanh nghiệp: ai phát hành <b>assertion</b>, nó đi qua trình duyệt bằng <b>binding</b> nào, và Service Provider phải <b>kiểm tra những gì</b> trước khi tạo session.</p>
+  <div class="meta-row">
+    <span class="chip">⏱ Full 1.5 giờ · Core 45 phút (SP-initiated + checklist validation)</span>
+    <span class="chip">📥 Input: Module 01–03, chữ ký số, certificate</span>
+    <span class="chip">🧪 Thực hành: <a href="lab.html#lab5">Lab 5 (SAML)</a></span>
+    <span class="chip">➡️ Tiếp theo: <a href="m05-enterprise-passwordless.html">Module 05</a></span>
+  </div>
+</div>
+
+<div class="keypoints"><div class="kp-title">Sau bài này bạn sẽ</div><ul>
+<li>Hiểu SAML giải quyết bài toán gì: cho nhân viên dùng <b>một</b> tài khoản công ty để đăng nhập vào nhiều ứng dụng của bên khác.</li>
+<li>Phân biệt được <b>IdP</b> (bên xác thực), <b>SP</b> (ứng dụng), <b>metadata</b> (danh thiếp trao đổi trước).</li>
+<li>Đọc được một <b>SAML Response</b> và biết <b>Response ≠ Assertion</b>.</li>
+<li>Vẽ được luồng <b>SP-initiated SSO</b> và giải thích vì sao IdP-initiated rủi ro hơn.</li>
+<li>Biết dữ liệu đi qua trình duyệt bằng <b>binding</b> nào (Redirect, POST).</li>
+<li>Liệt kê được <b>checklist kiểm tra</b> trước khi tạo session, và vì sao không tự viết code kiểm chữ ký XML.</li>
+</ul></div>
+
+<div class="callout info"><span class="callout-title">🎯 Mục tiêu module</span>
+Sau module này bạn phải: vẽ được sơ đồ <b>SP-initiated SSO</b>, đọc được một <b>SAML Response</b> và chỉ ra Issuer, NameID, Audience, Conditions, Destination/Recipient, <code>InResponseTo</code>; phân biệt <b>Response ≠ Assertion</b>; và liệt kê được các kiểm tra bắt buộc trước khi SP tạo session.</div>
+
+<div class="callout tip"><span class="callout-title">🧭 Học theo lộ trình Core (45 phút)</span>
+Tập trung vào các mục <span class="badge must">Must</span>: <a href="#saml-components">Thành phần</a>, <a href="#response-vs-assertion">Response vs Assertion</a>, <a href="#sp-initiated">SP-initiated flow</a>, <a href="#saml-validation">Checklist validation</a>. Các mục <span class="badge should">Should</span> và <span class="badge nice">Nice</span> đọc lướt.</div>
+
+<h2 id="input">Input trước module</h2>
+<ul>
+<li>Hoàn thành <a href="m01-fundamentals.html">Module 01</a>–<a href="m03-oauth-oidc.html">03</a> (đặc biệt vai trò IdP/SP ở <a href="m01-fundamentals.html#vai-tro">M01</a>, khái niệm <a href="m01-fundamentals.html#federation">Federation</a>).</li>
+<li>Hiểu <a href="m02-crypto-session-token.html#signature">chữ ký số</a>, <a href="m02-crypto-session-token.html#pki">certificate và trust</a>.</li>
+<li>Có khái niệm về redirect (HTTP 302) và đăng nhập qua trình duyệt (đã gặp ở <a href="m03-oauth-oidc.html#auth-code-pkce">Authorization Code flow</a>).</li>
+</ul>
+
+<div class="callout example"><span class="callout-title">💡 Ví dụ xuyên suốt trong module</span>
+Công ty dùng <b>Keycloak</b> làm IdP tại <code>https://sso.company.com/realms/corp</code>. Phòng kế toán mua một ứng dụng SaaS quản lý chi phí <b>“Expense”</b> chỉ hỗ trợ SAML, chạy ở <code>https://expense.example.com</code>.<br>
+Nhân viên <b>An</b> (<code>an.nv@company.com</code>) mở Expense → được chuyển sang Keycloak để đăng nhập → quay lại Expense đã đăng nhập sẵn. Toàn bộ ví dụ XML trong trang dùng bối cảnh này.
+<ul>
+<li>IdP entityID: <code>https://sso.company.com/realms/corp</code> — endpoint SSO: <code>https://sso.company.com/realms/corp/protocol/saml</code></li>
+<li>SP entityID: <code>https://expense.example.com/saml</code> — ACS: <code>https://expense.example.com/saml/acs</code></li>
+</ul></div>
+
+<!-- ===================================================== -->
+<h2 id="saml-intro">A. SAML là gì? <span class="badge must">Must</span></h2>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Bạn là nhân viên công ty, muốn vào một tòa nhà đối tác. Bảo vệ tòa nhà đối tác không quen bạn, nên yêu cầu bạn quay về phòng nhân sự công ty mình xin <b>giấy giới thiệu có đóng dấu</b>. Bạn mang giấy đó tới, bảo vệ nhận ra con dấu (đã được công ty bạn gửi mẫu từ trước), đọc tên bạn và cho vào. Trong SAML: phòng nhân sự = <b>IdP</b>, tòa nhà đối tác = <b>SP</b>, giấy giới thiệu = <b>assertion</b>, con dấu = <b>chữ ký số</b>, mẫu dấu gửi trước = <b>metadata</b>. Bạn (trình duyệt) là người <b>tự mang giấy</b> đi.</div>
+<p>Vấn đề SAML giải quyết: công ty dùng hàng chục ứng dụng SaaS (phần mềm thuê ngoài chạy trên Internet). Nếu mỗi ứng dụng có một mật khẩu riêng, nhân viên phải nhớ hàng chục mật khẩu, và khi nhân viên nghỉ việc, IT phải khóa từng nơi. SAML cho phép mọi ứng dụng <b>tin vào một nơi xác thực duy nhất</b> của công ty.</p>
+<p><b>SAML 2.0</b> (Security Assertion Markup Language, chuẩn OASIS ban hành năm 2005) là chuẩn dựa trên <b>XML</b> để trao đổi <b>authentication assertion</b> và <b>attribute assertion</b> giữa các <b>security domain</b> khác nhau. Nói nôm na: IdP viết một “giấy xác nhận” bằng XML có chữ ký số — “Tôi, IdP X, xác nhận người dùng An đã đăng nhập lúc 09:00 bằng mật khẩu + MFA; email của An là …; giấy này chỉ dành cho ứng dụng Y, hết hạn sau 5 phút” — rồi gửi cho ứng dụng qua trình duyệt.</p>
+
+<div class="grid cols-3">
+  <div class="card"><span class="icon">🏢</span><h4>Dùng ở đâu?</h4><p>Enterprise SSO: đăng nhập vào SaaS (Salesforce, Jira Cloud, AWS Console, các phần mềm HR/kế toán…) bằng tài khoản công ty; federation giữa các tổ chức (trường đại học, cơ quan nhà nước).</p></div>
+  <div class="card"><span class="icon">📜</span><h4>Đặc trưng</h4><p>XML + XML Signature; truyền qua trình duyệt (redirect/POST); trust được thiết lập trước bằng <b>metadata</b> trao đổi giữa hai bên.</p></div>
+  <div class="card"><span class="icon">🚫</span><h4>Không phù hợp cho</h4><p>Gọi API từ mobile/SPA, cấp access token cho API — đó là đất của OAuth 2.0/OIDC (<a href="m03-oauth-oidc.html#oidc">M03</a>).</p></div>
+</div>
+
+<h3 id="ws-federation">WS-Federation <span class="badge nice">Nice</span></h3>
+<p>Trong hệ thống .NET cũ (ASP.NET WebForms/MVC 4–5, SharePoint on-prem…) bạn có thể gặp <b>WS-Federation</b> — giao thức federation dựa trên XML do Microsoft và các đối tác thúc đẩy, thường đi cùng <b>AD FS</b> (Active Directory Federation Services). Token trong WS-Fed thường chính là một SAML assertion (SAML 1.1 hoặc 2.0) được bọc trong message WS-Trust (một chuẩn web service cũ về phát hành token). Chỉ cần nhận biết tên: thấy <code>wa=wsignin1.0</code>, <code>wtrealm=</code> trên URL là đang gặp WS-Federation. ASP.NET Core vẫn có package <code>Microsoft.AspNetCore.Authentication.WsFederation</code> để tương thích, nhưng hệ thống mới nên chọn OIDC.</p>
+
+<!-- ===================================================== -->
+<h2 id="saml-components">B. Thành phần của SAML <span class="badge must">Must</span></h2>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Trước khi làm ăn, hai công ty trao đổi <b>danh thiếp</b> (metadata): “tôi tên là gì (entity ID), văn phòng ở đâu (endpoint URL), mẫu chữ ký của tôi thế này (certificate)”. Sau đó mỗi lần có người đăng nhập, IdP viết một <b>giấy xác nhận</b> (assertion) ghi: <i>ai</i> (NameID), <i>do ai cấp</i> (Issuer), <i>gửi cho ai</i> (Audience), <i>nộp ở quầy nào</i> (Recipient/ACS), <i>hiệu lực đến bao giờ</i> (Conditions).</div>
+<p>Một số thuật ngữ sẽ gặp liên tục: <b>Entity ID</b> = tên định danh duy nhất của một bên (thường là một URL); <b>Endpoint</b> = địa chỉ URL nhận message; <b>Certificate</b> (chứng thư X.509) = file chứa public key dùng để kiểm chữ ký (xem <a href="m02-crypto-session-token.html#pki">M02 — PKI</a>).</p>
+
+<div class="diagram">
+<pre class="mermaid">
+flowchart LR
+  U(("👤 An<br/>(Browser)"))
+  subgraph IdPDomain["Miền công ty"]
+    IDP["🔐 Identity Provider<br/>Keycloak<br/>sso.company.com"]
+  end
+  subgraph SPDomain["Miền nhà cung cấp SaaS"]
+    SP["🧾 Service Provider<br/>Expense<br/>expense.example.com"]
+  end
+  IDP -.->|"metadata IdP<br/>(entityID, SSO URL, cert ký)"| SP
+  SP -.->|"metadata SP<br/>(entityID, ACS URL, cert)"| IDP
+  U -- "AuthnRequest (qua browser)" --> IDP
+  U -- "SAML Response (qua browser)" --> SP
+</pre>
+<div class="caption">Trust được thiết lập <b>trước</b> bằng trao đổi metadata (đường nét đứt). Lúc đăng nhập, message đi <b>qua trình duyệt</b> — IdP và SP thường không gọi trực tiếp cho nhau (trừ Artifact binding).</div>
+</div>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Thành phần</th><th>Ý nghĩa</th><th>Trong ví dụ “Expense”</th></tr></thead>
+<tbody>
+<tr><td><b>Identity Provider (IdP)</b></td><td>Xác thực người dùng và phát hành SAML Response/Assertion có chữ ký.</td><td>Keycloak realm <code>corp</code> (cũng có thể là Entra ID, AD FS, Okta…).</td></tr>
+<tr><td><b>Service Provider (SP)</b></td><td>Ứng dụng nhận, <b>xác minh</b> SAML Response rồi tạo session cục bộ.</td><td>Ứng dụng Expense.</td></tr>
+<tr><td><b>Entity ID</b></td><td>Định danh duy nhất (thường là URI) của một IdP hoặc SP.</td><td><code>https://sso.company.com/realms/corp</code>, <code>https://expense.example.com/saml</code></td></tr>
+<tr><td><b>Metadata</b></td><td>Tài liệu XML mô tả entity ID, endpoint, binding hỗ trợ và certificate. Hai bên nhập metadata của nhau để thiết lập trust.</td><td>Keycloak xuất tại <code>…/realms/corp/protocol/saml/descriptor</code>.</td></tr>
+<tr><td><b>Assertion</b></td><td>Tuyên bố của IdP về subject: đã xác thực thế nào, có thuộc tính gì.</td><td>“An đăng nhập lúc 09:00, email an.nv@company.com, nhóm accounting”.</td></tr>
+<tr><td><b>NameID</b></td><td>Định danh của subject trong assertion, theo một <i>format</i>/chính sách đã thỏa thuận.</td><td><code>a3f9…</code> (persistent) hoặc <code>an.nv@company.com</code> (email).</td></tr>
+<tr><td><b>Issuer</b></td><td>Bên phát hành Response/Assertion (= entity ID của IdP).</td><td><code>https://sso.company.com/realms/corp</code></td></tr>
+<tr><td><b>Audience</b></td><td>Đối tượng được phép tiêu thụ assertion (= entity ID của SP).</td><td><code>https://expense.example.com/saml</code></td></tr>
+<tr><td><b>Destination / Recipient / ACS URL</b></td><td>Các trường chỉ endpoint nhận response (chi tiết bảng dưới).</td><td><code>https://expense.example.com/saml/acs</code></td></tr>
+<tr><td><b>Conditions</b></td><td>Điều kiện hiệu lực: <code>NotBefore</code>, <code>NotOnOrAfter</code>, <code>AudienceRestriction</code>…</td><td>Hợp lệ 09:00:00 → 09:05:00, chỉ cho Expense.</td></tr>
+</tbody></table></div>
+
+<h3 id="metadata">Metadata — ví dụ rút gọn</h3>
+<p>Metadata là “danh thiếp” của mỗi bên. Khi cấu hình, bạn <b>tải metadata của IdP vào SP</b> (để SP biết URL đăng nhập và certificate dùng để kiểm chữ ký) và <b>tải metadata của SP vào IdP</b> (để IdP biết gửi response về đâu và cho ai).</p>
+<pre data-title="sp-metadata.xml (metadata của SP Expense)"><code class="language-xml">&lt;md:EntityDescriptor xmlns:md="urn:oasis:names:tc:SAML:2.0:metadata"
+    xmlns:ds="http://www.w3.org/2000/09/xmldsig#"
+    entityID="https://expense.example.com/saml"&gt;
+  &lt;md:SPSSODescriptor AuthnRequestsSigned="true" WantAssertionsSigned="true"
+      protocolSupportEnumeration="urn:oasis:names:tc:SAML:2.0:protocol"&gt;
+    &lt;!-- Certificate SP dùng để ký AuthnRequest --&gt;
+    &lt;md:KeyDescriptor use="signing"&gt;
+      &lt;ds:KeyInfo&gt;&lt;ds:X509Data&gt;&lt;ds:X509Certificate&gt;MIIC...SP...&lt;/ds:X509Certificate&gt;&lt;/ds:X509Data&gt;&lt;/ds:KeyInfo&gt;
+    &lt;/md:KeyDescriptor&gt;
+    &lt;md:SingleLogoutService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect"
+        Location="https://expense.example.com/saml/slo"/&gt;
+    &lt;md:NameIDFormat&gt;urn:oasis:names:tc:SAML:2.0:nameid-format:persistent&lt;/md:NameIDFormat&gt;
+    &lt;!-- ACS: nơi IdP POST SAML Response về --&gt;
+    &lt;md:AssertionConsumerService index="0" isDefault="true"
+        Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST"
+        Location="https://expense.example.com/saml/acs"/&gt;
+  &lt;/md:SPSSODescriptor&gt;
+&lt;/md:EntityDescriptor&gt;</code></pre>
+<pre data-title="idp-metadata.xml (trích phần IdP Keycloak)"><code class="language-xml">&lt;md:EntityDescriptor xmlns:md="urn:oasis:names:tc:SAML:2.0:metadata"
+    entityID="https://sso.company.com/realms/corp"&gt;
+  &lt;md:IDPSSODescriptor WantAuthnRequestsSigned="true"
+      protocolSupportEnumeration="urn:oasis:names:tc:SAML:2.0:protocol"&gt;
+    &lt;md:KeyDescriptor use="signing"&gt;
+      &lt;ds:KeyInfo xmlns:ds="http://www.w3.org/2000/09/xmldsig#"&gt;
+        &lt;ds:X509Data&gt;&lt;ds:X509Certificate&gt;MIIC...IdP...&lt;/ds:X509Certificate&gt;&lt;/ds:X509Data&gt;
+      &lt;/ds:KeyInfo&gt;
+    &lt;/md:KeyDescriptor&gt;
+    &lt;md:SingleSignOnService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect"
+        Location="https://sso.company.com/realms/corp/protocol/saml"/&gt;
+    &lt;md:SingleSignOnService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST"
+        Location="https://sso.company.com/realms/corp/protocol/saml"/&gt;
+  &lt;/md:IDPSSODescriptor&gt;
+&lt;/md:EntityDescriptor&gt;</code></pre>
+<div class="callout warn"><span class="callout-title">⚠️ Metadata là gốc của trust</span>
+Ai sửa được metadata (đổi certificate, đổi ACS URL) là có thể giả mạo. Nhập metadata qua HTTPS từ nguồn tin cậy, hoặc metadata đã được ký; theo dõi ngày hết hạn certificate và có quy trình <b>rollover</b> (thêm cert mới vào metadata trước, chuyển ký sau). Rất nhiều sự cố “SSO đột nhiên hỏng” là do certificate ký của IdP hết hạn/đổi mà SP chưa cập nhật.</div>
+
+<h3 id="nameid">NameID và các format phổ biến</h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+NameID là “tên ghi trên giấy giới thiệu”. Có thể ghi <b>mã nhân viên cố định</b> (persistent), <b>mã ngẫu nhiên dùng một lần</b> (transient — như số thứ tự bốc ở ngân hàng, đến lần sau là số khác), hoặc <b>email</b>. Ứng dụng cần nhận ra bạn lần sau thì phải dùng loại cố định.</div>
+<div class="table-wrap"><table>
+<thead><tr><th>Format (URI)</th><th>Ý nghĩa</th><th>Khi nào dùng</th></tr></thead>
+<tbody>
+<tr><td><code>urn:oasis:names:tc:SAML:2.0:nameid-format:persistent</code></td><td>Định danh <b>ổn định, mờ (opaque)</b>, riêng cho từng cặp IdP–SP; không lộ email.</td><td>Khóa liên kết account lâu dài — tương tự <code>sub</code> của OIDC (<a href="m03-oauth-oidc.html#iss-sub">M03</a>).</td></tr>
+<tr><td><code>urn:oasis:names:tc:SAML:2.0:nameid-format:transient</code></td><td>Giá trị ngẫu nhiên, <b>đổi mỗi lần</b> đăng nhập.</td><td>Khi SP không cần nhận ra người dùng giữa các phiên (ẩn danh, chỉ cần thuộc tính như “là sinh viên”).</td></tr>
+<tr><td><code>urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress</code></td><td>Địa chỉ email.</td><td>Rất phổ biến với SaaS; nhưng email <b>có thể đổi</b> hoặc được cấp lại cho người khác → rủi ro khi dùng làm khóa.</td></tr>
+<tr><td><code>urn:oasis:names:tc:SAML:1.1:nameid-format:unspecified</code></td><td>Không quy định; hai bên tự thỏa thuận.</td><td>Hệ thống cũ, cấu hình tùy chỉnh (vd. gửi username AD).</td></tr>
+</tbody></table></div>
+<p class="small muted">Lưu ý: <code>emailAddress</code> và <code>unspecified</code> nằm trong namespace <b>SAML 1.1</b> nhưng vẫn được dùng hợp lệ trong SAML 2.0.</p>
+
+<h3 id="endpoints">Destination, Recipient, ACS URL — ba trường dễ nhầm</h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Giống một lá thư: <b>Audience</b> là “gửi công ty Expense”, còn <b>Destination/Recipient</b> là “nộp tại quầy số 3 ở địa chỉ …/saml/acs”. <b>ACS</b> (Assertion Consumer Service — “quầy tiếp nhận assertion”) chính là quầy đó. Bảo vệ cẩn thận sẽ kiểm tra cả tên công ty lẫn số quầy trên thư.</div>
+<div class="table-wrap"><table>
+<thead><tr><th>Trường</th><th>Nằm ở đâu</th><th>Ý nghĩa</th><th>SP kiểm tra</th></tr></thead>
+<tbody>
+<tr><td><b>ACS URL</b> (Assertion Consumer Service)</td><td>Metadata SP; thuộc tính <code>AssertionConsumerServiceURL</code> trong AuthnRequest</td><td>Endpoint của SP nhận SAML Response.</td><td>IdP chỉ được gửi về ACS đã đăng ký (IdP kiểm tra).</td></tr>
+<tr><td><b>Destination</b></td><td>Thuộc tính của <code>&lt;samlp:Response&gt;</code> (và của AuthnRequest)</td><td>URL mà message <b>được gửi tới</b>.</td><td>Phải bằng đúng URL ACS đang nhận request này.</td></tr>
+<tr><td><b>Recipient</b></td><td><code>&lt;SubjectConfirmationData Recipient="…"&gt;</code> trong Assertion</td><td>URL mà <b>assertion</b> được phép trình diện.</td><td>Phải bằng ACS URL của SP.</td></tr>
+<tr><td><b>Audience</b></td><td><code>&lt;Conditions&gt;&lt;AudienceRestriction&gt;&lt;Audience&gt;</code></td><td>Entity ID của SP được phép tiêu thụ.</td><td>Phải bằng entity ID của chính SP.</td></tr>
+</tbody></table></div>
+<div class="callout info"><span class="callout-title">ℹ️ Vì sao cần cả Audience lẫn Recipient?</span>
+<b>Audience</b> trả lời “assertion này dành cho <i>ứng dụng</i> nào” (entity ID). <b>Recipient/Destination</b> trả lời “được nộp tại <i>endpoint</i> nào” (URL). Một SP có thể có nhiều ACS; một IdP phục vụ hàng trăm SP. Kiểm tra cả hai ngăn kẻ xấu lấy assertion phát cho ứng dụng A đem nộp vào ứng dụng B (hoặc vào endpoint khác).</div>
+
+<h3 id="conditions">Conditions</h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Như vé xem phim: chỉ có giá trị cho <b>suất chiếu này</b> (khung giờ NotBefore–NotOnOrAfter) và <b>rạp này</b> (Audience). Vé hôm qua hoặc vé rạp khác đều bị từ chối.</div>
+<ul>
+<li><code>NotBefore</code> / <code>NotOnOrAfter</code>: cửa sổ thời gian assertion có hiệu lực (thường vài phút). SP cho phép <b>độ lệch đồng hồ</b> (clock skew) nhỏ, vd. 1–5 phút — không phải vài giờ.</li>
+<li><code>AudienceRestriction</code>: danh sách Audience hợp lệ.</li>
+<li><code>OneTimeUse</code>, <code>ProxyRestriction</code>: ít gặp, chỉ cần biết tên.</li>
+<li>Ngoài Conditions, <code>SubjectConfirmationData/@NotOnOrAfter</code> giới hạn thời gian <b>trình diện</b> assertion bearer — cũng phải kiểm tra.</li>
+</ul>
+
+<!-- ===================================================== -->
+<h2 id="assertion-statements">C. Thành phần của SAML Assertion <span class="badge must">Must</span></h2>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+<b>Assertion</b> (tuyên bố/xác nhận) là tờ giấy IdP ký. Trên đó có thể có nhiều “mục” (<b>statement</b>): mục “người này đã đăng nhập lúc mấy giờ, bằng cách nào”, mục “thông tin cá nhân: email, phòng ban”, và hiếm khi có mục “được phép làm việc X”.</div>
+<p>Ngoài <code>Issuer</code>, <code>Signature</code>, <code>Subject</code>, <code>Conditions</code>, assertion chứa một hoặc nhiều <b>statement</b>:</p>
+<div class="grid cols-3">
+  <div class="card acc"><span class="icon">🔑</span><h4>AuthnStatement</h4><p>“Subject đã xác thực <b>lúc nào</b> (<code>AuthnInstant</code>), <b>bằng cách nào</b> (<code>AuthnContextClassRef</code>), trong phiên nào (<code>SessionIndex</code>)”. Đây là phần cốt lõi của SSO.</p></div>
+  <div class="card acc"><span class="icon">🏷️</span><h4>AttributeStatement</h4><p>Thuộc tính của subject: email, họ tên, phòng ban, nhóm (<code>groups</code>/<code>Role</code>)… SP dùng để tạo/cập nhật account và phân quyền.</p></div>
+  <div class="card"><span class="icon">⚖️</span><h4>AuthzDecisionStatement</h4><p>“Subject được/không được làm hành động X trên tài nguyên Y”. <b>Ít gặp</b> trong triển khai SSO; spec còn khuyến nghị dùng XACML thay thế. Chỉ cần biết tên.</p></div>
+</div>
+<div class="callout tip"><span class="callout-title">💡 Liên hệ OIDC</span>
+AuthnStatement ≈ các claim <code>auth_time</code>, <code>acr</code>, <code>amr</code> trong ID token; AttributeStatement ≈ các claim như <code>email</code>, <code>name</code>, <code>groups</code>; NameID ≈ <code>sub</code>; Issuer ≈ <code>iss</code>; Audience ≈ <code>aud</code>; InResponseTo đóng vai trò tương tự <code>state</code>/<code>nonce</code> (<a href="m03-oauth-oidc.html#state-nonce">M03</a>).</div>
+
+<!-- ===================================================== -->
+<h2 id="response-vs-assertion">Response vs Assertion <span class="badge must">Must</span></h2>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+<b>Response</b> là <b>phong bì</b> bưu điện: ghi địa chỉ người nhận, “đây là thư trả lời cho thư số _a1b2 của bạn”, và dấu “giao thành công/thất bại”. <b>Assertion</b> là <b>lá thư có chữ ký</b> bên trong, nói về người dùng. Phong bì có thể được niêm phong (ký Response), lá thư có thể được ký riêng (ký Assertion), hoặc cả hai. <i>Giới hạn của phép so sánh:</i> khác với phong bì thật, một Response có thể chứa nhiều “lá thư”, và chữ ký chỉ bảo vệ đúng phần nó trỏ tới.</div>
+<p><b>SAML Response</b> là <b>message giao thức</b> bao ngoài (“phong bì”) — nó trả lời cho một AuthnRequest, có Status (thành công/thất bại), Destination. <b>Assertion</b> là <b>nội dung tuyên bố</b> bên trong (“lá thư”) — nói về subject. Một Response có thể chứa 0, 1 hoặc nhiều assertion (hoặc <code>EncryptedAssertion</code>). Chữ ký có thể nằm ở Response, ở Assertion, hoặc cả hai — và SP phải biết <b>chính xác phần nào được ký</b>.</p>
+
+<div class="diagram">
+<pre class="mermaid">
+flowchart TB
+  subgraph R["samlp:Response — message bao ngoài"]
+    direction TB
+    R1["ID, InResponseTo, Destination, IssueInstant, Version"]
+    R2["saml:Issuer"]
+    R3["ds:Signature (ký Response, tùy cấu hình)"]
+    R4["samlp:Status / StatusCode = Success"]
+    subgraph A["saml:Assertion — nội dung tuyên bố"]
+      direction TB
+      A1["ID, IssueInstant, Version"]
+      A2["saml:Issuer"]
+      A3["ds:Signature (ký Assertion)"]
+      A4["Subject: NameID + SubjectConfirmation<br/>(bearer, Recipient, NotOnOrAfter, InResponseTo)"]
+      A5["Conditions: NotBefore, NotOnOrAfter,<br/>AudienceRestriction/Audience"]
+      A6["AuthnStatement: AuthnInstant, SessionIndex,<br/>AuthnContextClassRef"]
+      A7["AttributeStatement: email, name, groups..."]
+    end
+  end
+  R1 --- R2 --- R3 --- R4 --- A
+  A1 --- A2 --- A3 --- A4 --- A5 --- A6 --- A7
+</pre>
+<div class="caption">Cấu trúc lồng nhau: Response (phong bì) chứa Assertion (lá thư). Cả hai đều có Issuer và có thể có chữ ký riêng.</div>
+</div>
+
+<h3 id="saml-response-example">Ví dụ SAML Response đầy đủ (rút gọn)</h3>
+<p>Đây là Response mà Keycloak POST về ACS của Expense sau khi An đăng nhập. Giá trị base64 và chữ ký được rút gọn bằng <code>...</code>.</p>
+<pre data-title="SAMLResponse (sau khi base64-decode)"><code class="language-xml">&lt;samlp:Response xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol"
+    xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion"
+    ID="_r8f2c1a0e5b7d4"                                       &lt;!-- (1) --&gt;
+    InResponseTo="_a1b2c3d4e5f60718"                           &lt;!-- (2) --&gt;
+    Destination="https://expense.example.com/saml/acs"         &lt;!-- (3) --&gt;
+    IssueInstant="2026-11-10T02:00:05Z" Version="2.0"&gt;
+  &lt;saml:Issuer&gt;https://sso.company.com/realms/corp&lt;/saml:Issuer&gt;   &lt;!-- (4) --&gt;
+  &lt;ds:Signature xmlns:ds="http://www.w3.org/2000/09/xmldsig#"&gt;...ký toàn bộ Response...&lt;/ds:Signature&gt;
+  &lt;samlp:Status&gt;
+    &lt;samlp:StatusCode Value="urn:oasis:names:tc:SAML:2.0:status:Success"/&gt;  &lt;!-- (5) --&gt;
+  &lt;/samlp:Status&gt;
+
+  &lt;saml:Assertion ID="_as9d8e7f6a5b4c3" IssueInstant="2026-11-10T02:00:05Z" Version="2.0"&gt;
+    &lt;saml:Issuer&gt;https://sso.company.com/realms/corp&lt;/saml:Issuer&gt;
+    &lt;ds:Signature xmlns:ds="http://www.w3.org/2000/09/xmldsig#"&gt;
+      &lt;ds:SignedInfo&gt;
+        &lt;ds:CanonicalizationMethod Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/&gt;
+        &lt;ds:SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#rsa-sha256"/&gt;
+        &lt;ds:Reference URI="#_as9d8e7f6a5b4c3"&gt;                &lt;!-- (6) trỏ tới ID của Assertion --&gt;
+          &lt;ds:Transforms&gt;
+            &lt;ds:Transform Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature"/&gt;
+            &lt;ds:Transform Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/&gt;
+          &lt;/ds:Transforms&gt;
+          &lt;ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/&gt;
+          &lt;ds:DigestValue&gt;q3Xk...=&lt;/ds:DigestValue&gt;
+        &lt;/ds:Reference&gt;
+      &lt;/ds:SignedInfo&gt;
+      &lt;ds:SignatureValue&gt;Yt5P...==&lt;/ds:SignatureValue&gt;
+      &lt;ds:KeyInfo&gt;&lt;ds:X509Data&gt;&lt;ds:X509Certificate&gt;MIIC...IdP...&lt;/ds:X509Certificate&gt;&lt;/ds:X509Data&gt;&lt;/ds:KeyInfo&gt;
+    &lt;/ds:Signature&gt;
+
+    &lt;saml:Subject&gt;
+      &lt;saml:NameID Format="urn:oasis:names:tc:SAML:2.0:nameid-format:persistent"&gt;
+        f3a9c2e1-7b44-4d0e-9a51-2c8e6b1d0a77                     &lt;!-- (7) --&gt;
+      &lt;/saml:NameID&gt;
+      &lt;saml:SubjectConfirmation Method="urn:oasis:names:tc:SAML:2.0:cm:bearer"&gt;  &lt;!-- (8) --&gt;
+        &lt;saml:SubjectConfirmationData
+            Recipient="https://expense.example.com/saml/acs"     &lt;!-- (9) --&gt;
+            NotOnOrAfter="2026-11-10T02:05:05Z"
+            InResponseTo="_a1b2c3d4e5f60718"/&gt;
+      &lt;/saml:SubjectConfirmation&gt;
+    &lt;/saml:Subject&gt;
+
+    &lt;saml:Conditions NotBefore="2026-11-10T01:59:35Z" NotOnOrAfter="2026-11-10T02:05:05Z"&gt;  &lt;!-- (10) --&gt;
+      &lt;saml:AudienceRestriction&gt;
+        &lt;saml:Audience&gt;https://expense.example.com/saml&lt;/saml:Audience&gt;   &lt;!-- (11) --&gt;
+      &lt;/saml:AudienceRestriction&gt;
+    &lt;/saml:Conditions&gt;
+
+    &lt;saml:AuthnStatement AuthnInstant="2026-11-10T02:00:03Z"
+        SessionIndex="_sess-4c1d9e"&gt;                              &lt;!-- (12) --&gt;
+      &lt;saml:AuthnContext&gt;
+        &lt;saml:AuthnContextClassRef&gt;urn:oasis:names:tc:SAML:2.0:ac:classes:PasswordProtectedTransport&lt;/saml:AuthnContextClassRef&gt;
+      &lt;/saml:AuthnContext&gt;
+    &lt;/saml:AuthnStatement&gt;
+
+    &lt;saml:AttributeStatement&gt;                                     &lt;!-- (13) --&gt;
+      &lt;saml:Attribute Name="email"&gt;&lt;saml:AttributeValue&gt;an.nv@company.com&lt;/saml:AttributeValue&gt;&lt;/saml:Attribute&gt;
+      &lt;saml:Attribute Name="displayName"&gt;&lt;saml:AttributeValue&gt;Nguyễn Văn An&lt;/saml:AttributeValue&gt;&lt;/saml:Attribute&gt;
+      &lt;saml:Attribute Name="groups"&gt;&lt;saml:AttributeValue&gt;accounting&lt;/saml:AttributeValue&gt;&lt;/saml:Attribute&gt;
+    &lt;/saml:AttributeStatement&gt;
+  &lt;/saml:Assertion&gt;
+&lt;/samlp:Response&gt;</code></pre>
+<p class="small muted">Các chú thích <code>&lt;!-- (n) --&gt;</code> đặt trong thẻ mở chỉ để minh họa — XML thật không cho phép comment trong thẻ. Thứ tự phần tử con tuân theo schema: trong Response là Issuer → Signature → Status → Assertion; trong Assertion là Issuer → Signature → Subject → Conditions → các Statement.</p>
+
+<h3 id="response-annotation">Chú giải từng trường (Deliverable 2)</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>#</th><th>Trường</th><th>Ý nghĩa</th><th>SP phải kiểm tra</th></tr></thead>
+<tbody>
+<tr><td>1</td><td><code>Response/@ID</code>, <code>IssueInstant</code>, <code>Version</code></td><td>ID duy nhất của message; thời điểm phát hành; luôn là <code>2.0</code>.</td><td>Version = 2.0; IssueInstant hợp lý (không quá cũ/tương lai).</td></tr>
+<tr><td>2</td><td><code>InResponseTo</code></td><td>ID của AuthnRequest mà response này trả lời.</td><td>SP-initiated: phải khớp ID request <b>do chính SP gửi, còn chờ</b>, gắn với phiên trình duyệt này; dùng xong xóa.</td></tr>
+<tr><td>3</td><td><code>Destination</code></td><td>URL mà IdP định gửi Response tới.</td><td>Bằng đúng URL ACS đang nhận.</td></tr>
+<tr><td>4</td><td><code>Issuer</code></td><td>Entity ID của IdP phát hành (có ở cả Response và Assertion).</td><td>Bằng entity ID IdP đã cấu hình; và certificate ký phải là cert <b>của IdP đó</b> trong metadata.</td></tr>
+<tr><td>5</td><td><code>Status/StatusCode</code></td><td>Kết quả xử lý. Lỗi thường gặp: <code>…:status:Requester</code>, <code>…:status:Responder</code>, kèm sub-status như <code>AuthnFailed</code>.</td><td>Chỉ tiếp tục khi <code>Success</code>.</td></tr>
+<tr><td>6</td><td><code>ds:Signature</code> + <code>Reference URI</code></td><td>Chữ ký XML; Reference trỏ tới ID của phần tử được ký.</td><td>Chữ ký hợp lệ bằng cert tin cậy; phần tử được ký <b>chính là</b> phần tử ứng dụng đọc dữ liệu (chống XSW); thuật toán mạnh (RSA-SHA256+, không SHA-1).</td></tr>
+<tr><td>7</td><td><code>Subject/NameID</code> (+ <code>Format</code>)</td><td>Định danh của An theo format thỏa thuận.</td><td>Dùng (Issuer + NameID persistent) làm khóa account; không tự động liên kết theo email chưa xác minh.</td></tr>
+<tr><td>8</td><td><code>SubjectConfirmation Method="…:cm:bearer"</code></td><td>“Ai cầm assertion này đều được coi là subject” — giống bearer token.</td><td>Phải có ít nhất một SubjectConfirmation bearer hợp lệ.</td></tr>
+<tr><td>9</td><td><code>SubjectConfirmationData</code>: <code>Recipient</code>, <code>NotOnOrAfter</code>, <code>InResponseTo</code></td><td>Giới hạn nơi nộp, hạn chót nộp, và request tương ứng.</td><td>Recipient = ACS; chưa quá NotOnOrAfter; InResponseTo khớp (nếu có).</td></tr>
+<tr><td>10</td><td><code>Conditions NotBefore / NotOnOrAfter</code></td><td>Cửa sổ hiệu lực của assertion.</td><td>Thời gian hiện tại nằm trong cửa sổ (± clock skew nhỏ).</td></tr>
+<tr><td>11</td><td><code>AudienceRestriction/Audience</code></td><td>Entity ID của SP được phép tiêu thụ.</td><td>Chứa entity ID của chính SP.</td></tr>
+<tr><td>12</td><td><code>AuthnStatement</code>: <code>AuthnInstant</code>, <code>SessionIndex</code>, <code>AuthnContextClassRef</code></td><td>Lúc đăng nhập; mã phiên tại IdP (dùng cho SLO); cách xác thực (ví dụ <code>PasswordProtectedTransport</code> = mật khẩu qua kênh TLS).</td><td>Nếu yêu cầu MFA/độ mạnh nhất định thì kiểm tra AuthnContext; nếu cần “đăng nhập gần đây” thì kiểm tra AuthnInstant. Lưu SessionIndex cho logout.</td></tr>
+<tr><td>13</td><td><code>AttributeStatement</code></td><td>Thuộc tính: email, tên, nhóm…</td><td>Chỉ dùng thuộc tính từ assertion đã được xác minh; map nhóm → role có kiểm soát.</td></tr>
+</tbody></table></div>
+
+<h3 id="authnrequest">Ví dụ AuthnRequest</h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+<b>AuthnRequest</b> (Authentication Request — yêu cầu xác thực) là “phiếu yêu cầu” SP đưa cho trình duyệt mang sang IdP: “Tôi là Expense, phiếu số _a1b2, nhờ xác thực người này rồi gửi kết quả về quầy …/saml/acs”. SP giữ lại cuống phiếu (ID) để lúc nhận kết quả đối chiếu.</div>
+<p>Đây là thứ SP gửi sang IdP (bước 2 của SP-initiated). Nó nhỏ hơn nhiều so với Response.</p>
+<pre data-title="AuthnRequest (trước khi DEFLATE + base64)"><code class="language-xml">&lt;samlp:AuthnRequest xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol"
+    xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion"
+    ID="_a1b2c3d4e5f60718"
+    Version="2.0"
+    IssueInstant="2026-11-10T01:59:58Z"
+    Destination="https://sso.company.com/realms/corp/protocol/saml"
+    AssertionConsumerServiceURL="https://expense.example.com/saml/acs"
+    ProtocolBinding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST"&gt;
+  &lt;saml:Issuer&gt;https://expense.example.com/saml&lt;/saml:Issuer&gt;
+  &lt;samlp:NameIDPolicy Format="urn:oasis:names:tc:SAML:2.0:nameid-format:persistent" AllowCreate="true"/&gt;
+&lt;/samlp:AuthnRequest&gt;</code></pre>
+<ul>
+<li><code>ID</code>: SP <b>lưu lại</b> (gắn với phiên trình duyệt) để sau này so với <code>InResponseTo</code>.</li>
+<li><code>AssertionConsumerServiceURL</code> + <code>ProtocolBinding</code>: “hãy POST response về đây”. IdP phải đối chiếu với ACS đã đăng ký trong metadata, không tin mù quáng.</li>
+<li><code>Issuer</code>: entity ID của SP — IdP dùng để tìm cấu hình client tương ứng.</li>
+<li>Tùy chọn: <code>ForceAuthn="true"</code> (bắt đăng nhập lại), <code>IsPassive="true"</code> (không được hiện UI), <code>RequestedAuthnContext</code> (yêu cầu mức xác thực, vd. MFA).</li>
+</ul>
+
+<!-- ===================================================== -->
+<h2 id="sp-initiated">D. SP-initiated SSO <span class="badge must">Must</span></h2>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Bạn đến tòa nhà đối tác (SP) trước. Bảo vệ đưa bạn một <b>phiếu có số</b>, bảo “mang sang phòng nhân sự công ty bạn xin xác nhận”. Bạn quay lại với giấy xác nhận <b>ghi đúng số phiếu đó</b> — bảo vệ đối chiếu cuống phiếu và cho vào. Số phiếu chính là <code>InResponseTo</code>: nó chứng minh giấy này là câu trả lời cho yêu cầu do <b>chính bảo vệ</b> phát ra, cho <b>chính bạn</b>.</div>
+<p>Luồng phổ biến và an toàn hơn: người dùng bắt đầu từ ứng dụng (SP).</p>
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant B as 🌐 Browser (An)
+  participant SP as 🧾 SP Expense
+  participant IdP as 🔐 IdP Keycloak
+  B->>SP: GET https://expense.example.com/reports
+  Note over SP: Chưa có session.<br/>Tạo AuthnRequest ID=_a1b2..., lưu ID + URL gốc
+  SP-->>B: 302 Location: IdP SSO URL?SAMLRequest=...&amp;RelayState=...&amp;SigAlg=...&amp;Signature=...
+  Note over B,SP: HTTP-Redirect binding (DEFLATE + base64 + URL-encode)
+  B->>IdP: GET /realms/corp/protocol/saml?SAMLRequest=...
+  Note over IdP: Kiểm tra Issuer SP đã đăng ký, chữ ký request,<br/>ACS URL khớp metadata
+  IdP-->>B: Trang đăng nhập (nếu chưa có phiên IdP)
+  B->>IdP: Mật khẩu + MFA
+  Note over IdP: Tạo phiên IdP, tạo Response + Assertion đã ký
+  IdP-->>B: 200 HTML form ẩn action=ACS, SAMLResponse=base64, RelayState
+  Note over B,SP: HTTP-POST binding (form tự submit bằng JS)
+  B->>SP: POST /saml/acs (SAMLResponse, RelayState)
+  Note over SP: Validate: chữ ký, Issuer, Audience, Destination/Recipient,<br/>InResponseTo, thời gian, replay
+  SP-->>B: 302 tới /reports + Set-Cookie session của SP
+  B->>SP: GET /reports (kèm cookie SP)
+</pre>
+<div class="caption">SP-initiated SSO: Redirect binding cho AuthnRequest (nhỏ), POST binding cho Response (lớn, có chữ ký XML). Đây là cấu hình phổ biến nhất.</div>
+</div>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Bước roadmap</th><th>Chi tiết kỹ thuật</th><th>Binding thường dùng</th></tr></thead>
+<tbody>
+<tr><td>1. User truy cập ứng dụng SP</td><td>SP phát hiện chưa có session, ghi nhớ URL gốc.</td><td>HTTP bình thường</td></tr>
+<tr><td>2. SP tạo AuthnRequest, chuyển browser tới IdP</td><td>SP sinh <code>ID</code> ngẫu nhiên, lưu lại; có thể ký request.</td><td><b>HTTP-Redirect</b> (đôi khi POST)</td></tr>
+<tr><td>3. IdP xác thực user</td><td>Nếu đã có phiên IdP (SSO) thì bỏ qua bước nhập mật khẩu.</td><td>— (UI của IdP)</td></tr>
+<tr><td>4. IdP gửi Response về ACS qua browser</td><td>Form HTML ẩn tự POST tới ACS.</td><td><b>HTTP-POST</b> (hoặc Artifact)</td></tr>
+<tr><td>5. SP xác minh và tạo local session</td><td>Chạy toàn bộ <a href="#saml-validation">checklist</a>, rồi cấp cookie session riêng của SP (<a href="m02-crypto-session-token.html#session-cookie">M02</a>).</td><td>—</td></tr>
+</tbody></table></div>
+
+<div class="callout info"><span class="callout-title">ℹ️ RelayState</span>
+<code>RelayState</code> là giá trị mờ SP gửi kèm request và IdP trả nguyên vẹn — thường dùng để nhớ “sau khi đăng nhập thì quay về trang nào”. Theo spec Bindings, RelayState <b>không được vượt quá 80 byte</b>, nên SP nên lưu URL thật ở server và chỉ gửi một khóa tham chiếu. Nếu SP dùng RelayState làm URL redirect trực tiếp thì phải whitelist — nếu không sẽ thành <b>open redirect</b>.</div>
+
+<div class="callout warn"><span class="callout-title">⚠️ Cookie SameSite và POST cross-site</span>
+Response được POST từ domain IdP sang domain SP — đây là request <b>cross-site</b>. Cookie lưu trạng thái “AuthnRequest đang chờ” của SP nếu để <code>SameSite=Lax</code>/<code>Strict</code> sẽ <b>không được gửi kèm</b> POST này → SP không tìm thấy request → lỗi “InResponseTo không khớp”. Các thư viện thường đặt cookie tạm này <code>SameSite=None; Secure</code> (xem <a href="m02-crypto-session-token.html#cookie-attributes">cookie attributes</a>).</div>
+
+<!-- ===================================================== -->
+<h2 id="idp-initiated">IdP-initiated SSO <span class="badge should">Should</span></h2>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Lần này bạn đến phòng nhân sự trước, xin sẵn giấy giới thiệu rồi mới mang sang tòa nhà đối tác. Bảo vệ <b>không có cuống phiếu nào</b> để đối chiếu — chỉ biết con dấu thật. Vấn đề: một kẻ xấu cũng có giấy thật (của chính hắn) và có thể lén nhét vào tay bạn — bảo vệ không phân biệt được.</div>
+<p>Người dùng bắt đầu từ <b>portal của IdP</b> (ví dụ trang “My Apps” của Entra ID, hoặc bấm icon “Expense” trên portal Keycloak). IdP gửi một Response <b>không được yêu cầu</b> (unsolicited) tới SP.</p>
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant B as 🌐 Browser (An)
+  participant IdP as 🔐 IdP Portal
+  participant SP as 🧾 SP Expense
+  B->>IdP: Mở portal, đăng nhập (hoặc đã có phiên)
+  B->>IdP: Bấm icon Expense
+  IdP-->>B: HTML form ẩn, SAMLResponse (KHÔNG có InResponseTo)
+  B->>SP: POST /saml/acs (unsolicited Response)
+  Note over SP: Không có AuthnRequest nào để đối chiếu.<br/>Chỉ kiểm tra được chữ ký, Issuer, Audience,<br/>Recipient, thời gian, replay
+  SP-->>B: Tạo session (nếu chính sách cho phép)
+</pre>
+<div class="caption">IdP-initiated: thiếu mắt xích “request do chính SP tạo ra” → SP không phân biệt được response này do người dùng hiện tại chủ động yêu cầu hay bị kẻ khác “đẩy” vào.</div>
+</div>
+
+<h3 id="idp-initiated-risks">Rủi ro của IdP-initiated</h3>
+<div class="grid cols-3">
+  <div class="card bad"><span class="icon">🎭</span><h4>Login CSRF / injection</h4><p>Kẻ tấn công lấy một Response <b>hợp lệ của chính hắn</b> rồi dựng trang tự POST vào ACS của nạn nhân. Nạn nhân bị đăng nhập vào <b>tài khoản của kẻ tấn công</b> mà không biết, rồi nhập dữ liệu nhạy cảm (thẻ, hóa đơn) vào đó.</p></div>
+  <div class="card bad"><span class="icon">🔁</span><h4>Replay</h4><p>Response bị lộ (log, proxy, máy dùng chung, lịch sử trình duyệt) có thể được nộp lại trong cửa sổ hiệu lực. Với SP-initiated, <code>InResponseTo</code> gắn với một request dùng một lần giúp chặn; IdP-initiated không có lớp bảo vệ đó.</p></div>
+  <div class="card bad"><span class="icon">↪️</span><h4>RelayState → open redirect</h4><p>Trong IdP-initiated, RelayState không do SP tạo; nếu SP redirect theo nó mà không kiểm tra thì thành open redirect, tiếp tay phishing.</p></div>
+</div>
+
+<div class="dodont">
+<div class="do"><h5>✅ Nên</h5><ul>
+<li>Tắt IdP-initiated nếu không thật sự cần (nhiều thư viện mặc định tắt; ví dụ Sustainsys.Saml2 chỉ chấp nhận khi bật <code>AllowUnsolicitedAuthnResponse</code> cho IdP đó).</li>
+<li>Nếu bắt buộc hỗ trợ: assertion sống ngắn, <b>cache ID assertion</b> để chặn dùng lại, whitelist RelayState.</li>
+<li>Mẫu an toàn hơn: khi nhận unsolicited response, SP <b>bỏ qua</b> nó và khởi động lại một luồng SP-initiated (IdP đã có phiên nên người dùng không phải đăng nhập lại).</li>
+</ul></div>
+<div class="dont"><h5>❌ Không nên</h5><ul>
+<li>Coi IdP-initiated “an toàn như SP-initiated” chỉ vì có chữ ký.</li>
+<li>Bỏ qua kiểm tra <code>InResponseTo</code> cho mọi response chỉ để IdP-initiated chạy được.</li>
+<li>Redirect theo RelayState tùy ý.</li>
+</ul></div>
+</div>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>SP-initiated</th><th>IdP-initiated</th></tr></thead>
+<tbody>
+<tr><td>Điểm bắt đầu</td><td>Ứng dụng (SP)</td><td>Portal của IdP</td></tr>
+<tr><td>AuthnRequest</td><td>Có</td><td>Không</td></tr>
+<tr><td><code>InResponseTo</code></td><td>Có, phải khớp request đang chờ</td><td>Không có</td></tr>
+<tr><td>Chống login CSRF</td><td>Tốt (response gắn với phiên trình duyệt đã gửi request)</td><td>Yếu</td></tr>
+<tr><td>Deep link (quay về đúng trang)</td><td>Dễ (RelayState do SP tạo)</td><td>Khó, phụ thuộc cấu hình</td></tr>
+<tr><td>Khuyến nghị</td><td>Mặc định nên dùng</td><td>Chỉ bật khi cần, kèm biện pháp giảm thiểu</td></tr>
+</tbody></table></div>
+
+<!-- ===================================================== -->
+<h2 id="bindings">E. Binding và protocol <span class="badge should">Should</span></h2>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+<b>Protocol</b> là <i>nội dung lá thư</i>; <b>binding</b> là <i>cách gửi thư</i>. Thư ngắn thì viết luôn lên <b>bưu thiếp</b> (Redirect — nhét vào URL). Thư dày thì bỏ vào <b>bưu kiện</b> (POST — gửi trong thân form). Hoặc chỉ đưa <b>phiếu nhận hàng</b> rồi người nhận tự đến kho lấy (Artifact).</div>
+<p>Hai thuật ngữ mã hóa sẽ gặp: <b>base64</b> = cách biến dữ liệu nhị phân/XML thành chuỗi chỉ gồm chữ, số và vài ký tự an toàn để truyền qua HTTP (<b>không phải mã hóa bảo mật</b> — ai cũng giải được); <b>DEFLATE</b> = thuật toán nén (giống nén ZIP) để URL ngắn lại.</p>
+<p><b>Protocol</b> định nghĩa <i>message gì</i> (AuthnRequest, Response, LogoutRequest…). <b>Binding</b> định nghĩa <i>message được chở bằng gì</i> qua HTTP. Cùng một AuthnRequest có thể đi bằng Redirect hoặc POST.</p>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Binding</th><th>URI</th><th>Cách chở</th><th>Chữ ký nằm ở đâu</th><th>Thường dùng cho</th></tr></thead>
+<tbody>
+<tr><td><b>HTTP-Redirect</b></td><td><code>urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect</code></td><td>Query string của URL (302): XML → <b>DEFLATE</b> → <b>base64</b> → <b>URL-encode</b>.</td><td>Ngoài XML: tham số <code>SigAlg</code> và <code>Signature</code> trên query (ds:Signature trong XML phải bỏ đi).</td><td>AuthnRequest, LogoutRequest/Response (message nhỏ).</td></tr>
+<tr><td><b>HTTP-POST</b></td><td><code>…:bindings:HTTP-POST</code></td><td>Form HTML ẩn, tự submit bằng JS; XML → <b>base64</b> (không DEFLATE).</td><td>Bên trong XML (<code>ds:Signature</code>).</td><td>SAML Response (lớn, có assertion ký).</td></tr>
+<tr><td><b>HTTP-Artifact</b></td><td><code>…:bindings:HTTP-Artifact</code></td><td>Browser chỉ chở một “mã tham chiếu” (artifact) ngắn; SP gọi <b>back-channel</b> (SOAP) tới IdP để đổi lấy message thật.</td><td>Trong message lấy qua back-channel.</td><td>Khi không muốn assertion đi qua browser. Ít gặp — chỉ cần nhận biết.</td></tr>
+</tbody></table></div>
+
+<h3 id="redirect-binding">HTTP-Redirect: mã hóa và ký</h3>
+<div class="flow">
+  <div class="step"><b>XML</b>AuthnRequest (không có ds:Signature)</div><span class="arrow">→</span>
+  <div class="step"><b>DEFLATE</b>nén raw (không header zlib)</div><span class="arrow">→</span>
+  <div class="step"><b>base64</b>thành chuỗi ký tự</div><span class="arrow">→</span>
+  <div class="step"><b>URL-encode</b>đặt vào <code>SAMLRequest=</code></div><span class="arrow">→</span>
+  <div class="step"><b>Ký</b>chuỗi query → <code>Signature=</code></div>
+</div>
+<p>Chuỗi được ký là ghép các tham số đã URL-encode theo <b>đúng thứ tự</b>: <code>SAMLRequest=…&amp;RelayState=…&amp;SigAlg=…</code> (bỏ RelayState nếu không có). Chữ ký (base64) được thêm làm tham số <code>Signature</code>.</p>
+<pre data-title="HTTP 302 từ SP (rút gọn)"><code class="language-plaintext">HTTP/1.1 302 Found
+Location: https://sso.company.com/realms/corp/protocol/saml
+  ?SAMLRequest=fZJNT8MwDIb%2FSu45t9Kq...%3D%3D
+  &amp;RelayState=r_7Kq2
+  &amp;SigAlg=http%3A%2F%2Fwww.w3.org%2F2001%2F04%2Fxmldsig-more%23rsa-sha256
+  &amp;Signature=Mn2xA...%3D%3D</code></pre>
+<p class="small muted">(Xuống dòng chỉ để dễ đọc; URL thật nằm trên một dòng.)</p>
+
+<h3 id="post-binding">HTTP-POST: form tự submit</h3>
+<pre data-title="Trang HTML IdP trả về cho browser"><code class="language-xml">&lt;html&gt;
+  &lt;body onload="document.forms[0].submit()"&gt;
+    &lt;form method="POST" action="https://expense.example.com/saml/acs"&gt;
+      &lt;input type="hidden" name="SAMLResponse" value="PHNhbWxwOlJlc3BvbnNlIHhtbG5z..." /&gt;
+      &lt;input type="hidden" name="RelayState" value="r_7Kq2" /&gt;
+      &lt;noscript&gt;&lt;button type="submit"&gt;Tiếp tục&lt;/button&gt;&lt;/noscript&gt;
+    &lt;/form&gt;
+  &lt;/body&gt;
+&lt;/html&gt;</code></pre>
+<div class="callout tip"><span class="callout-title">🔍 Mẹo debug</span>
+Dùng DevTools (tab Network, bật “Preserve log”) hoặc extension “SAML tracer” để xem <code>SAMLRequest</code>/<code>SAMLResponse</code>. Với POST: chỉ cần base64-decode. Với Redirect: URL-decode → base64-decode → inflate. Đừng dán SAMLResponse thật của production lên các công cụ decode online — nó chứa thông tin cá nhân và là bearer credential còn hiệu lực.</div>
+
+<h3 id="slo">Single Logout (SLO) <span class="badge nice">Nice</span></h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Như khi nghỉ việc phải đi <b>trả thẻ ở từng tòa nhà</b> đã vào: IdP lần lượt báo cho từng ứng dụng “hãy hủy phiên của người này”. Chỉ cần một tòa nhà đóng cửa không nhận, việc trả thẻ coi như dang dở.</div>
+<p>SLO cố gắng đăng xuất người dùng khỏi <b>tất cả</b> SP đã tham gia phiên SSO. IdP dùng <code>SessionIndex</code> và NameID để biết phiên nào cần kết thúc ở từng SP.</p>
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  participant B as 🌐 Browser
+  participant SP1 as SP Expense
+  participant IdP as IdP
+  participant SP2 as SP Wiki
+  B->>SP1: Bấm Đăng xuất
+  SP1-->>B: Xóa session SP1, redirect LogoutRequest (NameID, SessionIndex)
+  B->>IdP: LogoutRequest
+  IdP-->>B: redirect LogoutRequest tới SP2
+  B->>SP2: LogoutRequest
+  SP2-->>B: Xóa session SP2, LogoutResponse
+  B->>IdP: LogoutResponse từ SP2
+  Note over IdP: Kết thúc phiên IdP
+  IdP-->>B: LogoutResponse về SP1
+  B->>SP1: LogoutResponse (Success hoặc PartialLogout)
+</pre>
+<div class="caption">SLO front-channel: chuỗi redirect qua từng SP. Chỉ một SP lỗi/không phản hồi là chuỗi đứt → thực tế SLO thường “best effort”.</div>
+</div>
+<p>So sánh với logout của OIDC ở <a href="m03-oauth-oidc.html#logout">M03</a>: cả hai đều khó đảm bảo đăng xuất 100% mọi nơi; thiết kế session ngắn hạn ở SP vẫn quan trọng.</p>
+
+<h3 id="xmldsig">XML Signature và canonicalization <span class="badge nice">Nice</span></h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Hai người viết cùng một câu nhưng một người thêm dấu cách, người kia đổi thứ tự từ — nghĩa giống nhau nhưng “chữ” khác, nên chữ ký số (tính trên từng byte) sẽ lệch. <b>Canonicalization</b> (chuẩn hóa) là quy tắc “viết lại cho đúng mẫu chuẩn” trước khi ký và trước khi kiểm, để hai bên luôn so cùng một chuỗi byte.</div>
+<p><b>XML Signature (XMLDSig)</b> ký <i>một phần</i> của tài liệu XML, được chỉ định bằng <code>Reference URI="#ID"</code>. Vấn đề: cùng một nội dung XML có thể viết theo nhiều cách (thứ tự thuộc tính, khoảng trắng, khai báo namespace…). <b>Canonicalization (C14N)</b>, phổ biến nhất trong SAML là <b>Exclusive C14N</b> (<code>http://www.w3.org/2001/10/xml-exc-c14n#</code>), chuẩn hóa XML về một dạng byte duy nhất trước khi băm, để chữ ký không vỡ khi XML đi qua các hệ thống khác nhau.</p>
+<div class="flow">
+  <div class="step"><b>1. Chọn phần tử</b>theo Reference URI</div><span class="arrow">→</span>
+  <div class="step"><b>2. Transforms</b>enveloped-signature, exc-c14n</div><span class="arrow">→</span>
+  <div class="step"><b>3. Digest</b>SHA-256 → DigestValue</div><span class="arrow">→</span>
+  <div class="step"><b>4. C14N SignedInfo</b>rồi ký → SignatureValue</div>
+</div>
+<p>Chính sự phức tạp này (chọn phần tử theo ID, nhiều transform, nhiều cách parse) là nguồn gốc của lỗi <a href="#xsw">XML Signature Wrapping</a>.</p>
+
+<!-- ===================================================== -->
+<h2 id="saml-validation">F. Kiểm tra bảo mật SAML — Checklist validation <span class="badge must">Must</span></h2>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Bảo vệ giỏi không chỉ nhìn con dấu. Anh ta kiểm tra: dấu thật của đúng công ty đã đăng ký (chữ ký + Issuer), giấy ghi đúng tên tòa nhà này (Audience) và đúng quầy (Recipient), đúng số phiếu mình phát (InResponseTo), còn hạn (Conditions), và <b>chưa ai dùng tờ này</b> (chống replay). Thiếu một bước là có kẽ hở.</div>
+<p>Đây là phần quan trọng nhất của module (Deliverable 3). SP <b>chỉ được tạo session khi tất cả</b> các kiểm tra dưới đây đều đạt.</p>
+
+<div class="table-wrap"><table>
+<thead><tr><th>#</th><th>Kiểm tra</th><th>Cụ thể</th><th>Ngăn chặn điều gì</th></tr></thead>
+<tbody>
+<tr><td>1</td><td><b>XML parser an toàn</b></td><td>Tắt DTD / external entity <b>trước khi</b> parse bất kỳ thứ gì.</td><td>XXE, “billion laughs” DoS.</td></tr>
+<tr><td>2</td><td><b>Status</b></td><td><code>StatusCode = Success</code>.</td><td>Xử lý nhầm response lỗi.</td></tr>
+<tr><td>3</td><td><b>Chữ ký hợp lệ</b></td><td>Assertion (và/hoặc Response) có chữ ký; verify bằng certificate <b>lấy từ metadata đã tin cậy</b>, không dùng cert nhúng trong <code>KeyInfo</code> của message; thuật toán mạnh; không chấp nhận assertion không ký.</td><td>Giả mạo assertion, tự ký bằng cert của kẻ tấn công.</td></tr>
+<tr><td>4</td><td><b>Phần tử được ký = phần tử được dùng</b></td><td>Reference URI trỏ đúng Assertion/Response mà code đọc NameID/attribute; chỉ chấp nhận đúng 1 assertion; dùng chính cây DOM đã verify.</td><td>XML Signature Wrapping (XSW).</td></tr>
+<tr><td>5</td><td><b>Issuer</b></td><td>Bằng entity ID IdP đã cấu hình; cert ký thuộc đúng IdP đó (khi SP tin nhiều IdP).</td><td>IdP A giả danh IdP B.</td></tr>
+<tr><td>6</td><td><b>Audience</b></td><td>Chứa entity ID của SP.</td><td>Assertion phát cho app khác bị đem sang app này.</td></tr>
+<tr><td>7</td><td><b>Destination / Recipient</b></td><td>Bằng URL ACS thật của SP.</td><td>Chuyển tiếp response sang endpoint khác.</td></tr>
+<tr><td>8</td><td><b>InResponseTo</b></td><td>SP-initiated: khớp một AuthnRequest do SP gửi, còn chờ, thuộc phiên trình duyệt này; xóa sau khi dùng. Nếu response <i>không</i> có InResponseTo mà SP không cho phép IdP-initiated → từ chối.</td><td>Login CSRF, response bị chèn, replay.</td></tr>
+<tr><td>9</td><td><b>Thời gian</b></td><td><code>NotBefore</code> ≤ now &lt; <code>NotOnOrAfter</code> (Conditions và SubjectConfirmationData), clock skew nhỏ; đồng bộ NTP.</td><td>Dùng assertion hết hạn.</td></tr>
+<tr><td>10</td><td><b>Chống replay</b></td><td>Lưu ID assertion đã dùng (cache phân tán nếu nhiều instance) tới khi hết hạn; từ chối ID trùng.</td><td>Nộp lại assertion bị đánh cắp.</td></tr>
+<tr><td>11</td><td><b>SubjectConfirmation</b></td><td>Method = bearer, có SubjectConfirmationData hợp lệ.</td><td>Assertion không dành cho trình diện kiểu bearer.</td></tr>
+<tr><td>12</td><td><b>Mapping danh tính</b></td><td>Khóa account = Issuer + NameID (persistent); attribute chỉ lấy từ assertion đã verify; cẩn trọng auto-link theo email.</td><td>Chiếm account qua email trùng (xem <a href="m03-oauth-oidc.html#account-linking">account linking</a>).</td></tr>
+<tr><td>13</td><td><b>Thư viện trưởng thành, cập nhật</b></td><td>Không tự viết parse/verify; cập nhật bản vá thư viện.</td><td>Toàn bộ lớp lỗi XSW/parser differential.</td></tr>
+</tbody></table></div>
+
+<div class="diagram">
+<pre class="mermaid">
+flowchart TD
+  S["POST /saml/acs nhận SAMLResponse"] --> P{"Parse XML an toàn<br/>(DTD tắt)?"}
+  P -- "lỗi" --> X["❌ Từ chối"]
+  P -- "ok" --> ST{"Status = Success?"}
+  ST -- "không" --> X
+  ST -- "có" --> SIG{"Chữ ký hợp lệ bằng cert<br/>từ metadata IdP?"}
+  SIG -- "không" --> X
+  SIG -- "có" --> W{"Assertion đang đọc chính là<br/>phần tử đã được ký?"}
+  W -- "không" --> X
+  W -- "có" --> ISS{"Issuer, Audience,<br/>Destination, Recipient đúng?"}
+  ISS -- "không" --> X
+  ISS -- "có" --> IRT{"InResponseTo khớp request<br/>đang chờ của phiên này?"}
+  IRT -- "không" --> X
+  IRT -- "có" --> T{"Trong cửa sổ thời gian<br/>và ID chưa từng dùng?"}
+  T -- "không" --> X
+  T -- "có" --> OK["✅ Map NameID → account,<br/>tạo session SP, ghi audit log"]
+</pre>
+<div class="caption">Thứ tự kiểm tra của SP tại ACS. Mọi nhánh “không” đều kết thúc bằng từ chối, ghi log lý do (không ghi toàn bộ assertion chứa dữ liệu cá nhân).</div>
+</div>
+
+<h3 id="xxe">XML External Entity (XXE)</h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+XML cho phép khai báo “biến” (<b>entity</b>) trỏ tới file hay URL bên ngoài. Giống như một lá thư ghi “xin đọc to nội dung của tủ hồ sơ số 5 vào chỗ này” — nhân viên ngây thơ sẽ mở tủ ra đọc thật. Parser XML an toàn là nhân viên được dặn: <b>không bao giờ làm theo chỉ dẫn kiểu đó</b>.</div>
+<p>Parser XML cấu hình lỏng sẽ xử lý khai báo <code>&lt;!DOCTYPE&gt;</code> trong dữ liệu do kẻ tấn công gửi. Với SAML, attacker <b>không cần chữ ký hợp lệ</b> — lỗi xảy ra ngay lúc parse, trước khi kiểm chữ ký.</p>
+<pre data-title="SAMLResponse độc hại (sau base64-decode)"><code class="language-xml">&lt;?xml version="1.0"?&gt;
+&lt;!DOCTYPE r [ &lt;!ENTITY xxe SYSTEM "file:///etc/passwd"&gt; ]&gt;
+&lt;samlp:Response xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol" ...&gt;
+  &lt;saml:Issuer xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion"&gt;&amp;xxe;&lt;/saml:Issuer&gt;
+&lt;/samlp:Response&gt;</code></pre>
+<p>Hậu quả: đọc file trên server, SSRF (entity trỏ tới URL nội bộ), DoS (“billion laughs”). Trên .NET hiện đại, <code>XmlReader</code> mặc định <code>DtdProcessing = Prohibit</code>; nhưng code cũ dùng <code>XmlDocument</code> trên .NET Framework cũ hoặc tự đặt <code>XmlResolver</code> có thể vẫn dính. Thư viện SAML tốt đã cấu hình sẵn parser an toàn.</p>
+<pre data-title="Nếu buộc phải tự parse XML (không phải để verify SAML!)"><code class="language-csharp">var settings = new XmlReaderSettings
+{
+    DtdProcessing = DtdProcessing.Prohibit, // từ chối mọi DOCTYPE
+    XmlResolver = null                      // không tải tài nguyên ngoài
+};
+using var reader = XmlReader.Create(stream, settings);</code></pre>
+
+<h3 id="xsw">XML Signature Wrapping (XSW)</h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Kẻ gian có một giấy giới thiệu thật (của chính hắn). Hắn bỏ giấy thật vào cuối tập hồ sơ, rồi đặt <b>lên trên cùng</b> một tờ giả ghi “Giám đốc”. Người kiểm dấu lật tìm và thấy tờ có dấu thật → “OK”. Người cho vào cửa lại đọc <b>tờ trên cùng</b> → cho hắn vào với tư cách Giám đốc. Lỗi nằm ở chỗ <b>hai người nhìn hai tờ khác nhau</b>.</div>
+<p>Ý tưởng: chữ ký XML chỉ bảo vệ <b>phần tử có ID được tham chiếu</b>, không bảo vệ vị trí của nó trong cây. Kẻ tấn công giữ nguyên assertion thật (chữ ký vẫn đúng) nhưng <b>chèn thêm một assertion giả</b> ở vị trí mà code nghiệp vụ sẽ đọc trước.</p>
+<div class="diagram">
+<pre class="mermaid">
+flowchart LR
+  subgraph Goc["Response gốc (hợp lệ)"]
+    direction TB
+    G1["Response"] --> G2["Assertion ID=_A<br/>NameID = attacker<br/>ds:Signature trỏ tới _A"]
+  end
+  subgraph Gia["Response sau khi bị wrap"]
+    direction TB
+    H1["Response"] --> H2["Assertion ID=_EVIL<br/>NameID = admin (giả, không ký)"]
+    H1 --> H3["Extensions / phần tử lạ"]
+    H3 --> H4["Assertion ID=_A gốc<br/>chữ ký vẫn hợp lệ"]
+  end
+  Goc -- "attacker sửa XML" --> Gia
+  V["🔏 Bộ verify chữ ký:<br/>tìm theo ID _A → ✅ hợp lệ"] -.-> H4
+  L["🧑‍💻 Code nghiệp vụ lỗi:<br/>lấy Assertion ĐẦU TIÊN → admin"] -.-> H2
+</pre>
+<div class="caption">XSW: bộ kiểm chữ ký và code đọc dữ liệu “nhìn” vào hai phần tử khác nhau. Kết quả: đăng nhập thành bất kỳ ai.</div>
+</div>
+<pre data-title="❌ Anti-pattern minh họa (đừng làm thế này)"><code class="language-csharp">// Kiểm chữ ký: SignedXml tìm phần tử theo ID trong Reference → hợp lệ
+bool ok = VerifySignature(xmlDoc, idpCert);
+
+// Đọc dữ liệu: lấy assertion ĐẦU TIÊN tìm thấy — có thể là assertion giả!
+var nameId = xmlDoc.SelectSingleNode("//*[local-name()='NameID']").InnerText;
+if (ok) SignIn(nameId);   // XSW: signed element ≠ element được dùng</code></pre>
+<p>Các biến thể XSW rất đa dạng (đặt assertion giả trong <code>Extensions</code>, trong <code>Object</code> của Signature, trùng ID, khác namespace…), và còn có lớp lỗi <b>parser differential</b> — hai parser XML khác nhau trong cùng thư viện hiểu tài liệu khác nhau. Ví dụ thực tế: thư viện <b>ruby-saml</b> dính CVE-2024-45409 (bỏ qua kiểm chữ ký) và CVE-2025-25291/25292 (parser differential) — đều cho phép đăng nhập giả mạo, ảnh hưởng cả các sản phẩm lớn dùng thư viện này.</p>
+
+<h3 id="use-library">Vì sao phải dùng thư viện SAML trưởng thành</h3>
+<div class="grid cols-2">
+  <div class="card bad"><span class="icon">🧨</span><h4>Tự viết = tự rước lỗi</h4><p>Verify XMLDSig đúng đòi hỏi xử lý C14N, transforms, ID resolution, namespace, multiple assertions, encrypted assertions, schema validation, XXE… Mỗi chỗ sai nhỏ là một lỗ hổng bypass xác thực hoàn toàn. Ngay cả thư viện lâu năm cũng liên tục phát hiện lỗi mới.</p></div>
+  <div class="card ok"><span class="icon">📦</span><h4>Lựa chọn trong .NET</h4><p><b>Sustainsys.Saml2</b> (tích hợp ASP.NET Core authentication handler) và <b>ITfoxtec.Identity.Saml2</b> (+ <code>ITfoxtec.Identity.Saml2.MvcCore</code>) — cả hai vẫn được phát hành trên NuGet. Hoặc đặt SAML ở <b>IdP/broker</b> (Keycloak, Entra ID…) và cho ứng dụng chỉ nói OIDC.</p></div>
+</div>
+<div class="callout warn"><span class="callout-title">⚠️ Dùng thư viện vẫn phải cấu hình đúng</span>
+Theo dõi security advisory và cập nhật phiên bản (NuGet từng hiển thị advisory cho một số bản Sustainsys.Saml2 cũ). Không bật các tùy chọn nới lỏng (chấp nhận response không ký, cho phép unsolicited, tắt kiểm tra certificate) chỉ để “cho chạy được”. Kiểm tra lại phiên bản mới nhất và trạng thái hỗ trợ .NET 10 trên nuget.org trước khi chọn.</div>
+<div class="callout tip"><span class="callout-title">💡 Kiến trúc thường gặp: “SAML ở rìa, OIDC bên trong”</span>
+Nếu ứng dụng .NET của bạn cần đăng nhập bằng IdP SAML của khách hàng, phương án gọn là cấu hình <b>Keycloak làm broker</b>: Keycloak đóng vai SP với IdP của khách hàng (SAML), còn ứng dụng của bạn chỉ là OIDC client của Keycloak. Toàn bộ xử lý XML security nằm trong sản phẩm IdP đã được kiểm định. Thực hành ở <a href="lab.html#lab5">Lab 5</a>.</div>
+
+<!-- ===================================================== -->
+<h2 id="oidc-vs-saml">G. So sánh OIDC và SAML <span class="badge should">Should</span></h2>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+SAML và OIDC giống <b>hai mẫu giấy giới thiệu</b> khác nhau cho cùng một việc: SAML là mẫu giấy hành chính kiểu cũ (XML), rất phổ biến trong doanh nghiệp; OIDC là mẫu hiện đại gọn nhẹ (JSON), hợp với app di động và API. Cả hai đều an toàn nếu được kiểm tra đúng cách.</div>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>OIDC</th><th>SAML 2.0</th></tr></thead>
+<tbody>
+<tr><td>Định dạng chính</td><td>JSON / JWT</td><td>XML</td></tr>
+<tr><td>Mô hình</td><td>Identity layer xây trên OAuth 2.0</td><td>Federation dựa trên assertion</td></tr>
+<tr><td>Phổ biến</td><td>Web, mobile, SPA, API, ứng dụng hiện đại</td><td>Enterprise SSO, SaaS, hệ thống doanh nghiệp legacy</td></tr>
+<tr><td>Token/assertion</td><td>ID Token (+ access token, refresh token)</td><td>SAML Response / Assertion</td></tr>
+<tr><td>Định danh người dùng</td><td><code>iss</code> + <code>sub</code></td><td>Issuer + NameID (persistent)</td></tr>
+<tr><td>Đối tượng</td><td><code>aud</code></td><td><code>Audience</code></td></tr>
+<tr><td>Chống CSRF / gắn request</td><td><code>state</code>, <code>nonce</code>, PKCE</td><td><code>InResponseTo</code>, RelayState</td></tr>
+<tr><td>Truyền tải</td><td>Redirect + back-channel token endpoint</td><td>Redirect/POST qua browser (Artifact dùng back-channel)</td></tr>
+<tr><td>Cấu hình trust</td><td>Discovery document + JWKS (<a href="m03-oauth-oidc.html#discovery-jwks">M03</a>), xoay key tự động</td><td>Metadata XML, cert thường cập nhật thủ công</td></tr>
+<tr><td>Gọi API</td><td>Access token dùng trực tiếp với API</td><td>Không có khái niệm access token cho API</td></tr>
+<tr><td>Mobile/native</td><td>Hỗ trợ tốt (Auth Code + PKCE)</td><td>Kém phù hợp</td></tr>
+<tr><td>Bảo mật cần chú ý</td><td>TLS, chữ ký token, PKCE, validation (<a href="m02-crypto-session-token.html#jwt-validation">JWT validation</a>)</td><td>XML Signature, trust metadata, assertion validation, XXE/XSW</td></tr>
+</tbody></table></div>
+<div class="callout info"><span class="callout-title">ℹ️ Không có chuẩn “luôn an toàn hơn”</span>
+Lựa chọn dựa trên hệ sinh thái (SaaS đó chỉ hỗ trợ SAML?), khả năng tương thích, và yêu cầu tổ chức. Quy tắc thực dụng: <b>ứng dụng mới → OIDC</b>; <b>tích hợp SaaS/khách hàng doanh nghiệp yêu cầu SAML → hỗ trợ SAML</b>, tốt nhất qua IdP/broker. Bảng này không làm thành deliverable riêng mà được đưa vào <a href="m07-architecture.html#decision-matrix">decision matrix ở Module 07</a>.</div>
+
+<!-- ===================================================== -->
+<h2 id="hieu-lam">Các hiểu lầm cần tránh</h2>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>SAML Response và Assertion là một.</span><span class="f-label">Thực tế</span><span>Response là message giao thức bao ngoài (có Status, Destination, InResponseTo); Assertion là tuyên bố bên trong. Chữ ký có thể chỉ nằm ở một trong hai.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Có chữ ký hợp lệ là đủ để tin assertion.</span><span class="f-label">Thực tế</span><span>Còn phải kiểm Issuer, Audience, Destination/Recipient, InResponseTo, thời gian, replay — và chữ ký phải bao đúng phần tử được dùng.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>IdP-initiated an toàn như SP-initiated.</span><span class="f-label">Thực tế</span><span>Thiếu InResponseTo → dễ bị login CSRF/injection và replay. Chỉ bật khi cần, kèm biện pháp giảm thiểu.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Dùng certificate trong <code>KeyInfo</code> của response để kiểm chữ ký.</span><span class="f-label">Thực tế</span><span>Ai cũng tự ký được bằng cert của mình. Cert phải đến từ <b>metadata đã tin cậy</b> của IdP.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>SAML lỗi thời nên không cần học.</span><span class="f-label">Thực tế</span><span>SAML vẫn rất phổ biến trong enterprise SSO và SaaS B2B; developer gặp nó khi tích hợp với khách hàng doanh nghiệp.</span></div>
+
+<!-- ===================================================== -->
+<h2 id="tom-tat">Tóm tắt nhanh</h2>
+<ul>
+<li><b>SAML 2.0</b> = chuẩn XML để IdP gửi “giấy xác nhận đã ký” (assertion) cho ứng dụng (SP) qua trình duyệt — nền tảng của enterprise SSO.</li>
+<li><b>Metadata</b> trao đổi trước là gốc của trust: entity ID, endpoint, certificate. Certificate kiểm chữ ký phải lấy từ đây, không lấy từ message.</li>
+<li><b>Response</b> là phong bì (Status, Destination, InResponseTo); <b>Assertion</b> là lá thư bên trong (NameID, Conditions, AuthnStatement, AttributeStatement).</li>
+<li><b>SP-initiated</b> là luồng mặc định nên dùng: AuthnRequest đi bằng <b>Redirect</b>, Response về ACS bằng <b>POST</b>.</li>
+<li><b>IdP-initiated</b> không có InResponseTo → dễ bị login CSRF/injection và replay; chỉ bật khi cần.</li>
+<li><b>Audience</b> = dành cho ứng dụng nào; <b>Destination/Recipient</b> = nộp ở URL nào; <b>InResponseTo</b> = trả lời cho request nào.</li>
+<li>Checklist: parser an toàn → Status → chữ ký (đúng phần tử) → Issuer → Audience → Destination/Recipient → InResponseTo → thời gian → replay.</li>
+<li><b>XXE</b> và <b>XSW</b> là hai lớp lỗi kinh điển → không tự viết XML security; dùng thư viện trưởng thành (Sustainsys.Saml2, ITfoxtec) hoặc broker (Keycloak).</li>
+<li>OIDC hay SAML: không chuẩn nào luôn an toàn hơn; ứng dụng mới → OIDC, SaaS/đối tác yêu cầu → SAML.</li>
+</ul>
+
+<!-- ===================================================== -->
+<h2 id="output">Output / Deliverables</h2>
+<ul class="checklist">
+<li><span><b>Sơ đồ sequence SP-initiated SAML SSO</b>, kèm ghi chú điểm khác biệt và rủi ro của IdP-initiated (xem <a href="#sp-initiated">D</a> và <a href="#idp-initiated">IdP-initiated</a>). <span class="badge core">Core</span></span></li>
+<li><span><b>Bản chú giải SAML Response/Assertion</b>: Issuer, Subject/NameID, Audience, Conditions, ACS, <code>InResponseTo</code> (xem <a href="#response-annotation">bảng chú giải</a>). <span class="badge core">Core</span></span></li>
+<li><span><b>Checklist validation</b> SAML response/assertion (xem <a href="#saml-validation">F</a>). <span class="badge core">Core</span></span></li>
+<li><span>Trả lời được 6 câu Knowledge Check bên dưới.</span></li>
+</ul>
+<p class="small muted">So sánh OIDC/SAML không làm thành deliverable riêng; nội dung đưa vào <a href="m07-architecture.html#decision-matrix">decision matrix M07</a>.</p>
+
+<h2 id="knowledge-check">Knowledge Check (tự luận)</h2>
+<p>Tự trả lời trước, sau đó mở đáp án gợi ý để so sánh.</p>
+<details><summary>IdP và SP khác nhau thế nào?</summary>
+<p><b>IdP</b> xác thực người dùng và phát hành SAML Response/Assertion có chữ ký. <b>SP</b> là ứng dụng nhận, xác minh response rồi tạo session cục bộ — SP không bao giờ thấy mật khẩu của người dùng. Hai bên tin nhau nhờ trao đổi metadata (entity ID, endpoint, certificate) từ trước.</p></details>
+<details><summary>Response khác Assertion thế nào?</summary>
+<p>Response là message giao thức bao ngoài: trả lời cho AuthnRequest (<code>InResponseTo</code>), có <code>Destination</code>, <code>Status</code>. Assertion là tuyên bố bên trong về subject: NameID, Conditions, AuthnStatement, AttributeStatement. Một Response có thể chứa không, một hoặc nhiều assertion; chữ ký có thể ở Response, Assertion hoặc cả hai, nên SP phải biết chính xác phần nào được ký.</p></details>
+<details><summary>ACS URL có vai trò gì?</summary>
+<p>Assertion Consumer Service là endpoint của SP nhận SAML Response (thường qua HTTP-POST). Nó được đăng ký trong metadata SP; IdP chỉ được gửi response về ACS đã đăng ký, và SP kiểm tra <code>Destination</code>/<code>Recipient</code> bằng đúng ACS của mình — để response không bị chuyển hướng tới endpoint của kẻ tấn công hoặc bị nộp vào endpoint khác.</p></details>
+<details><summary>Audience restriction bảo vệ điều gì?</summary>
+<p>Đảm bảo assertion chỉ được tiêu thụ bởi SP được chỉ định (entity ID). Không có nó, một SP độc hại (hoặc bị chiếm) nhận assertion của người dùng có thể đem assertion đó nộp vào SP khác cùng tin IdP và đăng nhập thành người dùng đó.</p></details>
+<details><summary>Vì sao phải kiểm tra <code>InResponseTo</code>?</summary>
+<p>Để chắc response là câu trả lời cho một AuthnRequest <b>do chính SP gửi</b>, còn đang chờ, trong phiên trình duyệt này. Điều này ngăn login CSRF/response injection (kẻ tấn công đẩy response của hắn vào trình duyệt nạn nhân) và giảm replay (mỗi request ID chỉ dùng một lần). Tương tự <code>state</code>/<code>nonce</code> trong OIDC.</p></details>
+<details><summary>Vì sao không nên tự viết XML signature validation?</summary>
+<p>XMLDSig rất phức tạp: canonicalization, transforms, tham chiếu theo ID, namespace, nhiều assertion, assertion mã hóa, parser an toàn. Sai một chi tiết là dính XSW, XXE hay parser differential — tức bypass xác thực hoàn toàn. Ngay cả thư viện lâu năm (vd. ruby-saml 2024–2025) còn bị lỗi. Dùng thư viện trưởng thành, cập nhật thường xuyên, hoặc đẩy SAML về IdP/broker.</p></details>
+
+<div class="callout tip"><span class="callout-title">✅ Tiêu chí hoàn thành</span>
+Có thể giải thích SAML SSO bằng sơ đồ và chỉ ra các kiểm tra quan trọng trước khi SP tạo session.</div>
+
+<h2 id="quiz">Quiz trắc nghiệm</h2>
+<div id="quiz"></div>
+
+</main>
+<script>
+window.QUIZ = [
+  { q: "Trong SAML, ứng dụng SaaS “Expense” nhận Response từ Keycloak và tạo session cho người dùng. Expense đóng vai trò gì?",
+    options: ["Identity Provider", "Authorization Server", "Attribute Authority", "Service Provider"],
+    answer: 3,
+    explain: "Ứng dụng tiêu thụ và xác minh assertion là <b>Service Provider (SP)</b>. Keycloak là IdP." },
+  { q: "Phát biểu nào mô tả đúng quan hệ giữa SAML Response và Assertion?",
+    options: ["Hai tên gọi của cùng một phần tử XML", "Assertion là message bao ngoài, Response nằm trong", "Response là message giao thức bao ngoài (Status, Destination, InResponseTo); Assertion là tuyên bố về subject nằm bên trong", "Response chỉ dùng cho logout"],
+    answer: 2,
+    explain: "Response = phong bì giao thức; Assertion = lá thư tuyên bố. Một Response có thể chứa nhiều assertion hoặc EncryptedAssertion. Xem <a href='#response-vs-assertion'>Response vs Assertion</a>." },
+  { q: "SP nhận được Response có <code>InResponseTo=\"_x9\"</code> nhưng SP chưa từng gửi AuthnRequest nào có ID <code>_x9</code> trong phiên trình duyệt này. SP nên làm gì?",
+    options: ["Từ chối response", "Chấp nhận vì chữ ký hợp lệ", "Chấp nhận nếu Audience đúng", "Chuyển sang luồng IdP-initiated và chấp nhận"],
+    answer: 0,
+    explain: "InResponseTo phải khớp một request do chính SP gửi, còn đang chờ, thuộc phiên này. Không khớp → có thể là response bị chèn/replay → từ chối." },
+  { q: "Trường nào cho biết assertion được phép tiêu thụ bởi <b>ứng dụng</b> nào (entity ID)?",
+    options: ["<code>Destination</code>", "<code>Recipient</code>", "<code>Audience</code> trong AudienceRestriction", "<code>Issuer</code>"],
+    answer: 2,
+    explain: "Audience chứa entity ID của SP được phép tiêu thụ. Destination/Recipient là <b>URL endpoint</b> (ACS), Issuer là bên phát hành." },
+  { q: "Trong cấu hình SAML phổ biến nhất, binding nào thường dùng cho AuthnRequest và cho SAML Response?",
+    options: ["AuthnRequest: HTTP-POST, Response: HTTP-Redirect", "AuthnRequest: HTTP-Redirect, Response: HTTP-POST", "Cả hai: HTTP-Artifact", "Cả hai: SOAP back-channel"],
+    answer: 1,
+    explain: "AuthnRequest nhỏ → nhét vào query string (Redirect). Response lớn, chứa assertion ký XML → form POST tự submit." },
+  { q: "Với HTTP-Redirect binding, giá trị <code>SAMLRequest</code> được tạo ra thế nào?",
+    options: ["XML → base64 → URL-encode", "XML → mã hóa AES → hex", "XML → gzip → base64url, có header zlib", "XML → DEFLATE → base64 → URL-encode"],
+    answer: 3,
+    explain: "Redirect binding: nén DEFLATE (raw), base64, rồi URL-encode. POST binding chỉ base64, không nén." },
+  { q: "Khi ký message bằng HTTP-Redirect binding, chữ ký nằm ở đâu?",
+    options: ["Trong phần tử <code>ds:Signature</code> bên trong XML", "Trong header <code>Authorization</code>", "Trong tham số query <code>Signature</code>, kèm <code>SigAlg</code>", "Trong cookie"],
+    answer: 2,
+    explain: "Redirect binding ký chuỗi <code>SAMLRequest=…&amp;RelayState=…&amp;SigAlg=…</code>, chữ ký đặt ở tham số <code>Signature</code>. Chữ ký XML trong message phải bị loại bỏ." },
+  { q: "Những rủi ro nào gắn với IdP-initiated SSO? (chọn nhiều)",
+    options: ["Login CSRF / response injection vì không có InResponseTo", "Replay assertion trong cửa sổ hiệu lực khó phát hiện hơn", "Không thể ký assertion", "RelayState có thể bị lạm dụng thành open redirect nếu SP không kiểm tra"],
+    answer: [0, 1, 3],
+    explain: "IdP-initiated vẫn ký được assertion. Vấn đề là thiếu liên kết với request do SP tạo → login CSRF, replay; và RelayState không do SP sinh ra." },
+  { q: "Kẻ tấn công giữ nguyên assertion thật (chữ ký đúng) nhưng chèn thêm một assertion giả với NameID = admin ở vị trí khác trong Response. Code SP kiểm chữ ký OK rồi lấy assertion đầu tiên. Đây là lỗi gì?",
+    options: ["XXE", "Padding oracle", "Session fixation", "XML Signature Wrapping (XSW)"],
+    answer: 3,
+    explain: "XSW: phần tử được verify chữ ký khác phần tử được dùng để đọc dữ liệu. Xem <a href='#xsw'>sơ đồ XSW</a>." },
+  { q: "Vì sao XXE nguy hiểm đặc biệt với SAML SP?",
+    options: ["Vì ACS là endpoint công khai nhận XML do bất kỳ ai gửi, và lỗi xảy ra ngay lúc parse — trước khi kiểm chữ ký", "Vì XXE cần chữ ký hợp lệ của IdP", "Vì XXE chỉ xảy ra trên IdP", "Vì SAML dùng JSON"],
+    answer: 0,
+    explain: "Ai cũng POST được tới ACS. Parser xử lý DOCTYPE trước mọi kiểm tra → đọc file, SSRF, DoS. Phải tắt DTD/external entity." },
+  { q: "SP nên lấy certificate để kiểm chữ ký Response từ đâu?",
+    options: ["Từ <code>ds:KeyInfo/X509Certificate</code> nhúng trong chính Response", "Từ metadata của IdP đã được cấu hình tin cậy", "Tải từ URL ghi trong Response", "Không cần cert, chỉ cần DigestValue khớp"],
+    answer: 1,
+    explain: "Cert nhúng trong message do bên gửi tự chọn — kẻ tấn công có thể tự ký bằng cert của hắn. Trust phải đến từ metadata đã cấu hình." },
+  { q: "Assertion có <code>Conditions NotOnOrAfter=\"02:05:05Z\"</code>. Đồng hồ SP lúc nhận là 02:30:00Z. SP cấu hình clock skew 2 phút. Kết quả?",
+    options: ["Chấp nhận vì chữ ký hợp lệ", "Chấp nhận vì clock skew bù được", "Chấp nhận nếu InResponseTo khớp", "Từ chối vì assertion đã hết hạn"],
+    answer: 3,
+    explain: "02:30 vượt xa 02:05 + 2 phút. Clock skew chỉ dùng để bù lệch đồng hồ nhỏ, không kéo dài hiệu lực." },
+  { q: "Một SP dùng NameID format <code>emailAddress</code> làm khóa account. Rủi ro tiềm ẩn là gì?",
+    options: ["Email có thể thay đổi hoặc được cấp lại cho người khác, dẫn đến gắn nhầm account", "Email không thể chứa ký tự @ trong XML", "Email làm chữ ký XML không hợp lệ", "Không có rủi ro nào"],
+    answer: 0,
+    explain: "Định danh ổn định nên là Issuer + NameID <b>persistent</b> (tương tự iss + sub của OIDC). Email là thuộc tính có thể thay đổi." },
+  { q: "Những kiểm tra nào thuộc checklist bắt buộc trước khi SP tạo session? (chọn nhiều)",
+    options: ["Issuer đúng IdP đã tin cậy", "Destination/Recipient bằng ACS URL của SP", "User-Agent của trình duyệt khớp với lúc gửi AuthnRequest", "Chống replay bằng cách lưu ID assertion đã dùng"],
+    answer: [0, 1, 3],
+    explain: "User-Agent không phải một kiểm tra của SAML. Issuer, Audience, Destination/Recipient, InResponseTo, thời gian, chữ ký, replay mới là checklist chuẩn." },
+  { q: "Trong <code>AuthnStatement</code>, <code>SessionIndex</code> chủ yếu được dùng để làm gì?",
+    options: ["Làm khóa account của người dùng", "Mã hóa assertion", "Thay thế InResponseTo", "Xác định phiên tại IdP, phục vụ Single Logout"],
+    answer: 3,
+    explain: "SessionIndex giúp IdP/SP nhận ra phiên SSO cụ thể khi gửi LogoutRequest trong SLO." },
+  { q: "Nhóm phát triển .NET cần cho ứng dụng mới đăng nhập bằng IdP SAML của khách hàng doanh nghiệp. Hướng tiếp cận nào hợp lý? (chọn nhiều)",
+    options: ["Tự parse XML bằng XPath và tự verify chữ ký bằng SignedXml", "Dùng thư viện trưởng thành như Sustainsys.Saml2 hoặc ITfoxtec.Identity.Saml2, cập nhật thường xuyên", "Đặt Keycloak làm broker: Keycloak nói SAML với IdP khách hàng, ứng dụng chỉ nói OIDC với Keycloak", "Tắt kiểm tra chữ ký trong môi trường production để tránh lỗi certificate"],
+    answer: [1, 2],
+    explain: "Không tự viết XML security và không nới lỏng kiểm tra. Thư viện trưởng thành hoặc broker là các lựa chọn an toàn." },
+  { q: "So sánh OIDC và SAML, phát biểu nào đúng?",
+    options: ["SAML luôn an toàn hơn vì dùng XML Signature", "OIDC luôn an toàn hơn vì dùng JSON", "SAML phổ biến trong enterprise SSO/SaaS; OIDC phù hợp hơn cho mobile/SPA/API; lựa chọn dựa trên hệ sinh thái và yêu cầu", "SAML cấp access token để gọi API giống OAuth"],
+    answer: 2,
+    explain: "Không chuẩn nào luôn an toàn hơn. SAML không có khái niệm access token cho API. Xem <a href='#oidc-vs-saml'>bảng so sánh</a>." },
+  { q: "Hệ thống .NET cũ có URL đăng nhập chứa <code>wa=wsignin1.0&amp;wtrealm=…</code>. Đây nhiều khả năng là giao thức gì?",
+    options: ["WS-Federation (thường với AD FS)", "OpenID Connect", "Kerberos", "SAML HTTP-Artifact"],
+    answer: 0,
+    explain: "Tham số <code>wa</code>, <code>wtrealm</code> là dấu hiệu của WS-Federation — giao thức federation XML của Microsoft, thường đi cùng AD FS." }
+];
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

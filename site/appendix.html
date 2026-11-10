@@ -1,0 +1,784 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phụ lục · .NET, tài liệu, rubric</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+<style>
+  /* Chỉ dùng cho widget rubric và glossary của trang này */
+  .rubric-table td.pick { white-space: nowrap; }
+  .rubric-table label.r { display: inline-flex; align-items: center; gap: 4px; margin-right: 10px; cursor: pointer; }
+  .rubric-table tr.crit td:first-child::after { content: " ★"; color: var(--warn); }
+  .rubric-score { font-size: 1.6em; font-weight: 700; }
+  .rubric-bar { height: 10px; border-radius: 6px; background: var(--surface-2); border: 1px solid var(--border); overflow: hidden; margin: 6px 0 10px; }
+  .rubric-bar > span { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+  .verdict-ok { color: var(--ok); font-weight: 600; }
+  .verdict-bad { color: var(--danger); font-weight: 600; }
+  .verdict-wait { color: var(--muted); font-weight: 600; }
+  .gl-count { color: var(--muted); font-size: .9em; margin-top: 6px; }
+  .status { display: inline-block; font-size: .78em; font-weight: 600; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface-2); white-space: nowrap; }
+  .status.rfc { color: var(--ok); background: var(--ok-soft); }
+  .status.draft { color: var(--warn); background: var(--warn-soft); }
+  .status.rec { color: var(--info); background: var(--info-soft); }
+  .status.final { color: var(--purple); background: var(--purple-soft); }
+</style>
+</head>
+<body>
+<main class="content">
+
+<div class="page-head">
+  <div class="breadcrumb"><a href="index.html">Lộ trình</a> / Phụ lục</div>
+  <h1>Phụ lục — .NET, chủ đề nâng cao, bộ tài liệu đầu ra, rubric &amp; tài liệu tham khảo</h1>
+  <p class="lead">Trang tra cứu dùng song song với các module: nối khái niệm giao thức với API <b>ASP.NET Core / .NET</b>, liệt kê các chủ đề <b>nâng cao</b> để học tiếp, gom <b>deliverable</b> thành bộ tài liệu cuối khóa, chuẩn bị <b>2 buổi chia sẻ</b>, <b>tự chấm điểm</b> trước khi đứng lớp và tra <b>glossary</b> toàn lộ trình.</p>
+  <div class="meta-row">
+    <span class="chip">📚 Tra cứu — không cần học thuộc</span>
+    <span class="chip">🗓 Trạng thái tiêu chuẩn kiểm tra tới 11/2026</span>
+    <span class="chip">⬅️ Trước: <a href="m07-architecture.html">Module 07</a></span>
+  </div>
+</div>
+
+<div class="keypoints"><div class="kp-title">Sau bài này bạn sẽ</div><ul>
+<li>Biết mỗi khái niệm đã học (scheme, cookie, OIDC, JWT, policy…) tương ứng với API nào trong ASP.NET Core.</li>
+<li>Nhận ra và sửa được 5 lỗi cấu hình xác thực hay gặp nhất trong .NET.</li>
+<li>Biết tên và mục đích của các chủ đề nâng cao (DPoP, PAR, Token Exchange, FAPI…) để học tiếp.</li>
+<li>Gom deliverable của các module thành bộ 10 tài liệu cuối khóa.</li>
+<li>Có khung 2 buổi chia sẻ 90 phút và kịch bản demo.</li>
+<li>Tự chấm điểm sẵn sàng đứng lớp và tra glossary của cả lộ trình.</li>
+</ul></div>
+
+<!-- ===================================================== -->
+<h2 id="cach-su-dung">Cách sử dụng tài liệu</h2>
+<div class="grid cols-2">
+  <div class="card acc"><span class="icon">⏱</span><h4>Lộ trình Core 10 giờ</h4><p>Chỉ học các mục <span class="badge must">Must</span> và làm các deliverable có nhãn <span class="badge core">Core</span>.</p></div>
+  <div class="card acc"><span class="icon">📘</span><h4>Lộ trình Full 15 giờ</h4><p>Học toàn bộ <span class="badge must">Must</span> và <span class="badge should">Should</span>; mục <span class="badge nice">Nice</span> chỉ cần đọc để biết tên.</p></div>
+</div>
+<p>Với <b>mỗi module</b>, đi theo 7 bước:</p>
+<div class="flow">
+  <div class="step"><b>1</b> Đọc mục tiêu &amp; Input</div><span class="arrow">→</span>
+  <div class="step"><b>2</b> Học lần lượt nội dung</div><span class="arrow">→</span>
+  <div class="step"><b>3</b> Vẽ lại flow bằng lời của mình</div><span class="arrow">→</span>
+  <div class="step"><b>4</b> Hoàn thành Output/Deliverables</div><span class="arrow">→</span>
+  <div class="step"><b>5</b> Tự trả lời Knowledge Check (không nhìn tài liệu)</div><span class="arrow">→</span>
+  <div class="step"><b>6</b> Ghi câu hỏi chưa chắc, tra spec/tài liệu chính thức</div><span class="arrow">→</span>
+  <div class="step"><b>7</b> Chỉ chuyển module khi đạt tiêu chí hoàn thành</div>
+</div>
+<div class="callout warn"><span class="callout-title">⚠️ Lưu ý về độ sâu</span>
+Hoàn thành lộ trình giúp bạn nắm nền tảng và các giao thức quan trọng ở mức <b>giải thích, so sánh và thiết kế sơ bộ</b>. Nó <b>không thay thế</b> đào tạo chuyên sâu, security review hoặc kiểm thử độc lập trước khi đưa hệ thống xác thực vào production.</div>
+
+<!-- ===================================================== -->
+<h2 id="dotnet-mapping">A. Ánh xạ khái niệm sang ASP.NET Core / .NET <span class="badge should">Should</span></h2>
+<p>Phụ lục này giúp người trình bày (C#/.NET) nối kiến thức giao thức với API cụ thể của nền tảng. Không cần học thuộc; dùng làm tra cứu khi làm <a href="lab.html">Lab</a> và trả lời câu hỏi của team. Các link trỏ tới learn.microsoft.com (mặc định hiển thị phiên bản ASP.NET Core 10 — bản LTS hiện hành).</p>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Khái niệm</th><th>ASP.NET Core / .NET</th><th>Snippet / tài liệu</th></tr></thead>
+<tbody>
+<tr><td><b>Authentication scheme / handler</b><br><small>(<a href="m02-crypto-session-token.html#session-cookie">M02</a>, <a href="m03-oauth-oidc.html#oidc">M03</a>)</small></td>
+<td><code>AddAuthentication()</code>, <code>AddCookie()</code>, <code>AddOpenIdConnect()</code>, <code>AddJwtBearer()</code>; default scheme, challenge scheme, forbid scheme.</td>
+<td><code>services.AddAuthentication(o =&gt; { o.DefaultScheme = "Cookies"; o.DefaultChallengeScheme = "oidc"; })</code><br><a href="https://learn.microsoft.com/en-us/aspnet/core/security/authentication/">Overview of ASP.NET Core Authentication</a></td></tr>
+<tr><td><b>Session đăng nhập web</b><br><small>(<a href="m02-crypto-session-token.html#session-management">M02</a>)</small></td>
+<td>Cookie authentication handler; <i>authentication ticket</i> (ClaimsPrincipal + properties) được mã hóa/ký bằng <b>Data Protection</b> rồi lưu trong cookie.</td>
+<td><code>.AddCookie(o =&gt; { o.Cookie.HttpOnly = true; o.Cookie.SecurePolicy = CookieSecurePolicy.Always; o.ExpireTimeSpan = TimeSpan.FromHours(8); })</code><br><a href="https://learn.microsoft.com/en-us/aspnet/core/security/authentication/cookie">Use cookie authentication without Identity</a></td></tr>
+<tr><td><b>OIDC client cho server-side web</b><br><small>(<a href="m07-architecture.html#server-web">M07</a>)</small></td>
+<td><code>AddOpenIdConnect()</code> + <code>AddCookie()</code>; hoặc <code>Microsoft.Identity.Web</code> (<code>AddMicrosoftIdentityWebApp</code>) khi dùng Entra ID.</td>
+<td><code>.AddOpenIdConnect("oidc", o =&gt; { o.Authority = "..."; o.ClientId = "web"; o.ResponseType = "code"; o.UsePkce = true; })</code><br><a href="https://learn.microsoft.com/en-us/aspnet/core/security/authentication/configure-oidc-web-authentication">Configure OIDC web authentication</a> · <a href="https://learn.microsoft.com/en-us/entra/msal/dotnet/microsoft-identity-web/">Microsoft.Identity.Web</a></td></tr>
+<tr><td><b>API xác minh access token</b><br><small>(<a href="m02-crypto-session-token.html#jwt-validation">M02</a>, <a href="lab.html#lab2">Lab 2</a>)</small></td>
+<td><code>AddJwtBearer()</code> với <code>Authority</code>, <code>Audience</code>, <code>TokenValidationParameters</code>. Khi dùng Entra ID có thể dùng <code>AddMicrosoftIdentityWebApi</code>.</td>
+<td><code>.AddJwtBearer(o =&gt; { o.Authority = "https://idp/realms/demo"; o.Audience = "orders-api"; })</code><br><a href="https://learn.microsoft.com/en-us/aspnet/core/security/authentication/configure-jwt-bearer-authentication">Configure JWT bearer authentication</a></td></tr>
+<tr><td><b>Desktop/mobile public client</b><br><small>(<a href="m07-architecture.html#desktop">M07</a>)</small></td>
+<td><b>MSAL.NET</b> (Entra ID) hoặc <b><code>Duende.IdentityModel.OidcClient</code></b> (IdP chuẩn OIDC bất kỳ, ví dụ Keycloak; giấy phép Apache-2.0).</td>
+<td><code>var result = await new OidcClient(options).LoginAsync();</code><br><a href="https://learn.microsoft.com/en-us/entra/msal/dotnet/">MSAL.NET</a> · <a href="https://docs.duendesoftware.com/identitymodel-oidcclient/">Duende.IdentityModel.OidcClient</a></td></tr>
+<tr><td><b>Principal và claims</b><br><small>(<a href="m01-fundamentals.html#vai-tro">M01</a>)</small></td>
+<td><code>ClaimsPrincipal</code>, <code>ClaimsIdentity</code>, <code>HttpContext.User</code>.</td>
+<td><code>var sub = User.FindFirst("sub")?.Value;</code><br><a href="https://learn.microsoft.com/en-us/aspnet/core/security/authentication/claims">Mapping, customizing, and transforming claims</a></td></tr>
+<tr><td><b>Inbound claim mapping</b><br><small>(<a href="lab.html#lab2">Lab</a>)</small></td>
+<td>Mặc định <code>MapInboundClaims = true</code>: claim JWT bị đổi tên sang URI kiểu WS-*, ví dụ <code>sub</code> → <code>ClaimTypes.NameIdentifier</code>. Tắt bằng <code>MapInboundClaims = false</code> (có trên cả <code>JwtBearerOptions</code> và <code>OpenIdConnectOptions</code>).</td>
+<td><code>.AddJwtBearer(o =&gt; o.MapInboundClaims = false)</code><br><a href="https://learn.microsoft.com/en-us/dotnet/api/microsoft.aspnetcore.authentication.jwtbearer.jwtbeareroptions.mapinboundclaims">JwtBearerOptions.MapInboundClaims</a></td></tr>
+<tr><td><b>Claims transformation</b></td>
+<td><code>IClaimsTransformation</code> — bổ sung/chuẩn hóa claim (ví dụ nạp role từ DB) sau khi authenticate. Lưu ý nó có thể chạy nhiều lần cho một request nên phải idempotent.</td>
+<td><code>builder.Services.AddTransient&lt;IClaimsTransformation, MyClaimsTransformation&gt;();</code><br><a href="https://learn.microsoft.com/en-us/aspnet/core/security/authentication/claims">Claims docs (mục IClaimsTransformation)</a></td></tr>
+<tr><td><b>Authorization</b><br><small>(<a href="m06-authz-security.html#api-authz">M06</a>)</small></td>
+<td><code>[Authorize]</code>, <code>[AllowAnonymous]</code>, policy-based (<code>RequireClaim</code>, <code>RequireRole</code>, <code>RequireAssertion</code>), <code>IAuthorizationHandler</code> + requirement, resource-based qua <code>IAuthorizationService.AuthorizeAsync</code>.</td>
+<td><code>o.AddPolicy("admin", p =&gt; p.RequireRole("Admin"));</code> (scope dạng chuỗi nhiều giá trị: xem <a href="#schemes">ví dụ RequireAssertion</a>)<br><a href="https://learn.microsoft.com/en-us/aspnet/core/security/authorization/policies">Policy-based</a> · <a href="https://learn.microsoft.com/en-us/aspnet/core/security/authorization/resourcebased">Resource-based</a> · <a href="https://learn.microsoft.com/en-us/aspnet/core/security/authorization/simple">Simple</a></td></tr>
+<tr><td><b>Quản lý user/password cục bộ</b><br><small>(<a href="m02-crypto-session-token.html#password-hashing">M02</a>, <a href="m05-enterprise-passwordless.html#passkey">M05</a>)</small></td>
+<td><b>ASP.NET Core Identity</b>: <code>PasswordHasher&lt;TUser&gt;</code> định dạng V3 = <b>PBKDF2 với HMAC-SHA512, salt 128-bit, subkey 256-bit, mặc định 100.000 vòng lặp</b> (<code>PasswordHasherOptions.IterationCount</code>); lockout, 2FA TOTP; <b>passkey (WebAuthn) được hỗ trợ từ .NET 10</b> qua <code>IdentityPasskeyOptions</code>, <code>SignInManager.MakePasskeyCreationOptionsAsync</code>… (sẵn trong template Blazor Web App).</td>
+<td><code>builder.Services.Configure&lt;PasswordHasherOptions&gt;(o =&gt; o.IterationCount = 210_000);</code><br><a href="https://learn.microsoft.com/en-us/aspnet/core/security/authentication/identity">Identity</a> · <a href="https://learn.microsoft.com/en-us/aspnet/core/security/authentication/identity-configuration">Identity configuration</a> · <a href="https://learn.microsoft.com/en-us/aspnet/core/security/authentication/passkeys/">Passkeys</a></td></tr>
+<tr><td><b>CSRF</b><br><small>(<a href="m06-authz-security.html#csrf">M06</a>)</small></td>
+<td>Antiforgery (<code>AddAntiforgery</code>, <code>[ValidateAntiForgeryToken]</code>, <code>UseAntiforgery()</code> cho minimal API/Blazor).</td>
+<td><code>builder.Services.AddAntiforgery(o =&gt; o.HeaderName = "X-XSRF-TOKEN");</code><br><a href="https://learn.microsoft.com/en-us/aspnet/core/security/anti-request-forgery">Prevent CSRF attacks</a></td></tr>
+<tr><td><b>CORS</b></td>
+<td><code>AddCors()</code> / <code>UseCors()</code> — <b>không phải</b> cơ chế authentication/authorization; chỉ nới lỏng Same-Origin Policy của browser. <code>UseCors</code> đặt <b>trước</b> <code>UseAuthentication</code>.</td>
+<td><code>p.WithOrigins("https://spa.example.com").AllowCredentials()</code><br><a href="https://learn.microsoft.com/en-us/aspnet/core/security/cors">Enable CORS</a></td></tr>
+<tr><td><b>Data Protection</b></td>
+<td>Bảo vệ cookie/ticket, antiforgery token, state OIDC. Cần <b>key ring dùng chung</b> (và cùng application name) khi chạy nhiều instance.</td>
+<td><code>AddDataProtection().SetApplicationName("hr").PersistKeysToFileSystem(new DirectoryInfo(@"\\share\keys"))</code><br><a href="https://learn.microsoft.com/en-us/aspnet/core/security/data-protection/configuration/overview">Configure Data Protection</a></td></tr>
+<tr><td><b>Tự dựng Authorization Server / IdP</b></td>
+<td><b>Duende IdentityServer</b> (license thương mại; có Community Edition miễn phí cho tổ chức nhỏ đạt ngưỡng doanh thu — kiểm tra điều khoản hiện hành; dev/test không cần license), <b>OpenIddict</b> (mã nguồn mở, Apache-2.0); hoặc dùng sản phẩm: Keycloak, Entra ID / Entra External ID.</td>
+<td><a href="https://docs.duendesoftware.com/identityserver/">Duende IdentityServer docs</a> · <a href="https://documentation.openiddict.com/">OpenIddict docs</a></td></tr>
+<tr><td><b>BFF</b><br><small>(<a href="m07-architecture.html#bff">M07</a>)</small></td>
+<td><b>Duende BFF</b>, hoặc <b>YARP</b> + cookie authentication (BFF giữ token ở server, SPA chỉ có cookie).</td>
+<td><a href="https://docs.duendesoftware.com/bff/">Duende BFF</a> · <a href="https://learn.microsoft.com/en-us/aspnet/core/fundamentals/servers/yarp/yarp-overview">YARP</a></td></tr>
+</tbody></table></div>
+
+<h3 id="pipeline">Pipeline ASP.NET Core: UseAuthentication → UseAuthorization → endpoint</h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Hãy hình dung cổng một tòa nhà có hai trạm. Trạm 1 (<code>UseAuthentication</code>) <b>đọc thẻ</b> của bạn để biết bạn là ai. Trạm 2 (<code>UseAuthorization</code>) <b>xem danh sách phòng</b> bạn được vào. Nếu trạm 2 đứng trước trạm 1, nó sẽ thấy mọi người đều “không có thẻ” và chặn hết.</div>
+<p>Thuật ngữ: <b>middleware</b> là các bước xử lý request nối tiếp nhau trong ASP.NET Core; <b>scheme</b> là một cách xác thực có tên (ví dụ “Cookies”, “Bearer”, “oidc”), mỗi scheme có một <b>handler</b> thực hiện.</p>
+<p><code>UseAuthentication</code> gọi handler của <b>default authenticate scheme</b> để dựng <code>HttpContext.User</code> (từ cookie hoặc header <code>Authorization: Bearer</code>). <code>UseAuthorization</code> đọc metadata của endpoint (<code>[Authorize]</code>, policy) và quyết định: cho qua, <b>Challenge</b> (chưa xác thực) hay <b>Forbid</b> (đã xác thực nhưng thiếu quyền). Phản hồi cụ thể của Challenge/Forbid do <b>handler của scheme tương ứng</b> quyết định.</p>
+<div class="diagram">
+<pre class="mermaid">
+flowchart TD
+  R["HTTP request"] --> RT["UseRouting<br/>chọn endpoint"]
+  RT --> CO["UseCors<br/>(nếu có)"]
+  CO --> AN["UseAuthentication<br/>default authenticate scheme<br/>→ HttpContext.User"]
+  AN --> AZ{"UseAuthorization<br/>endpoint cần policy?"}
+  AZ -- "không / AllowAnonymous" --> EP["Endpoint<br/>controller / minimal API"]
+  AZ -- "đạt policy" --> EP
+  AZ -- "User chưa xác thực" --> CH["ChallengeAsync<br/>(challenge scheme)"]
+  AZ -- "đã xác thực, thiếu quyền" --> FB["ForbidAsync<br/>(forbid scheme)"]
+  CH --> C1["JwtBearer: 401 + WWW-Authenticate"]
+  CH --> C2["Cookie: 302 → LoginPath"]
+  CH --> C3["OIDC: 302 → IdP authorize"]
+  FB --> F1["JwtBearer: 403"]
+  FB --> F2["Cookie: 302 → AccessDeniedPath"]
+</pre>
+<div class="caption">Thứ tự middleware quyết định <code>HttpContext.User</code> đã có hay chưa khi authorization chạy. Cùng một tình huống “chưa đăng nhập” có thể ra 401 hoặc 302 tùy scheme.</div>
+</div>
+
+<h3 id="schemes">Default / challenge / forbid scheme</h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+App có thể có nhiều “cửa đăng nhập” (cookie cho web, Bearer token cho API, OIDC để chuyển sang IdP). Các <i>Default scheme</i> là bảng chỉ dẫn: <b>đọc thẻ</b> bằng cửa nào, <b>khi khách chưa có thẻ</b> thì đưa họ đến cửa nào (challenge), và <b>khi khách có thẻ nhưng sai phòng</b> thì báo thế nào (forbid).</div>
+<ul>
+<li><b>Challenge</b>: phản hồi khi người dùng <b>chưa đăng nhập</b> → API trả 401, web app chuyển hướng sang trang login.</li>
+<li><b>Forbid</b>: phản hồi khi đã đăng nhập nhưng <b>không đủ quyền</b> → 403 hoặc trang “Access denied”.</li>
+</ul>
+<div class="diagram">
+<pre class="mermaid">
+flowchart LR
+  DS["DefaultScheme<br/>(giá trị dự phòng chung)"]
+  DS --> DA["DefaultAuthenticateScheme<br/>dựng HttpContext.User"]
+  DS --> DC["DefaultChallengeScheme<br/>khi chưa xác thực"]
+  DS --> DF["DefaultForbidScheme<br/>khi thiếu quyền"]
+  DS --> DSI["DefaultSignInScheme<br/>nơi lưu kết quả login (vd. Cookies)"]
+  DS --> DSO["DefaultSignOutScheme"]
+</pre>
+<div class="caption">Mỗi Default*Scheme nếu không đặt sẽ rơi về <code>DefaultScheme</code>. Từ .NET 7, nếu chỉ đăng ký <b>đúng một</b> scheme thì nó tự được dùng làm default.</div>
+</div>
+<div class="table-wrap"><table>
+<thead><tr><th>Loại app</th><th>Cấu hình scheme điển hình</th></tr></thead>
+<tbody>
+<tr><td>Web app đăng nhập qua OIDC</td><td><code>DefaultScheme = "Cookies"</code>, <code>DefaultChallengeScheme = "oidc"</code> — đọc cookie, chưa đăng nhập thì chuyển sang IdP.</td></tr>
+<tr><td>Web API</td><td>Chỉ một scheme <code>Bearer</code> → tự là default; challenge trả 401.</td></tr>
+<tr><td>App lai MVC + <code>/api</code></td><td>Policy scheme với <code>ForwardDefaultSelector</code>, hoặc <code>[Authorize(AuthenticationSchemes = ...)]</code> trên controller API (xem <a href="#pitfall-schemes">lỗi số 3</a>).</td></tr>
+</tbody></table></div>
+
+<pre data-title="Program.cs — Web app (Cookie + OIDC) gọi API"><code class="language-csharp">builder.Services.AddAuthentication(options =&gt;
+{
+    options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;      // "Cookies"
+    options.DefaultChallengeScheme = OpenIdConnectDefaults.AuthenticationScheme;    // "OpenIdConnect"
+})
+.AddCookie(o =&gt;
+{
+    o.Cookie.SameSite = SameSiteMode.Lax;
+    o.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+})
+.AddOpenIdConnect(o =&gt;
+{
+    o.Authority = builder.Configuration["Oidc:Authority"];   // vd. https://localhost:8443/realms/demo
+    o.ClientId = "hr-web";
+    o.ClientSecret = builder.Configuration["Oidc:ClientSecret"];   // confidential client: secret ở server
+    o.ResponseType = OpenIdConnectResponseType.Code;            // Authorization Code
+    o.UsePkce = true;
+    o.SaveTokens = true;                                         // lưu access/refresh token trong ticket
+    o.MapInboundClaims = false;                                  // giữ nguyên "sub", "name"...
+    o.Scope.Add("orders.read");
+});
+
+var app = builder.Build();
+app.UseRouting();
+app.UseAuthentication();   // 1. dựng HttpContext.User
+app.UseAuthorization();    // 2. kiểm tra policy
+app.MapControllers();</code></pre>
+
+<pre data-title="Program.cs — Web API (resource server)"><code class="language-csharp">builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(o =&gt;
+    {
+        o.Authority = builder.Configuration["Jwt:Authority"];   // tự tải discovery + JWKS
+        o.Audience  = "orders-api";                              // kiểm tra "aud"
+        o.MapInboundClaims = false;
+        o.TokenValidationParameters.ClockSkew = TimeSpan.FromMinutes(1);
+    });
+
+builder.Services.AddAuthorization(o =&gt;
+{
+    // "scope" (Keycloak) là MỘT chuỗi nhiều giá trị: "openid orders.read" → phải tách theo dấu cách
+    o.AddPolicy("orders.read", p =&gt; p.RequireAuthenticatedUser()
+        .RequireAssertion(ctx =&gt; ctx.User.FindAll("scope")
+            .SelectMany(c =&gt; c.Value.Split(' '))
+            .Contains("orders.read")));
+});
+
+app.MapGet("/orders", () =&gt; Results.Ok())
+   .RequireAuthorization("orders.read");</code></pre>
+<div class="callout info"><span class="callout-title">ℹ️ Claim <code>scope</code> là chuỗi cách nhau bởi dấu cách</span>
+Nhiều IdP (Keycloak, Duende) phát <code>"scope": "openid orders.read"</code> dạng một chuỗi. <code>RequireClaim("scope", "orders.read")</code> chỉ khớp khi giá trị claim <b>bằng đúng</b> chuỗi đó — nên với chuỗi nhiều scope cần <code>RequireAssertion</code> tách theo dấu cách (như code trên) hoặc dùng handler tùy biến. Entra ID dùng claim <code>scp</code> cho delegated permission và <code>roles</code> cho app permission. Kiểm tra token thật ở <a href="lab.html#lab2">Lab 2</a>.</div>
+
+<!-- ===================================================== -->
+<h2 id="dotnet-pitfalls">B. 5 lỗi .NET hay gặp <span class="badge should">Should</span></h2>
+<p>Mỗi lỗi dưới đây đều có thể tái hiện trong repo <a href="lab.html">Lab</a>. Đối chiếu với <a href="lab.html#error-table">bảng lỗi ở Lab</a> và <a href="m07-architecture.html#troubleshooting">troubleshooting checklist (M07)</a>.</p>
+
+<h3 id="pitfall-order">1. Sai thứ tự hoặc thiếu <code>UseAuthentication()</code></h3>
+<div class="table-wrap"><table><tbody>
+<tr><th>Triệu chứng</th><td>Gửi token hợp lệ nhưng mọi endpoint <code>[Authorize]</code> vẫn trả 401 / redirect login; <code>User.Identity.IsAuthenticated == false</code> trong controller.</td></tr>
+<tr><th>Nguyên nhân</th><td><code>UseAuthorization()</code> chạy khi <code>HttpContext.User</code> chưa được dựng (vì <code>UseAuthentication()</code> đứng sau hoặc bị thiếu). Lưu ý: <code>WebApplication</code> chỉ tự chèn <code>UseAuthentication</code> khi bạn <b>không</b> tự gọi nó; một khi đã gọi tường minh thì thứ tự là trách nhiệm của bạn.</td></tr>
+</tbody></table></div>
+<div class="dodont">
+<div class="dont"><h5>❌ Sai</h5>
+<pre data-title="Program.cs"><code class="language-csharp">app.UseRouting();
+app.UseAuthorization();   // chạy trước → User rỗng
+app.UseAuthentication();
+app.MapControllers();</code></pre></div>
+<div class="do"><h5>✅ Đúng</h5>
+<pre data-title="Program.cs"><code class="language-csharp">app.UseRouting();
+app.UseCors();            // nếu dùng CORS
+app.UseAuthentication();
+app.UseAuthorization();
+app.MapControllers();</code></pre></div>
+</div>
+
+<h3 id="pitfall-mapping">2. Policy kiểm tra <code>sub</code>/<code>scp</code>/<code>roles</code> nhưng claim đã bị đổi tên</h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Token ghi “<code>sub</code> = 57”, nhưng .NET mặc định “dịch” tên trường sang một cái tên dài kiểu cũ của Microsoft trước khi đưa cho bạn. Bạn tìm “<code>sub</code>” thì không thấy, dù dữ liệu vẫn ở đó — chỉ là bị đổi nhãn.</div>
+<div class="table-wrap"><table><tbody>
+<tr><th>Triệu chứng</th><td>Token chắc chắn có <code>"sub"</code> (đã xem trên jwt.io) nhưng <code>User.FindFirst("sub")</code> trả <code>null</code>; với token Entra ID, policy <code>RequireClaim("scp", …)</code> luôn 403. Debug thấy claim type kiểu <code>http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier</code>.</td></tr>
+<tr><th>Nguyên nhân</th><td><b>Inbound claim mapping</b> mặc định (<code>MapInboundClaims = true</code>) đổi tên các claim JWT theo bảng <code>ClaimTypeMapping</code> của Microsoft.IdentityModel: <code>sub</code> → <code>ClaimTypes.NameIdentifier</code>, <code>roles</code>/<code>role</code> → <code>ClaimTypes.Role</code>, <code>scp</code> → <code>http://schemas.microsoft.com/identity/claims/scope</code>. Claim <code>scope</code> (Keycloak) <b>không</b> nằm trong bảng nên giữ nguyên tên — nếu policy theo <code>scope</code> vẫn 403 thì nguyên nhân thường là chuỗi nhiều scope (xem callout ở trên), không phải mapping.</td></tr>
+</tbody></table></div>
+<div class="dodont">
+<div class="dont"><h5>❌ Sai</h5>
+<pre data-title="Program.cs"><code class="language-csharp">.AddJwtBearer(o =&gt;
+{
+    o.Authority = authority;
+    o.Audience = "orders-api";
+    // MapInboundClaims mặc định = true
+});
+// ...
+var userId = User.FindFirst("sub")?.Value; // null!</code></pre></div>
+<div class="do"><h5>✅ Đúng</h5>
+<pre data-title="Program.cs"><code class="language-csharp">.AddJwtBearer(o =&gt;
+{
+    o.Authority = authority;
+    o.Audience = "orders-api";
+    o.MapInboundClaims = false;          // giữ tên claim gốc
+    o.TokenValidationParameters.NameClaimType = "name";
+    o.TokenValidationParameters.RoleClaimType = "roles";
+});
+var userId = User.FindFirst("sub")?.Value; // OK</code></pre></div>
+</div>
+
+<h3 id="pitfall-schemes">3. Nhiều scheme nhưng không chỉ định default/challenge → API bị redirect login thay vì 401</h3>
+<div class="table-wrap"><table><tbody>
+<tr><th>Triệu chứng</th><td>Gọi <code>GET /api/orders</code> từ SPA/Postman không token nhận <code>302 Found → /Account/Login</code> (hoặc trang login IdP, kèm lỗi CORS ở browser) thay vì <code>401</code>. Hoặc ngược lại: gửi Bearer token hợp lệ vẫn 401 vì endpoint chỉ authenticate bằng cookie.</td></tr>
+<tr><th>Nguyên nhân</th><td>App lai (MVC + API) đăng ký Cookie, OIDC và JwtBearer nhưng default scheme là Cookie/OIDC → Challenge cho API dùng handler cookie/OIDC (redirect). Bearer handler không bao giờ được gọi cho endpoint API.</td></tr>
+</tbody></table></div>
+<div class="dodont">
+<div class="dont"><h5>❌ Sai</h5>
+<pre data-title="Program.cs"><code class="language-csharp">builder.Services.AddAuthentication(o =&gt;
+{
+    o.DefaultScheme = "Cookies";
+    o.DefaultChallengeScheme = "oidc";
+})
+.AddCookie().AddOpenIdConnect("oidc", ...)
+.AddJwtBearer();
+
+[Authorize]                // dùng default = Cookies/oidc
+[ApiController]
+public class OrdersController : ControllerBase { }</code></pre></div>
+<div class="do"><h5>✅ Đúng</h5>
+<pre data-title="Program.cs"><code class="language-csharp">// Cách 1: chỉ định scheme cho API
+[Authorize(AuthenticationSchemes =
+    JwtBearerDefaults.AuthenticationScheme)]
+public class OrdersController : ControllerBase { }
+
+// Cách 2: policy scheme chọn theo request
+.AddPolicyScheme("smart", "Cookie or Bearer", o =&gt;
+{
+    o.ForwardDefaultSelector = ctx =&gt;
+        ctx.Request.Path.StartsWithSegments("/api")
+            ? JwtBearerDefaults.AuthenticationScheme
+            : CookieAuthenticationDefaults.AuthenticationScheme;
+});
+// và đặt DefaultScheme = "smart"</code></pre></div>
+</div>
+<p>Tài liệu: <a href="https://learn.microsoft.com/en-us/aspnet/core/security/authorization/limitingidentitybyscheme">Authorize with a specific scheme</a> · <a href="https://learn.microsoft.com/en-us/aspnet/core/security/authentication/policyschemes">Policy schemes</a>.</p>
+
+<h3 id="pitfall-dataprotection">4. Data Protection key không được chia sẻ giữa các instance</h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Cookie đăng nhập giống một phong bì được niêm phong bằng con dấu riêng của server. Nếu có 3 server mà mỗi cái dùng một con dấu khác nhau, phong bì do server A niêm phong sẽ bị server B coi là giả → người dùng bị đá ra ngoài. Giải pháp: cả 3 dùng <b>chung một bộ con dấu</b> (key ring).</div>
+<div class="table-wrap"><table><tbody>
+<tr><th>Triệu chứng</th><td>Người dùng bị đăng xuất ngẫu nhiên sau load balancing hoặc sau mỗi lần deploy/restart container; log có <code>CryptographicException: The key {…} was not found in the key ring</code>; OIDC callback lỗi “Correlation failed” / “Unable to unprotect the message.State”.</td></tr>
+<tr><th>Nguyên nhân</th><td>Mỗi instance tự sinh key ring riêng (thường trong thư mục tạm của container, mất khi redeploy). Cookie do instance A ký/mã hóa thì instance B không giải được.</td></tr>
+</tbody></table></div>
+<div class="dodont">
+<div class="dont"><h5>❌ Sai</h5>
+<pre data-title="Program.cs"><code class="language-csharp">// Không cấu hình gì: key lưu cục bộ từng instance
+builder.Services.AddAuthentication().AddCookie();
+// chạy 3 replica sau load balancer</code></pre></div>
+<div class="do"><h5>✅ Đúng</h5>
+<pre data-title="Program.cs"><code class="language-csharp">builder.Services.AddDataProtection()
+    .SetApplicationName("kaopiz-hr")          // giống nhau ở mọi instance
+    .PersistKeysToFileSystem(new DirectoryInfo(@"\\fileshare\dp-keys"))
+    .ProtectKeysWithCertificate(cert);        // mã hóa key at rest
+// hoặc PersistKeysToDbContext / Azure Blob + Key Vault / Redis</code></pre></div>
+</div>
+
+<h3 id="pitfall-devsettings">5. <code>RequireHttpsMetadata = false</code> hoặc tắt validate <code>aud</code>/<code>iss</code> trong dev rồi lọt lên production</h3>
+<div class="table-wrap"><table><tbody>
+<tr><th>Triệu chứng</th><td>Không có lỗi nào — đó chính là vấn đề. API chấp nhận token phát cho <b>API khác</b> (sai <code>aud</code>) hoặc từ issuer khác; metadata/JWKS có thể bị tải qua HTTP không mã hóa. Thường chỉ lộ ra khi pentest hoặc review.</td></tr>
+<tr><th>Nguyên nhân</th><td>Lúc dev dùng Keycloak HTTP / token test không có <code>aud</code> nên “tạm tắt” validation, cấu hình không phân biệt môi trường. Xem lại <a href="m02-crypto-session-token.html#jwt-validation">checklist JWT validation</a>.</td></tr>
+</tbody></table></div>
+<div class="dodont">
+<div class="dont"><h5>❌ Sai</h5>
+<pre data-title="Program.cs"><code class="language-csharp">.AddJwtBearer(o =&gt;
+{
+    o.Authority = "http://keycloak:8080/realms/demo";
+    o.RequireHttpsMetadata = false;
+    o.TokenValidationParameters = new()
+    {
+        ValidateAudience = false,   // "tạm thời"
+        ValidateIssuer = false
+    };
+});</code></pre></div>
+<div class="do"><h5>✅ Đúng</h5>
+<pre data-title="Program.cs"><code class="language-csharp">.AddJwtBearer(o =&gt;
+{
+    o.Authority = builder.Configuration["Jwt:Authority"]; // https ở prod
+    o.Audience  = "orders-api";
+    // chỉ nới lỏng khi đang chạy Development
+    o.RequireHttpsMetadata = !builder.Environment.IsDevelopment();
+    // KHÔNG tắt ValidateAudience / ValidateIssuer;
+    // cấu hình IdP thêm audience mapper cho đúng
+});</code></pre></div>
+</div>
+<div class="callout tip"><span class="callout-title">✅ Mẹo chống lọt cấu hình dev</span>
+Viết một integration test gửi token có <code>aud</code> sai và kỳ vọng <code>401</code>; chạy trong CI. Đây chính là kịch bản 2 trong <a href="lab.html#lab2">Lab 2</a>.</div>
+
+<!-- ===================================================== -->
+<h2 id="advanced">C. Nội dung nâng cao chưa đào sâu trong 15 giờ <span class="badge nice">Nice</span></h2>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Phần lớn chủ đề dưới đây trả lời một trong ba câu hỏi: (1) <b>làm sao để token bị trộm vẫn vô dụng</b> (DPoP, mTLS), (2) <b>làm sao để yêu cầu đăng nhập không bị sửa giữa đường</b> (PAR, JAR, JARM), (3) <b>làm sao để quản lý danh tính ở quy mô lớn</b> (Federation, SCIM, IGA, CAE). Chỉ cần nhớ câu hỏi, chi tiết tra spec khi cần.</div>
+<p>Để giữ đúng giới hạn thời lượng, các chủ đề sau chỉ cần <b>biết tên, biết nó giải quyết vấn đề gì</b>. Đây không phải các chủ đề không quan trọng; chúng được tách ra vì cần thời gian riêng để học đúng chiều sâu.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Chủ đề</th><th>Là gì / giải quyết vấn đề gì</th><th>Spec / tài liệu</th></tr></thead>
+<tbody>
+<tr><td><b>OAuth 2.0 Token Exchange</b> &amp; <b>On-Behalf-Of</b> (Entra ID)</td><td>API A nhận access token của user, đổi lấy token mới cho API B (giữ danh tính user, đổi audience/scope). Giải quyết bài toán gọi chuỗi microservice “thay mặt user” mà không chuyển tiếp nguyên token gốc.</td><td><a href="https://www.rfc-editor.org/rfc/rfc8693">RFC 8693</a> · <a href="https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-on-behalf-of-flow">Entra OBO</a></td></tr>
+<tr><td><b>DPoP</b> — Demonstrating Proof of Possession</td><td>Ràng buộc access/refresh token với một cặp khóa của client; mỗi request kèm header <code>DPoP</code> là JWT ký bằng private key. Token bị đánh cắp không dùng được nếu thiếu private key (sender-constrained token ở tầng ứng dụng, phù hợp SPA/mobile).</td><td><a href="https://www.rfc-editor.org/rfc/rfc9449">RFC 9449</a></td></tr>
+<tr><td><b>mTLS client auth &amp; certificate-bound tokens</b></td><td>Client xác thực tới AS bằng chứng thư TLS, và access token gắn với thumbprint chứng thư (<code>cnf.x5t#S256</code>). Resource server kiểm tra chứng thư TLS khớp token → chống dùng lại token bị lộ.</td><td><a href="https://www.rfc-editor.org/rfc/rfc8705">RFC 8705</a></td></tr>
+<tr><td><b>PAR</b> — Pushed Authorization Requests</td><td>Client gửi tham số authorization request trực tiếp (back-channel, có xác thực client) tới AS, nhận <code>request_uri</code> rồi mới redirect browser. Tránh lộ/sửa tham số trên URL, URL ngắn gọn.</td><td><a href="https://www.rfc-editor.org/rfc/rfc9126">RFC 9126</a></td></tr>
+<tr><td><b>JAR</b> — JWT-Secured Authorization Request</td><td>Đóng gói tham số authorization request vào một JWT được ký (và có thể mã hóa) → AS chắc chắn tham số đến từ client, không bị sửa giữa đường.</td><td><a href="https://www.rfc-editor.org/rfc/rfc9101">RFC 9101</a></td></tr>
+<tr><td><b>JARM</b> — JWT Secured Authorization Response Mode</td><td>Ngược lại với JAR: AS trả authorization response (<code>code</code>, <code>state</code>) dưới dạng JWT ký → client xác minh được response thật từ AS. Là OpenID Final Specification (FAPI WG), không phải RFC.</td><td><a href="https://openid.net/specs/oauth-v2-jarm-final.html">OpenID JARM</a></td></tr>
+<tr><td><b>RAR</b> — Rich Authorization Requests</td><td>Tham số <code>authorization_details</code> (JSON) mô tả quyền chi tiết, ví dụ “chuyển 50 € tới tài khoản X” — thay cho scope dạng chuỗi thô quá thô cho giao dịch tài chính/y tế.</td><td><a href="https://www.rfc-editor.org/rfc/rfc9396">RFC 9396</a></td></tr>
+<tr><td><b>OpenID Federation</b></td><td>Thiết lập trust tự động giữa nhiều OP/RP qua chuỗi entity statement được ký (trust anchor, intermediate) thay vì trao đổi metadata thủ công từng cặp. Tên cũ “OpenID Connect Federation”; bản 1.0 đã thành Final Specification (2/2026).</td><td><a href="https://openid.net/specs/openid-federation-1_0.html">OpenID Federation 1.0</a></td></tr>
+<tr><td><b>Multi-tenant application</b> (Entra ID)</td><td>Một app đăng ký một lần nhưng cho user từ nhiều tenant đăng nhập; phải xử lý consent theo tenant, kiểm tra <code>tid</code>/issuer theo tenant và cô lập dữ liệu.</td><td><a href="https://learn.microsoft.com/en-us/entra/identity-platform/single-and-multi-tenant-apps">Single and multi-tenant apps</a></td></tr>
+<tr><td><b>SCIM</b> — chi tiết triển khai</td><td>Chuẩn REST/JSON để IdP tự động tạo/cập nhật/vô hiệu hóa user &amp; group ở ứng dụng (provisioning/deprovisioning). Khái niệm đã có ở <a href="m07-architecture.html#provisioning">M07</a>.</td><td><a href="https://www.rfc-editor.org/rfc/rfc7643">RFC 7643</a> (schema) · <a href="https://www.rfc-editor.org/rfc/rfc7644">RFC 7644</a> (protocol)</td></tr>
+<tr><td><b>IGA</b> — Identity Governance and Administration</td><td>Quản trị vòng đời danh tính và quyền: quy trình xin/duyệt quyền, access review định kỳ, phân tách nhiệm vụ (SoD), báo cáo tuân thủ.</td><td><a href="https://learn.microsoft.com/en-us/entra/id-governance/identity-governance-overview">Microsoft Entra ID Governance</a></td></tr>
+<tr><td><b>Risk-based / adaptive auth, Conditional Access, CAE</b></td><td>Quyết định yêu cầu MFA/chặn dựa trên tín hiệu (vị trí, thiết bị, rủi ro). <b>Continuous Access Evaluation</b>: resource được báo ngay khi user bị vô hiệu/đổi mật khẩu/đổi IP để thu hồi phiên gần thời gian thực, thay vì chờ token hết hạn. Chuẩn mở tương ứng: OpenID Shared Signals Framework + CAEP (Final 2025).</td><td><a href="https://learn.microsoft.com/en-us/entra/identity/conditional-access/concept-continuous-access-evaluation">Entra CAE</a> · <a href="https://openid.net/specs/openid-sharedsignals-framework-1_0-final.html">SSF 1.0</a> · <a href="https://openid.net/specs/openid-caep-1_0-final.html">CAEP 1.0</a></td></tr>
+<tr><td><b>Decentralized Identity / Verifiable Credentials</b></td><td>Bên phát hành ký một credential (bằng cấp, CCCD số…) vào ví của người dùng; người dùng tự trình cho bên xác minh mà không cần bên phát hành trực tuyến, có thể tiết lộ chọn lọc.</td><td><a href="https://www.w3.org/TR/vc-data-model-2.0/">W3C VC Data Model 2.0</a> · <a href="https://openid.net/specs/openid-4-verifiable-presentations-1_0.html">OpenID4VP</a></td></tr>
+<tr><td><b>Workload identity federation</b> (cloud)</td><td>Workload (GitHub Actions, Kubernetes pod, VM ở cloud khác) đổi token OIDC do nền tảng của nó cấp lấy token cloud — <b>không cần lưu client secret</b> dài hạn.</td><td><a href="https://learn.microsoft.com/en-us/entra/workload-id/workload-identity-federation">Entra workload identity federation</a></td></tr>
+<tr><td><b>Kerberos delegation</b>, constrained delegation, protocol internals</td><td>Cho service A dùng danh tính user để gọi service B trong domain (double-hop). Unconstrained delegation rất rủi ro; constrained/resource-based constrained delegation giới hạn được service đích. Xem nền tảng ở <a href="m05-enterprise-passwordless.html#kerberos">M05</a>.</td><td><a href="https://learn.microsoft.com/en-us/windows-server/security/kerberos/kerberos-constrained-delegation-overview">Kerberos Constrained Delegation</a></td></tr>
+<tr><td><b>SAML artifact binding, profile nâng cao; WS-Federation</b></td><td>Artifact binding: browser chỉ mang một “artifact” tham chiếu, SP lấy assertion qua back-channel SOAP. WS-Federation: giao thức federation đời cũ (ADFS, ứng dụng .NET Framework). Xem <a href="m04-saml.html#bindings">M04 bindings</a>.</td><td><a href="https://docs.oasis-open.org/security/saml/v2.0/">OASIS SAML 2.0</a> · <a href="https://docs.oasis-open.org/wsfed/federation/v1.2/ws-federation.html">WS-Federation 1.2</a></td></tr>
+<tr><td><b>Certificate-based auth / smart card</b> chi tiết</td><td>Đăng nhập bằng chứng thư X.509 trên smart card/YubiKey (PIV); cần PKI, ánh xạ chứng thư ↔ user, kiểm tra thu hồi (CRL/OCSP).</td><td><a href="https://learn.microsoft.com/en-us/entra/identity/authentication/concept-certificate-based-authentication">Entra CBA</a></td></tr>
+<tr><td><b>Profile bảo mật chuyên biệt — FAPI 2.0</b></td><td>Bộ quy tắc cho API rủi ro cao (open banking): bắt buộc PAR, PKCE, sender-constrained token (DPoP hoặc mTLS), client auth mạnh… Security Profile đã Final (2/2025).</td><td><a href="https://openid.net/specs/fapi-security-profile-2_0-final.html">FAPI 2.0 Security Profile</a></td></tr>
+</tbody></table></div>
+
+<!-- ===================================================== -->
+<h2 id="deliverables">D. Bộ tài liệu đầu ra cuối khóa</h2>
+<p>Khi hoàn tất 15 giờ, bạn nên có một <b>bộ tài liệu cá nhân</b>. Phần lớn được <b>gom lại</b> từ deliverable của các module — không làm lại từ đầu.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>#</th><th>Tài liệu</th><th>Nội dung</th><th>Gom từ deliverable ở…</th></tr></thead>
+<tbody>
+<tr><td>1</td><td><b>Authentication Glossary</b></td><td>Thuật ngữ và định nghĩa</td><td><a href="m01-fundamentals.html#output">M01 — glossary 12 thuật ngữ</a>; mở rộng bằng <a href="#glossary">glossary tổng hợp</a> bên dưới.</td></tr>
+<tr><td>2</td><td><b>Protocol Comparison Matrix</b></td><td>OAuth, OIDC, SAML, Kerberos, FIDO2, LDAP, RADIUS</td><td><a href="m03-oauth-oidc.html#so-sanh">M03 — bảng OAuth 2.0 vs OIDC</a>, <a href="m04-saml.html#oidc-vs-saml">M04 — OIDC vs SAML</a>, <a href="m05-enterprise-passwordless.html#ldap">M05 — bảng LDAP/AD/Kerberos/NTLM/RADIUS</a>, gộp thành <a href="m07-architecture.html#decision-matrix">M07 — decision matrix</a>.</td></tr>
+<tr><td>3</td><td><b>Token &amp; Session Notes</b></td><td>JWT, cookie, session, token lifecycle</td><td><a href="m02-crypto-session-token.html#crypto">M02 — bảng crypto</a>, <a href="m02-crypto-session-token.html#session-cookie">sơ đồ session vs token</a>, <a href="m02-crypto-session-token.html#jwt">JWT mẫu</a>, <a href="m02-crypto-session-token.html#tokens">bảng 3 loại token</a>, <a href="m02-crypto-session-token.html#api-key">API key/Basic/Bearer</a>; bổ sung <a href="m03-oauth-oidc.html#id-vs-access">M03 — ID token</a>.</td></tr>
+<tr><td>4</td><td><b>Flow Diagrams</b></td><td>OAuth/OIDC, SAML, Kerberos, WebAuthn</td><td><a href="m03-oauth-oidc.html#auth-code-pkce">M03 — Auth Code + PKCE</a>, <a href="m03-oauth-oidc.html#client-credentials">Client Credentials</a>, <a href="m04-saml.html#sp-initiated">M04 — SP-initiated</a>, <a href="m05-enterprise-passwordless.html#kerberos">M05 — Kerberos</a>, <a href="m05-enterprise-passwordless.html#webauthn">WebAuthn</a>.</td></tr>
+<tr><td>5</td><td><b>Security Checklist</b></td><td>Token, session, redirect, MFA, API authorization</td><td><a href="m06-authz-security.html#security-checklist">M06 — checklist master</a> (gộp <a href="m02-crypto-session-token.html#jwt-validation">M02 token validation</a>, <a href="m03-oauth-oidc.html#state-nonce">M03 state/nonce/PKCE/redirect</a>, <a href="m04-saml.html#saml-validation">M04 SAML validation</a>) + mục kiến trúc từ <a href="m07-architecture.html#bff">M07</a>.</td></tr>
+<tr><td>6</td><td><b>Architecture Diagram</b></td><td>Một hệ thống thực tế của team</td><td><a href="m07-architecture.html#wpf-example">M07 — ví dụ WPF + API</a>, <a href="m07-architecture.html#design-process">quy trình thiết kế</a>.</td></tr>
+<tr><td>7</td><td><b>Troubleshooting Guide</b></td><td>Lỗi phổ biến và hướng điều tra</td><td><a href="lab.html#error-table">Lab — bảng lỗi</a> → <a href="m07-architecture.html#troubleshooting">M07 — ≥ 10 lỗi</a>; thêm <a href="#dotnet-pitfalls">5 lỗi .NET</a>.</td></tr>
+<tr><td>8</td><td><b>Sharing Slides / Notes</b></td><td>Nội dung chia sẻ 2 × 90 phút</td><td><a href="#sharing">Mục E</a> bên dưới (thời gian chuẩn bị tính riêng).</td></tr>
+<tr><td>9</td><td><b>Q&amp;A Bank</b></td><td>Câu hỏi và câu trả lời ngắn gọn</td><td>Knowledge Check + quiz của <a href="m01-fundamentals.html#knowledge-check">M01</a>, <a href="m02-crypto-session-token.html">M02</a>, <a href="m03-oauth-oidc.html">M03</a>, <a href="m04-saml.html">M04</a>, <a href="m05-enterprise-passwordless.html">M05</a>, <a href="m06-authz-security.html">M06</a>, <a href="m07-architecture.html">M07</a>.</td></tr>
+<tr><td>10</td><td><b>Demo repo</b></td><td>API + client từ Lab, có README chạy được</td><td><a href="lab.html#lab1">Lab 1</a> → <a href="lab.html#lab5">Lab 5</a>; dùng demo trực tiếp ở buổi chia sẻ 2.</td></tr>
+</tbody></table></div>
+<ul class="checklist">
+<li><span>1 · Authentication Glossary</span></li>
+<li><span>2 · Protocol Comparison Matrix</span></li>
+<li><span>3 · Token &amp; Session Notes</span></li>
+<li><span>4 · Flow Diagrams</span></li>
+<li><span>5 · Security Checklist (master)</span></li>
+<li><span>6 · Architecture Diagram</span></li>
+<li><span>7 · Troubleshooting Guide</span></li>
+<li><span>8 · Sharing Slides / Notes</span></li>
+<li><span>9 · Q&amp;A Bank</span></li>
+<li><span>10 · Demo repo (API + client, README)</span></li>
+</ul>
+
+<!-- ===================================================== -->
+<h2 id="sharing">E. Đề xuất cấu trúc 2 buổi chia sẻ</h2>
+<div class="callout info"><span class="callout-title">⏳ Thời gian chuẩn bị</span>
+Chuẩn bị slide, kịch bản demo và tập trình bày ước tính <b>3–5 giờ</b>, <b>không</b> nằm trong 10–15 giờ học. Tái sử dụng tối đa sơ đồ và bảng đã làm trong các deliverable.</div>
+
+<h3 id="buoi-1">Buổi 1 — Authentication Fundamentals &amp; Federation (90 phút)</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>Nội dung</th><th>Thời lượng</th><th>Mốc</th><th>Tái sử dụng</th></tr></thead>
+<tbody>
+<tr><td>Identity, Authentication, Authorization</td><td>15 phút</td><td>0:00–0:15</td><td><a href="m01-fundamentals.html#iaaa">Sơ đồ IAAA</a>, ví dụ 401/403</td></tr>
+<tr><td>Cryptography, Session, Cookie, Token, JWT</td><td>20 phút</td><td>0:15–0:35</td><td><a href="m02-crypto-session-token.html#jwt">JWT mẫu</a>, bảng 3 loại token</td></tr>
+<tr><td>OAuth 2.0 và OIDC</td><td>25 phút</td><td>0:35–1:00</td><td><a href="m03-oauth-oidc.html#auth-code-pkce">Auth Code + PKCE</a>, ID vs access token</td></tr>
+<tr><td>SAML 2.0 và Enterprise SSO</td><td>15 phút</td><td>1:00–1:15</td><td><a href="m04-saml.html#sp-initiated">SP-initiated</a>, OIDC vs SAML</td></tr>
+<tr><td>Quiz &amp; Q&amp;A</td><td>15 phút</td><td>1:15–1:30</td><td>Q&amp;A Bank</td></tr>
+</tbody></table></div>
+<div class="flow">
+  <div class="step"><b>15′</b> Fundamentals</div><span class="arrow">→</span>
+  <div class="step"><b>20′</b> Crypto · Session · JWT</div><span class="arrow">→</span>
+  <div class="step"><b>25′</b> OAuth 2.0 · OIDC</div><span class="arrow">→</span>
+  <div class="step"><b>15′</b> SAML · Enterprise SSO</div><span class="arrow">→</span>
+  <div class="step"><b>15′</b> Quiz &amp; Q&amp;A</div>
+</div>
+
+<h3 id="buoi-2">Buổi 2 — Enterprise, Security &amp; Architecture (90 phút)</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>Nội dung</th><th>Thời lượng</th><th>Mốc</th><th>Tái sử dụng</th></tr></thead>
+<tbody>
+<tr><td>LDAP, AD, Kerberos (NTLM/RADIUS chỉ nêu tên)</td><td>10 phút</td><td>0:00–0:10</td><td><a href="m05-enterprise-passwordless.html#kerberos">Sơ đồ Kerberos</a></td></tr>
+<tr><td>FIDO2, WebAuthn, Passkey (gắn với AiTM phishing)</td><td>15 phút</td><td>0:10–0:25</td><td><a href="m05-enterprise-passwordless.html#webauthn">WebAuthn</a>, <a href="m06-authz-security.html#aitm">AiTM</a></td></tr>
+<tr><td>Authorization models</td><td>10 phút</td><td>0:25–0:35</td><td><a href="m06-authz-security.html#authz-models">RBAC/ABAC/ACL/ReBAC</a></td></tr>
+<tr><td>Security threats &amp; best practices</td><td>15 phút</td><td>0:35–0:50</td><td>Threat model, checklist master</td></tr>
+<tr><td>Architecture + demo Lab (client + ASP.NET Core API)</td><td>30 phút</td><td>0:50–1:20</td><td>Architecture diagram, demo repo</td></tr>
+<tr><td>Quiz &amp; Q&amp;A</td><td>10 phút</td><td>1:20–1:30</td><td>Q&amp;A Bank</td></tr>
+</tbody></table></div>
+<div class="flow">
+  <div class="step"><b>10′</b> LDAP · AD · Kerberos</div><span class="arrow">→</span>
+  <div class="step"><b>15′</b> FIDO2 · Passkey</div><span class="arrow">→</span>
+  <div class="step"><b>10′</b> AuthZ models</div><span class="arrow">→</span>
+  <div class="step"><b>15′</b> Threats</div><span class="arrow">→</span>
+  <div class="step"><b>30′</b> Architecture + Demo</div><span class="arrow">→</span>
+  <div class="step"><b>10′</b> Quiz &amp; Q&amp;A</div>
+</div>
+
+<h3 id="goi-y-demo">Gợi ý kịch bản demo (30 phút, buổi 2)</h3>
+<ol class="steps">
+<li><b>Login thành công</b> (Auth Code + PKCE): mở DevTools/Fiddler, chỉ ra <code>code_challenge</code>, <code>state</code>, redirect về <code>redirect_uri</code>, rồi đổi code lấy token.</li>
+<li><b>Giải mã access token</b>: chỉ ra <code>iss</code>, <code>aud</code>, <code>exp</code>, <code>scope</code>; nhấn mạnh “ký ≠ bí mật”.</li>
+<li><b>Gọi API 4 kịch bản lỗi</b>: không token → 401; sai <code>aud</code> → 401; token hết hạn → 401 kèm <code>WWW-Authenticate</code>; thiếu scope → 403. (<a href="lab.html#error-table">bảng lỗi Lab</a>)</li>
+<li><b>Gửi ID token thay access token</b> → bị từ chối; giải thích vì sao.</li>
+<li><b>Bật lại <code>MapInboundClaims</code></b> → <code>sub</code> “biến mất”; liên hệ <a href="#pitfall-mapping">lỗi .NET số 2</a>.</li>
+<li>(Tùy chọn) <b>Passkey</b> trên trang demo WebAuthn, hoặc thu hồi phiên ở Keycloak và quan sát refresh token bị từ chối.</li>
+</ol>
+<div class="callout tip"><span class="callout-title">✅ Mẹo demo</span>
+Chuẩn bị sẵn token đã hết hạn và token sai audience (ghi vào file <code>.http</code>) để không phụ thuộc mạng/IdP lúc trình bày; có ảnh chụp màn hình dự phòng cho từng bước.</div>
+
+<!-- ===================================================== -->
+<h2 id="rubric">F. Rubric tự đánh giá trước khi đứng lớp</h2>
+<p>Chấm mỗi tiêu chí từ 0 đến 2:</p>
+<div class="grid cols-3">
+  <div class="card bad"><h4>0 điểm</h4><p>Chưa giải thích được.</p></div>
+  <div class="card"><h4>1 điểm</h4><p>Giải thích được khái niệm nhưng chưa vẽ/diễn giải flow hoặc chưa trả lời được tình huống.</p></div>
+  <div class="card ok"><h4>2 điểm</h4><p>Giải thích được, vẽ được flow và trả lời được câu hỏi áp dụng.</p></div>
+</div>
+
+<div class="widget" id="rubric-widget">
+  <div class="w-title">🧪 Tự chấm điểm (lưu trên trình duyệt này)</div>
+  <div class="table-wrap"><table class="rubric-table">
+  <thead><tr><th>Năng lực</th><th>Điểm</th><th>Ôn lại</th></tr></thead>
+  <tbody id="rubric-body"></tbody>
+  </table></div>
+  <p style="margin:4px 0 0"><small>★ = năng lực bắt buộc không được 0 điểm theo mốc khuyến nghị (“token validation” nằm trong năng lực <i>Cryptography, session, token</i>).</small></p>
+  <div class="btn-row"><button class="btn ghost" type="button" id="rubric-reset">Xóa lựa chọn</button></div>
+  <div class="out" id="rubric-out"></div>
+</div>
+
+<div class="callout info"><span class="callout-title">🎯 Mốc khuyến nghị</span>
+Từ <b>12/16</b> trở lên, <b>không có điểm 0</b> ở OAuth/OIDC, token validation, security và Hands-on Lab, là mức phù hợp để chia sẻ overview/technical sharing. Với câu hỏi chuyên sâu về giao thức, cần sẵn sàng <b>tra cứu specification</b> hoặc tài liệu nhà cung cấp thay vì suy đoán.</div>
+
+<!-- ===================================================== -->
+<h2 id="references">G. Tài liệu tham khảo chính thống</h2>
+<p>Ưu tiên specification và tài liệu của tổ chức tiêu chuẩn/nhà cung cấp nền tảng. Trạng thái dưới đây được kiểm tra tại thời điểm <b>11/2026</b>.</p>
+<div class="callout warn"><span class="callout-title">📝 Cập nhật so với roadmap gốc</span>
+<ul>
+<li><b>OAuth 2.0 for Browser-Based Applications</b> không còn là Internet-Draft: đã ban hành thành <b>RFC 10017 (BCP 212, 8/2026)</b>.</li>
+<li><b>Web Authentication Level 3</b> đã là <b>W3C Recommendation</b> (25/8/2026), kế nhiệm Level 2.</li>
+<li><b>OAuth 2.1</b> vẫn là <b>Internet-Draft</b> (draft-ietf-oauth-v2-1-17, 10/2026) — chưa có số RFC.</li>
+<li><b>NIST SP 800-63-4</b> đã final (7/2025), thay thế bộ 800-63-3.</li>
+</ul></div>
+
+<h3 id="ref-oauth">OAuth 2.0 / 2.1 &amp; token</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>Tài liệu</th><th>Mô tả</th><th>Trạng thái</th></tr></thead>
+<tbody>
+<tr><td><a href="https://www.rfc-editor.org/rfc/rfc6749">RFC 6749 — OAuth 2.0 Framework</a></td><td>Khung OAuth 2.0: vai trò, grant types, endpoint.</td><td><span class="status rfc">RFC</span></td></tr>
+<tr><td><a href="https://www.rfc-editor.org/rfc/rfc9700">RFC 9700 — OAuth 2.0 Security BCP</a></td><td>Best Current Practice bảo mật OAuth (bỏ Implicit/ROPC, PKCE cho mọi client…).</td><td><span class="status rfc">RFC · BCP 240</span></td></tr>
+<tr><td><a href="https://www.rfc-editor.org/rfc/rfc7636">RFC 7636 — PKCE</a></td><td>Chống đánh cắp authorization code bằng <code>code_verifier</code>/<code>code_challenge</code>.</td><td><span class="status rfc">RFC</span></td></tr>
+<tr><td><a href="https://www.rfc-editor.org/rfc/rfc6750">RFC 6750 — Bearer Token Usage</a></td><td>Cách gửi bearer token và header <code>WWW-Authenticate</code> khi lỗi.</td><td><span class="status rfc">RFC</span></td></tr>
+<tr><td><a href="https://www.rfc-editor.org/rfc/rfc7519">RFC 7519 — JWT</a></td><td>Định dạng JSON Web Token và các claim đăng ký (<code>iss</code>, <code>sub</code>, <code>aud</code>, <code>exp</code>…).</td><td><span class="status rfc">RFC</span></td></tr>
+<tr><td><a href="https://www.rfc-editor.org/rfc/rfc7515">RFC 7515 — JWS</a></td><td>Cấu trúc chữ ký số cho JWT (header.payload.signature).</td><td><span class="status rfc">RFC</span></td></tr>
+<tr><td><a href="https://www.rfc-editor.org/rfc/rfc9068">RFC 9068 — JWT Profile for Access Tokens</a></td><td>Chuẩn hóa access token dạng JWT (<code>typ: at+jwt</code>, claim bắt buộc).</td><td><span class="status rfc">RFC</span></td></tr>
+<tr><td><a href="https://www.rfc-editor.org/rfc/rfc7662">RFC 7662 — Token Introspection</a></td><td>Resource server hỏi AS xem token còn hiệu lực không.</td><td><span class="status rfc">RFC</span></td></tr>
+<tr><td><a href="https://www.rfc-editor.org/rfc/rfc7009">RFC 7009 — Token Revocation</a></td><td>Client yêu cầu thu hồi access/refresh token.</td><td><span class="status rfc">RFC</span></td></tr>
+<tr><td><a href="https://www.rfc-editor.org/rfc/rfc8252">RFC 8252 — OAuth 2.0 for Native Apps</a></td><td>Desktop/mobile dùng system browser + PKCE, loopback/custom scheme redirect.</td><td><span class="status rfc">RFC · BCP 212</span></td></tr>
+<tr><td><a href="https://www.rfc-editor.org/rfc/rfc8628">RFC 8628 — Device Authorization Grant</a></td><td>Đăng nhập trên thiết bị không có bàn phím/trình duyệt (TV, CLI).</td><td><span class="status rfc">RFC</span></td></tr>
+<tr><td><a href="https://datatracker.ietf.org/doc/draft-ietf-oauth-v2-1/">OAuth 2.1</a></td><td>Hợp nhất OAuth 2.0 + các BCP: PKCE bắt buộc, bỏ Implicit/ROPC, so khớp redirect URI chính xác.</td><td><span class="status draft">Internet-Draft</span></td></tr>
+<tr><td><a href="https://www.rfc-editor.org/rfc/rfc10017">RFC 10017 — OAuth 2.0 for Browser-Based Applications</a></td><td>Kiến trúc SPA: BFF, token-mediating backend, browser-only; rủi ro lưu token trong browser.</td><td><span class="status rfc">RFC · BCP 212 (8/2026)</span></td></tr>
+<tr><td><a href="https://www.rfc-editor.org/rfc/rfc7644">RFC 7644 — SCIM 2.0 Protocol</a></td><td>API provisioning user/group giữa IdP và ứng dụng.</td><td><span class="status rfc">RFC</span></td></tr>
+</tbody></table></div>
+
+<h3 id="ref-oidc-saml">OpenID Connect &amp; SAML</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>Tài liệu</th><th>Mô tả</th><th>Trạng thái</th></tr></thead>
+<tbody>
+<tr><td><a href="https://openid.net/specs/openid-connect-core-1_0.html">OpenID Connect Core 1.0</a></td><td>ID token, các flow, claim chuẩn, <code>nonce</code>, UserInfo.</td><td><span class="status final">OpenID Final</span></td></tr>
+<tr><td><a href="https://openid.net/specs/openid-connect-discovery-1_0.html">OpenID Connect Discovery 1.0</a></td><td><code>/.well-known/openid-configuration</code> và <code>jwks_uri</code>.</td><td><span class="status final">OpenID Final</span></td></tr>
+<tr><td><a href="https://www.oasis-open.org/standards/">SAML 2.0 — OASIS</a> (<a href="https://docs.oasis-open.org/security/saml/v2.0/">bộ tài liệu</a>)</td><td>Core (assertion, protocol), Bindings, Profiles, Metadata.</td><td><span class="status final">OASIS Standard</span></td></tr>
+</tbody></table></div>
+
+<h3 id="ref-passwordless">WebAuthn, FIDO &amp; NIST</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>Tài liệu</th><th>Mô tả</th><th>Trạng thái</th></tr></thead>
+<tbody>
+<tr><td><a href="https://www.w3.org/TR/webauthn-2/">Web Authentication Level 2</a></td><td>API trình duyệt cho đăng ký/xác thực bằng public key.</td><td><span class="status rec">W3C Recommendation</span> (đã có bản kế nhiệm)</td></tr>
+<tr><td><a href="https://www.w3.org/TR/webauthn-3/">Web Authentication Level 3</a></td><td>Bản mới: hỗ trợ tốt hơn cho passkey đồng bộ, hints, related origins…</td><td><span class="status rec">W3C Recommendation (8/2026)</span></td></tr>
+<tr><td><a href="https://fidoalliance.org/specifications/">FIDO Alliance specifications</a></td><td>FIDO2/CTAP (giao tiếp authenticator), UAF, U2F.</td><td><span class="status final">FIDO specs</span></td></tr>
+<tr><td><a href="https://pages.nist.gov/800-63-4/">NIST SP 800-63-4</a> (<a href="https://csrc.nist.gov/pubs/sp/800/63/4/final">CSRC</a>)</td><td>Digital Identity Guidelines: 63A proofing, 63B authentication (chính sách mật khẩu), 63C federation.</td><td><span class="status final">Final (7/2025)</span></td></tr>
+</tbody></table></div>
+
+<h3 id="ref-owasp">OWASP</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>Tài liệu</th><th>Mô tả</th><th>Trạng thái</th></tr></thead>
+<tbody>
+<tr><td><a href="https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html">Authentication Cheat Sheet</a></td><td>Mật khẩu, thông báo lỗi, MFA, chống brute force.</td><td><span class="status">Cheat sheet (cập nhật liên tục)</span></td></tr>
+<tr><td><a href="https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html">Session Management Cheat Sheet</a></td><td>Session ID, thuộc tính cookie, timeout, session fixation.</td><td><span class="status">Cheat sheet</span></td></tr>
+<tr><td><a href="https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html">Authorization Cheat Sheet</a></td><td>Deny by default, kiểm tra quyền ở server, IDOR.</td><td><span class="status">Cheat sheet</span></td></tr>
+<tr><td><a href="https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html">CSRF Prevention Cheat Sheet</a></td><td>Synchronizer token, SameSite, kiểm tra Origin.</td><td><span class="status">Cheat sheet</span></td></tr>
+</tbody></table></div>
+
+<h3 id="ref-vendor">Nền tảng &amp; sản phẩm</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>Tài liệu</th><th>Mô tả</th><th>Trạng thái</th></tr></thead>
+<tbody>
+<tr><td><a href="https://learn.microsoft.com/en-us/entra/identity-platform/">Microsoft identity platform</a></td><td>Entra ID: app registration, MSAL, token, scope/role.</td><td><span class="status">Vendor docs</span></td></tr>
+<tr><td><a href="https://learn.microsoft.com/en-us/aspnet/core/security/">ASP.NET Core security</a></td><td>Authentication, authorization, Data Protection, CORS, antiforgery.</td><td><span class="status">Vendor docs</span></td></tr>
+<tr><td><a href="https://www.keycloak.org/documentation">Keycloak documentation</a></td><td>IdP dùng cho Lab: realm, client, mapper, session.</td><td><span class="status">Vendor docs</span></td></tr>
+</tbody></table></div>
+<div class="callout tip"><span class="callout-title">✅ Nguyên tắc tra cứu</span>
+Khi có khác biệt giữa bài viết tổng quan và specification, ưu tiên <b>specification hiện hành</b> và tài liệu chính thức của nhà cung cấp đang triển khai. Kiểm tra trạng thái (RFC/Draft/Recommendation, có bị “Updated by/Obsoleted by” không) trước khi dùng làm tiêu chuẩn triển khai production.</div>
+
+<!-- ===================================================== -->
+<h2 id="tom-tat">Tóm tắt nhanh</h2>
+<ul>
+<li>Trong ASP.NET Core: <code>UseAuthentication()</code> phải chạy <b>trước</b> <code>UseAuthorization()</code>; CORS đặt trước cả hai.</li>
+<li>Web app thường dùng <b>Cookie + OIDC</b>; Web API dùng <b>JwtBearer</b> với <code>Authority</code> + <code>Audience</code>.</li>
+<li>Challenge = “chưa đăng nhập” (401/redirect login); Forbid = “thiếu quyền” (403). Phản hồi cụ thể do scheme quyết định.</li>
+<li>Đặt <code>MapInboundClaims = false</code> để giữ nguyên tên claim gốc (<code>sub</code>, <code>scp</code>, <code>roles</code>…); claim <code>scope</code> của Keycloak vốn không bị đổi tên nhưng là chuỗi nhiều scope cách nhau dấu cách.</li>
+<li>Chạy nhiều instance → chia sẻ Data Protection key ring; không bao giờ tắt kiểm tra <code>aud</code>/<code>iss</code> ở production.</li>
+<li>ASP.NET Core Identity băm mật khẩu bằng PBKDF2-HMAC-SHA512 (100.000 vòng mặc định) và hỗ trợ passkey từ .NET 10.</li>
+<li>Chủ đề nâng cao (DPoP, PAR, RAR, Token Exchange, FAPI 2.0…) chỉ cần biết tên và vấn đề chúng giải quyết.</li>
+<li>Bộ tài liệu cuối khóa = 9 tài liệu + demo repo, gom từ deliverable các module.</li>
+<li>Mốc sẵn sàng đứng lớp: ≥ 12/16 và không có điểm 0 ở OAuth/OIDC, token, security, Lab.</li>
+<li>Trạng thái 11/2026: OAuth 2.1 vẫn là draft; browser-based apps đã là RFC 10017; WebAuthn L3 đã là Recommendation; NIST 800-63-4 đã final.</li>
+</ul>
+
+<!-- ===================================================== -->
+<h2 id="glossary">H. Glossary tổng hợp (A–Z)</h2>
+<div class="widget">
+  <div class="w-title">🔎 Lọc thuật ngữ</div>
+  <input type="text" id="gl-search" placeholder="Gõ để lọc, ví dụ: token, saml, pkce…" autocomplete="off" aria-label="Lọc glossary">
+  <div class="gl-count" id="gl-count"></div>
+</div>
+<div class="table-wrap"><table id="gl-table">
+<thead><tr><th>Thuật ngữ</th><th>Giải thích</th><th>Xem</th></tr></thead>
+<tbody>
+<tr><td><b>ABAC</b><br><small>Attribute-Based Access Control — phân quyền theo thuộc tính</small></td><td>Cho phép hay không dựa trên <b>đặc điểm</b> của người dùng, tài nguyên và hoàn cảnh, thay vì chỉ dựa vào role.<br><i>Ví dụ:</i> “Nhân viên phòng HR được xem hồ sơ, nhưng chỉ trong giờ hành chính và từ mạng công ty.”</td><td><a href="m06-authz-security.html#abac">M06</a></td></tr>
+<tr><td><b>Access token</b><br><small>token truy cập</small></td><td>“Thẻ ra vào” có hạn dùng mà ứng dụng gửi kèm mỗi lần gọi API. API xem thẻ để biết được phép làm gì. Thẻ này dành cho API, không phải để ứng dụng đọc thông tin người dùng.<br><i>Ví dụ:</i> <code>Authorization: Bearer eyJhbGci...</code> khi gọi <code>GET /orders</code>.</td><td><a href="m02-crypto-session-token.html#tokens">M02</a></td></tr>
+<tr><td><b>Account</b><br><small>tài khoản</small></td><td>Bản ghi của một người (hoặc máy) <b>trong một hệ thống cụ thể</b>. Một người có thể có nhiều tài khoản ở nhiều nơi.<br><i>Ví dụ:</i> An có tài khoản Entra ID, tài khoản GitHub và <code>user_id = 57</code> trong app HR.</td><td><a href="m01-fundamentals.html#identity-account">M01</a></td></tr>
+<tr><td><b>Account linking</b><br><small>liên kết tài khoản</small></td><td>Gắn nhiều cách đăng nhập bên ngoài vào <b>cùng một</b> người dùng trong app, dựa trên <code>iss</code> + <code>sub</code>, và phải xác minh trước khi gắn.<br><i>Ví dụ:</i> An đăng nhập được bằng cả Google lẫn Entra ID nhưng vẫn thấy cùng dữ liệu.</td><td><a href="m03-oauth-oidc.html#account-linking">M03</a></td></tr>
+<tr><td><b>ACL</b><br><small>Access Control List — danh sách kiểm soát truy cập</small></td><td>Danh sách “ai được làm gì” <b>dán trực tiếp lên từng tài nguyên</b>.<br><i>Ví dụ:</i> quyền chia sẻ một thư mục trên Windows: An – đọc, Bình – sửa.</td><td><a href="m06-authz-security.html#acl">M06</a></td></tr>
+<tr><td><b>ACS URL</b><br><small>Assertion Consumer Service — địa chỉ nhận assertion</small></td><td>Địa chỉ trên ứng dụng (SAML SP) nơi IdP gửi kết quả đăng nhập về. Phải khớp với địa chỉ đã đăng ký trước.<br><i>Ví dụ:</i> <code>https://hr.example.com/saml/acs</code>.</td><td><a href="m04-saml.html#saml-components">M04</a></td></tr>
+<tr><td><b>Active Directory (AD)</b><br><small>dịch vụ thư mục của Microsoft</small></td><td>“Danh bạ trung tâm” của công ty dùng Windows: lưu user, group, máy tính và lo việc đăng nhập vào domain.<br><i>Ví dụ:</i> bật máy công ty, gõ mật khẩu domain là đang đăng nhập vào AD.</td><td><a href="m05-enterprise-passwordless.html#ad">M05</a></td></tr>
+<tr><td><b>AiTM</b><br><small>Adversary-in-the-Middle — kẻ tấn công đứng giữa</small></td><td>Trang phishing đứng giữa người dùng và trang login thật, chuyển tiếp mọi thứ rồi <b>cướp session cookie</b> sau khi bạn đăng nhập xong. Vượt qua được cả mã OTP và push. Passkey chống được.<br><i>Ví dụ:</i> link giả <code>micros0ft-login.com</code> hiển thị đúng trang Microsoft.</td><td><a href="m06-authz-security.html#aitm">M06</a></td></tr>
+<tr><td><b>API key</b><br><small>khóa API</small></td><td>Một chuỗi bí mật cố định để nhận diện <b>ứng dụng</b> gọi API. Thường không gắn với người dùng và không tự hết hạn, nên cần đổi định kỳ.<br><i>Ví dụ:</i> header <code>X-Api-Key: sk_live_...</code> khi gọi dịch vụ gửi email.</td><td><a href="m02-crypto-session-token.html#api-key">M02</a></td></tr>
+<tr><td><b>Assertion (SAML)</b><br><small>bản xác nhận</small></td><td>“Giấy xác nhận” có chữ ký của IdP, nói rằng người này là ai, đã đăng nhập lúc nào, giấy dành cho ứng dụng nào, có hiệu lực đến khi nào.<br><i>Ví dụ:</i> phần <code>&lt;saml:Assertion&gt;</code> trong SAML Response.</td><td><a href="m04-saml.html#response-vs-assertion">M04</a></td></tr>
+<tr><td><b>Audience (<code>aud</code>)</b><br><small>người nhận dự kiến</small></td><td>Ghi trong token: token này được phát <b>cho ai dùng</b>. API phải từ chối token không ghi tên mình.<br><i>Ví dụ:</i> token có <code>"aud": "payroll-api"</code> gửi tới <code>orders-api</code> → 401.</td><td><a href="m02-crypto-session-token.html#jwt-validation">M02</a></td></tr>
+<tr><td><b>Authentication (AuthN)</b><br><small>xác thực</small></td><td>Trả lời câu hỏi “<b>Bạn có đúng là người bạn khai không?</b>” bằng cách kiểm tra bằng chứng. Thất bại thường trả HTTP 401.<br><i>Ví dụ:</i> nhập mật khẩu + bấm xác nhận trên điện thoại.</td><td><a href="m01-fundamentals.html#iaaa">M01</a></td></tr>
+<tr><td><b>Authorization (AuthZ)</b><br><small>phân quyền / ủy quyền</small></td><td>Trả lời câu hỏi “<b>Bạn được làm gì?</b>” sau khi đã biết bạn là ai. Thiếu quyền trả HTTP 403.<br><i>Ví dụ:</i> An xem được bảng lương của mình, không xem được của đồng nghiệp.</td><td><a href="m01-fundamentals.html#iaaa">M01</a></td></tr>
+<tr><td><b>Authorization Code Flow</b><br><small>luồng mã ủy quyền</small></td><td>Cách đăng nhập chuẩn của OAuth/OIDC: browser chỉ mang về một <b>mã dùng một lần</b>, rồi ứng dụng đổi mã đó lấy token qua kênh riêng. Luôn đi kèm PKCE.<br><i>Ví dụ:</i> bấm “Đăng nhập bằng Microsoft” → về <code>/callback?code=...</code>.</td><td><a href="m03-oauth-oidc.html#auth-code-pkce">M03</a></td></tr>
+<tr><td><b>Authorization Server (AS)</b><br><small>máy chủ cấp quyền</small></td><td>Nơi người dùng đăng nhập và nơi <b>phát hành token</b> theo OAuth.<br><i>Ví dụ:</i> Keycloak, Microsoft Entra ID.</td><td><a href="m03-oauth-oidc.html#oauth-roles">M03</a></td></tr>
+<tr><td><b>Bearer token</b><br><small>token “người mang”</small></td><td>Token mà <b>ai cầm được cũng dùng được</b>, giống tiền mặt. Vì vậy phải giữ kỹ và chỉ gửi qua HTTPS.<br><i>Ví dụ:</i> lộ access token trong log → kẻ khác gọi được API đến khi token hết hạn.</td><td><a href="m02-crypto-session-token.html#http-auth">M02</a></td></tr>
+<tr><td><b>BFF</b><br><small>Backend for Frontend</small></td><td>Một backend nhỏ đứng sau SPA, giữ token thay cho browser. Browser chỉ giữ một cookie an toàn, nên JavaScript độc không lấy được token.<br><i>Ví dụ:</i> React gọi <code>/bff/api/orders</code>, BFF gắn token rồi gọi API thật.</td><td><a href="m07-architecture.html#bff">M07</a></td></tr>
+<tr><td><b>Claim</b><br><small>thông tin khai báo</small></td><td>Một mẩu thông tin dạng “tên = giá trị” về người dùng, nằm trong token.<br><i>Ví dụ:</i> <code>"sub": "57"</code>, <code>"email": "an@company.com"</code>, <code>"roles": ["manager"]</code>.</td><td><a href="m02-crypto-session-token.html#jwt">M02</a></td></tr>
+<tr><td><b>ClaimsPrincipal</b><br><small>người dùng hiện tại trong .NET</small></td><td>Đối tượng .NET chứa người dùng đang gọi request và các claim của họ, đọc qua <code>HttpContext.User</code>.<br><i>Ví dụ:</i> <code>User.FindFirst("sub")?.Value</code>.</td><td><a href="#dotnet-mapping">Phụ lục</a></td></tr>
+<tr><td><b>Client (confidential / public)</b><br><small>ứng dụng khách</small></td><td>Ứng dụng xin token. <b>Confidential</b> chạy trên server nên giữ được bí mật (secret). <b>Public</b> chạy trên máy người dùng nên không giữ được bí mật.<br><i>Ví dụ:</i> web MVC = confidential; SPA, app WPF, app mobile = public.</td><td><a href="m03-oauth-oidc.html#oauth-roles">M03</a></td></tr>
+<tr><td><b>Client Credentials</b><br><small>luồng thông tin xác thực của client</small></td><td>Cách một <b>dịch vụ</b> tự xin token cho chính nó, không có người dùng tham gia.<br><i>Ví dụ:</i> job đồng bộ dữ liệu ban đêm gọi API báo cáo.</td><td><a href="m03-oauth-oidc.html#client-credentials">M03</a></td></tr>
+<tr><td><b>Cookie attributes</b><br><small>thuộc tính cookie</small></td><td>Các “nhãn an toàn” trên cookie. <code>HttpOnly</code>: JavaScript không đọc được. <code>Secure</code>: chỉ gửi qua HTTPS. <code>SameSite</code>: hạn chế gửi kèm khi request đến từ trang khác.<br><i>Ví dụ:</i> <code>Set-Cookie: sid=abc; HttpOnly; Secure; SameSite=Lax</code>.</td><td><a href="m02-crypto-session-token.html#cookie-attributes">M02</a></td></tr>
+<tr><td><b>CORS</b><br><small>Cross-Origin Resource Sharing</small></td><td>Quy tắc của browser cho phép trang ở <b>domain khác</b> gọi API của bạn. CORS <b>không</b> xác thực ai và <b>không</b> phân quyền gì.<br><i>Ví dụ:</i> cho <code>https://spa.example.com</code> gọi <code>https://api.example.com</code>.</td><td><a href="#dotnet-mapping">Phụ lục</a></td></tr>
+<tr><td><b>Credential</b><br><small>bằng chứng xác thực</small></td><td>Thứ bạn đưa ra để chứng minh mình là ai.<br><i>Ví dụ:</i> mật khẩu, passkey, smart card, chứng thư số.</td><td><a href="m01-fundamentals.html#identity-account">M01</a></td></tr>
+<tr><td><b>CSRF</b><br><small>Cross-Site Request Forgery — giả mạo request từ trang khác</small></td><td>Trang độc lừa browser gửi request tới app của bạn, browser <b>tự gửi kèm cookie</b> nên app tưởng chính bạn bấm.<br><i>Ví dụ:</i> mở trang lạ, nó âm thầm submit form “chuyển tiền” tới ngân hàng bạn đang đăng nhập. Chống bằng antiforgery token, SameSite.</td><td><a href="m06-authz-security.html#csrf">M06</a></td></tr>
+<tr><td><b>Data Protection (.NET)</b><br><small>bộ mã hóa dữ liệu của ASP.NET Core</small></td><td>Cơ chế ASP.NET Core dùng để mã hóa và ký cookie đăng nhập. Mọi server chạy cùng app phải <b>dùng chung bộ khóa</b>.<br><i>Ví dụ:</i> 3 server không chung khóa → người dùng bị đăng xuất ngẫu nhiên.</td><td><a href="#pitfall-dataprotection">Phụ lục</a></td></tr>
+<tr><td><b>Device Authorization Grant</b><br><small>luồng đăng nhập cho thiết bị</small></td><td>Đăng nhập cho thiết bị khó gõ phím: thiết bị hiện một mã ngắn, bạn nhập mã đó trên điện thoại để xác nhận.<br><i>Ví dụ:</i> đăng nhập YouTube trên Smart TV, hoặc <code>az login --use-device-code</code>.</td><td><a href="m03-oauth-oidc.html#device-flow">M03</a></td></tr>
+<tr><td><b>Discovery &amp; JWKS</b><br><small>tài liệu khám phá &amp; bộ khóa công khai</small></td><td>Discovery là “danh thiếp” của IdP (các địa chỉ endpoint). JWKS là danh sách <b>public key</b> để kiểm chữ ký token.<br><i>Ví dụ:</i> <code>/.well-known/openid-configuration</code> chứa <code>jwks_uri</code>.</td><td><a href="m03-oauth-oidc.html#discovery-jwks">M03</a></td></tr>
+<tr><td><b>DPoP</b><br><small>Demonstrating Proof of Possession — chứng minh sở hữu khóa</small></td><td>Gắn token với một khóa bí mật của client. Kẻ trộm có token mà không có khóa thì vẫn không dùng được.<br><i>Ví dụ:</i> mỗi request gửi kèm header <code>DPoP</code> ký bằng khóa của app.</td><td><a href="#advanced">Phụ lục</a></td></tr>
+<tr><td><b>Federation</b><br><small>liên kết danh tính</small></td><td>Hai tổ chức <b>tin nhau</b>, chấp nhận việc đăng nhập do bên kia thực hiện.<br><i>Ví dụ:</i> nhân viên đối tác đăng nhập vào hệ thống của bạn bằng tài khoản công ty họ.</td><td><a href="m01-fundamentals.html#federation">M01</a></td></tr>
+<tr><td><b>Hash vs Encryption</b><br><small>băm vs mã hóa</small></td><td>Hash là “xay nhuyễn” một chiều, không đảo ngược được. Encryption là “khóa két”, có chìa thì mở lại được. Mật khẩu phải hash, không mã hóa.<br><i>Ví dụ:</i> DB lưu <code>AQAAAAIAAYag...</code> (hash), không lưu mật khẩu gốc.</td><td><a href="m02-crypto-session-token.html#hash-vs-encryption">M02</a></td></tr>
+<tr><td><b>HMAC</b><br><small>Hash-based Message Authentication Code</small></td><td>“Con dấu” tạo từ một <b>khóa bí mật dùng chung</b>. Bên nhận có cùng khóa sẽ biết dữ liệu không bị sửa và do bên kia gửi.<br><i>Ví dụ:</i> JWT ký <code>HS256</code>; webhook kèm header chữ ký HMAC.</td><td><a href="m02-crypto-session-token.html#hmac">M02</a></td></tr>
+<tr><td><b>ID token</b><br><small>token danh tính</small></td><td>“Giấy báo kết quả đăng nhập” mà OIDC gửi cho <b>ứng dụng</b>: ai vừa đăng nhập, lúc nào, bằng cách nào. Không dùng để gọi API.<br><i>Ví dụ:</i> app đọc <code>name</code> trong ID token để hiện “Xin chào An”.</td><td><a href="m03-oauth-oidc.html#id-vs-access">M03</a></td></tr>
+<tr><td><b>Identity</b><br><small>danh tính</small></td><td>Tập thông tin mô tả một người/thực thể <b>trong một bối cảnh</b>.<br><i>Ví dụ:</i> “An — kỹ sư R&amp;D, mã NV 1024” trong công ty.</td><td><a href="m01-fundamentals.html#identity-account">M01</a></td></tr>
+<tr><td><b>Identity Provider (IdP)</b><br><small>nhà cung cấp danh tính</small></td><td>Hệ thống <b>lo việc đăng nhập</b> thay cho các ứng dụng, rồi báo kết quả cho chúng.<br><i>Ví dụ:</i> Entra ID, Google, Okta, Keycloak.</td><td><a href="m01-fundamentals.html#vai-tro">M01</a></td></tr>
+<tr><td><b>Introspection / Revocation</b><br><small>tra cứu / thu hồi token</small></td><td>Introspection: API <b>hỏi lại</b> IdP “token này còn dùng được không?”. Revocation: yêu cầu IdP <b>hủy</b> token.<br><i>Ví dụ:</i> người dùng bấm “Đăng xuất mọi thiết bị” → refresh token bị thu hồi.</td><td><a href="m02-crypto-session-token.html#introspection-revocation">M02</a></td></tr>
+<tr><td><b>Issuer (<code>iss</code>) + Subject (<code>sub</code>)</b><br><small>bên phát hành + mã người dùng</small></td><td><code>iss</code> cho biết IdP nào phát token; <code>sub</code> là mã cố định của người dùng tại IdP đó. Cặp này mới là khóa nhận diện người dùng đáng tin, không phải email.<br><i>Ví dụ:</i> <code>iss = https://login.example.com</code>, <code>sub = 8f2c...</code>.</td><td><a href="m03-oauth-oidc.html#iss-sub">M03</a></td></tr>
+<tr><td><b>JWT</b><br><small>JSON Web Token</small></td><td>Định dạng token gồm 3 phần <code>header.payload.signature</code>. Ai cũng đọc được nội dung; chữ ký chỉ chứng minh <b>không bị sửa</b>, không giữ bí mật.<br><i>Ví dụ:</i> dán token vào jwt.io là đọc được <code>sub</code>, <code>exp</code>.</td><td><a href="m02-crypto-session-token.html#jwt">M02</a></td></tr>
+<tr><td><b>Kerberos</b><br><small>giao thức xác thực bằng vé</small></td><td>Đăng nhập một lần vào domain, sau đó hệ thống cấp <b>“vé”</b> để vào từng dịch vụ mà không phải gõ lại mật khẩu.<br><i>Ví dụ:</i> mở thư mục chia sẻ <code>\\fileserver</code> trong công ty không bị hỏi mật khẩu.</td><td><a href="m05-enterprise-passwordless.html#kerberos">M05</a></td></tr>
+<tr><td><b>LDAP</b><br><small>Lightweight Directory Access Protocol</small></td><td>Giao thức để <b>tra cứu danh bạ</b> (user, group, phòng ban). Có thể dùng để kiểm mật khẩu nhưng không phải giao thức SSO như OIDC.<br><i>Ví dụ:</i> app tìm “các thành viên group HR” trong AD qua LDAP.</td><td><a href="m05-enterprise-passwordless.html#ldap">M05</a></td></tr>
+<tr><td><b>MFA</b><br><small>Multi-Factor Authentication — xác thực đa yếu tố</small></td><td>Đăng nhập bằng ít nhất 2 loại bằng chứng <b>khác nhóm</b>: thứ bạn biết, thứ bạn có, thứ thuộc về bạn.<br><i>Ví dụ:</i> mật khẩu + mã trên app điện thoại. Hai mật khẩu thì <b>không</b> phải MFA.</td><td><a href="m01-fundamentals.html#mfa">M01</a></td></tr>
+<tr><td><b>mTLS</b><br><small>mutual TLS — TLS hai chiều</small></td><td>Kết nối HTTPS mà <b>cả hai bên</b> đều trình chứng thư, không chỉ server. Dùng để các dịch vụ nhận diện nhau. Nó chứng minh “ai đang gọi”, không quyết định “được làm gì”.<br><i>Ví dụ:</i> service A gọi service B trong mạng nội bộ bằng chứng thư riêng.</td><td><a href="m07-architecture.html#s2s">M07</a></td></tr>
+<tr><td><b>Nonce</b><br><small>số dùng một lần</small></td><td>Giá trị ngẫu nhiên app tạo khi bắt đầu đăng nhập và kiểm lại trong ID token, để không ai dùng lại ID token cũ.<br><i>Ví dụ:</i> request có <code>nonce=x7k2</code> → ID token phải có <code>"nonce": "x7k2"</code>.</td><td><a href="m03-oauth-oidc.html#state-nonce">M03</a></td></tr>
+<tr><td><b>NTLM</b><br><small>NT LAN Manager</small></td><td>Cách đăng nhập cũ của Windows dựa trên thách đố–trả lời. Yếu hơn Kerberos, chỉ dùng khi không có lựa chọn khác.<br><i>Ví dụ:</i> truy cập máy chủ bằng địa chỉ IP thay vì tên thường rơi về NTLM.</td><td><a href="m05-enterprise-passwordless.html#ntlm">M05</a></td></tr>
+<tr><td><b>OAuth 2.0</b><br><small>khung ủy quyền mở</small></td><td>Chuẩn để một ứng dụng <b>xin quyền truy cập API</b> thay mặt người dùng mà không cần biết mật khẩu của họ. Bản thân OAuth không phải chuẩn đăng nhập.<br><i>Ví dụ:</i> cho app lịch quyền đọc Google Calendar của bạn.</td><td><a href="m03-oauth-oidc.html#oauth-roles">M03</a></td></tr>
+<tr><td><b>OAuth 2.1</b><br><small>phiên bản hợp nhất (đang là draft)</small></td><td>Bản “dọn dẹp” OAuth 2.0: bắt buộc PKCE, bỏ các luồng không an toàn (Implicit, ROPC), redirect URI phải khớp chính xác.<br><i>Ví dụ:</i> thiết kế mới nên tuân theo các quy tắc này ngay cả khi 2.1 chưa thành RFC.</td><td><a href="m03-oauth-oidc.html#oauth21">M03</a></td></tr>
+<tr><td><b>OpenID Connect (OIDC)</b><br><small>lớp đăng nhập trên OAuth</small></td><td>Chuẩn <b>đăng nhập</b> xây trên OAuth 2.0: thêm ID token để ứng dụng biết ai vừa đăng nhập.<br><i>Ví dụ:</i> nút “Sign in with Google/Microsoft” trên hầu hết website.</td><td><a href="m03-oauth-oidc.html#oidc">M03</a></td></tr>
+<tr><td><b>Passkey</b><br><small>khóa truy cập thay mật khẩu</small></td><td>Đăng nhập không mật khẩu: thiết bị giữ một khóa bí mật, mở bằng vân tay/khuôn mặt/PIN. Khóa chỉ hoạt động với đúng website đã đăng ký nên trang giả không lừa được.<br><i>Ví dụ:</i> đăng nhập GitHub bằng Face ID.</td><td><a href="m05-enterprise-passwordless.html#passkey">M05</a></td></tr>
+<tr><td><b>Password hashing</b><br><small>băm mật khẩu</small></td><td>Lưu mật khẩu bằng thuật toán <b>cố tình chậm</b> và có salt, để kẻ trộm DB khó đoán ngược.<br><i>Ví dụ:</i> Argon2id, bcrypt, PBKDF2 (ASP.NET Core Identity). Không dùng SHA-256 đơn thuần.</td><td><a href="m02-crypto-session-token.html#password-hashing">M02</a></td></tr>
+<tr><td><b>PKCE</b><br><small>Proof Key for Code Exchange, đọc là “pixy”</small></td><td>App tạo một bí mật ngẫu nhiên, gửi trước bản băm của nó, rồi trình bí mật gốc khi đổi code. Kẻ trộm được code cũng không đổi được token.<br><i>Ví dụ:</i> <code>code_challenge</code> trong URL đăng nhập, <code>code_verifier</code> khi đổi token.</td><td><a href="m03-oauth-oidc.html#pkce">M03</a></td></tr>
+<tr><td><b>PKI</b><br><small>Public Key Infrastructure — hạ tầng khóa công khai</small></td><td>Hệ thống CA cấp và thu hồi chứng thư số, tạo chuỗi tin cậy để biết một public key thuộc về ai.<br><i>Ví dụ:</i> ổ khóa HTTPS trên trình duyệt dựa vào PKI.</td><td><a href="m02-crypto-session-token.html#pki">M02</a></td></tr>
+<tr><td><b>Principal</b><br><small>chủ thể bảo mật</small></td><td>“Ai đó” mà hệ thống gắn quyền vào: có thể là người, dịch vụ hay thiết bị.<br><i>Ví dụ:</i> trong .NET là <code>ClaimsPrincipal</code>; trong Kerberos là <code>an@CORP.LOCAL</code>.</td><td><a href="m01-fundamentals.html#vai-tro">M01</a></td></tr>
+<tr><td><b>RADIUS</b><br><small>Remote Authentication Dial-In User Service</small></td><td>Giao thức kiểm tra đăng nhập cho <b>thiết bị mạng</b> như VPN, Wi-Fi doanh nghiệp.<br><i>Ví dụ:</i> kết nối Wi-Fi công ty bằng tài khoản domain.</td><td><a href="m05-enterprise-passwordless.html#radius">M05</a></td></tr>
+<tr><td><b>RBAC</b><br><small>Role-Based Access Control — phân quyền theo vai trò</small></td><td>Gán quyền cho <b>vai trò</b>, rồi gán vai trò cho người dùng.<br><i>Ví dụ:</i> role <code>Manager</code> được duyệt nghỉ phép; An là Manager nên duyệt được.</td><td><a href="m06-authz-security.html#rbac">M06</a></td></tr>
+<tr><td><b>ReBAC</b><br><small>Relationship-Based Access Control — phân quyền theo quan hệ</small></td><td>Quyền suy ra từ <b>quan hệ</b> giữa người dùng và tài nguyên.<br><i>Ví dụ:</i> Google Docs: bạn sửa được tài liệu vì bạn là chủ sở hữu hoặc được chia sẻ.</td><td><a href="m06-authz-security.html#rebac">M06</a></td></tr>
+<tr><td><b>Redirect URI</b><br><small>địa chỉ trả về</small></td><td>Địa chỉ IdP gửi người dùng (kèm code) quay về sau đăng nhập. Phải đăng ký trước và khớp chính xác, nếu không code có thể bị gửi tới kẻ gian.<br><i>Ví dụ:</i> <code>https://hr.example.com/signin-oidc</code>.</td><td><a href="m03-oauth-oidc.html#redirect-uri">M03</a></td></tr>
+<tr><td><b>Refresh token</b><br><small>token làm mới</small></td><td>Token sống lâu hơn, dùng để <b>lấy access token mới</b> khi cái cũ hết hạn mà không bắt người dùng đăng nhập lại. Cần giữ rất kỹ.<br><i>Ví dụ:</i> app mobile vẫn đăng nhập sau nhiều ngày nhờ refresh token.</td><td><a href="m02-crypto-session-token.html#token-lifecycle">M02</a></td></tr>
+<tr><td><b>Relying Party (RP)</b><br><small>bên tin cậy</small></td><td>Ứng dụng <b>dựa vào</b> kết quả đăng nhập do bên khác cung cấp, thay vì tự kiểm mật khẩu.<br><i>Ví dụ:</i> app HR dùng Entra ID để đăng nhập là RP.</td><td><a href="m01-fundamentals.html#vai-tro">M01</a></td></tr>
+<tr><td><b>Resource Server (RS)</b><br><small>máy chủ tài nguyên</small></td><td>API giữ dữ liệu, <b>kiểm tra access token</b> trước khi trả dữ liệu.<br><i>Ví dụ:</i> <code>orders-api</code> của bạn viết bằng ASP.NET Core.</td><td><a href="m03-oauth-oidc.html#oauth-roles">M03</a></td></tr>
+<tr><td><b>ROPC / Implicit</b><br><small>hai luồng OAuth cũ</small></td><td>ROPC: app tự cầm mật khẩu của người dùng. Implicit: token trả thẳng trên URL. Cả hai đều kém an toàn và bị loại khỏi OAuth 2.1.<br><i>Ví dụ:</i> SPA đời cũ nhận <code>#access_token=...</code> trên URL — không làm vậy nữa.</td><td><a href="m03-oauth-oidc.html#ropc-implicit">M03</a></td></tr>
+<tr><td><b>SAML 2.0</b><br><small>Security Assertion Markup Language</small></td><td>Chuẩn SSO doanh nghiệp dựa trên XML: IdP gửi “giấy xác nhận” có chữ ký cho ứng dụng.<br><i>Ví dụ:</i> đăng nhập Salesforce bằng tài khoản công ty qua ADFS.</td><td><a href="m04-saml.html#saml-components">M04</a></td></tr>
+<tr><td><b>Scope</b><br><small>phạm vi quyền</small></td><td>Quyền mà <b>ứng dụng</b> xin được làm thay người dùng. Khác role: role mô tả người dùng, scope giới hạn ứng dụng.<br><i>Ví dụ:</i> <code>orders.read</code> cho phép đọc nhưng không cho sửa đơn hàng.</td><td><a href="m06-authz-security.html#api-authz">M06</a></td></tr>
+<tr><td><b>SCIM</b><br><small>System for Cross-domain Identity Management</small></td><td>Chuẩn để IdP <b>tự động tạo, sửa, khóa</b> tài khoản trong các ứng dụng.<br><i>Ví dụ:</i> nhân viên nghỉ việc, HR khóa ở Entra ID → tài khoản ở Slack tự bị vô hiệu.</td><td><a href="m07-architecture.html#provisioning">M07</a></td></tr>
+<tr><td><b>Service Provider (SP)</b><br><small>nhà cung cấp dịch vụ</small></td><td>Tên gọi ứng dụng trong SAML: bên <b>nhận</b> assertion từ IdP.<br><i>Ví dụ:</i> Salesforce là SP khi đăng nhập qua ADFS.</td><td><a href="m04-saml.html#saml-components">M04</a></td></tr>
+<tr><td><b>Session</b><br><small>phiên đăng nhập</small></td><td>Trạng thái “đã đăng nhập” mà server ghi nhớ giữa các request. Cookie chỉ là <b>phương tiện mang</b> mã phiên.<br><i>Ví dụ:</i> cookie <code>.AspNetCore.Cookies</code> giúp bạn không phải đăng nhập lại ở mỗi trang.</td><td><a href="m02-crypto-session-token.html#session-cookie">M02</a></td></tr>
+<tr><td><b>Signature</b><br><small>chữ ký số</small></td><td>Ký bằng <b>private key</b>, ai có public key cũng kiểm được. Chứng minh nguồn gốc và không bị sửa, nhưng không che giấu nội dung.<br><i>Ví dụ:</i> JWT ký <code>RS256</code>, API kiểm bằng public key trong JWKS.</td><td><a href="m02-crypto-session-token.html#signature">M02</a></td></tr>
+<tr><td><b>SSO</b><br><small>Single Sign-On — đăng nhập một lần</small></td><td>Đăng nhập <b>một lần</b> rồi dùng nhiều ứng dụng mà không phải gõ lại mật khẩu. Mỗi app vẫn có phiên riêng.<br><i>Ví dụ:</i> đăng nhập Outlook xong mở Teams không bị hỏi lại.</td><td><a href="m01-fundamentals.html#sso">M01</a></td></tr>
+<tr><td><b>State</b><br><small>tham số trạng thái</small></td><td>Giá trị ngẫu nhiên app gửi đi khi bắt đầu đăng nhập và kiểm lại khi IdP trả về, để chắc rằng phản hồi thuộc đúng lần đăng nhập của chính người dùng này.<br><i>Ví dụ:</i> gửi <code>state=a91f</code> → callback phải có <code>state=a91f</code>.</td><td><a href="m03-oauth-oidc.html#state-nonce">M03</a></td></tr>
+<tr><td><b>TLS</b><br><small>Transport Layer Security</small></td><td>Lớp mã hóa đường truyền (chữ “S” trong HTTPS) và chứng minh server là thật. Mọi luồng đăng nhập đều phải chạy trên TLS.<br><i>Ví dụ:</i> <code>https://</code> và biểu tượng ổ khóa.</td><td><a href="m02-crypto-session-token.html#tls">M02</a></td></tr>
+<tr><td><b>Token Exchange</b><br><small>đổi token</small></td><td>Một API đổi token đang có lấy token mới để <b>gọi tiếp API khác</b> thay mặt người dùng.<br><i>Ví dụ:</i> API đơn hàng đổi token của An để gọi API kho hàng (Entra ID gọi là On-Behalf-Of).</td><td><a href="#advanced">Phụ lục</a></td></tr>
+<tr><td><b>UP / UV</b><br><small>User Presence / User Verification</small></td><td>UP: xác nhận <b>có người</b> đang ở đó (chạm vào khóa). UV: xác nhận <b>đúng người</b> (PIN, vân tay).<br><i>Ví dụ:</i> chạm YubiKey = UP; quét vân tay mở passkey = UV.</td><td><a href="m05-enterprise-passwordless.html#up-uv">M05</a></td></tr>
+<tr><td><b>WebAuthn</b><br><small>Web Authentication</small></td><td>API của trình duyệt cho phép website đăng ký và đăng nhập bằng <b>khóa công khai</b> thay mật khẩu; là nền tảng của passkey.<br><i>Ví dụ:</i> <code>navigator.credentials.create()</code> khi bấm “Tạo passkey”.</td><td><a href="m05-enterprise-passwordless.html#webauthn">M05</a></td></tr>
+<tr><td><b>XSS</b><br><small>Cross-Site Scripting — chèn mã độc vào trang</small></td><td>Kẻ tấn công chèn được JavaScript chạy trong trang của bạn. Script đó có thể <b>đọc token</b> trong localStorage hoặc gửi request thay người dùng.<br><i>Ví dụ:</i> ô bình luận không lọc, ai đó gửi <code>&lt;script&gt;...&lt;/script&gt;</code>.</td><td><a href="m06-authz-security.html#xss">M06</a></td></tr>
+</tbody></table></div>
+
+</main>
+<script>
+(function () {
+  /* ---------- Rubric widget ---------- */
+  var KEY = "auth-roadmap:rubric:v1";
+  var ITEMS = [
+    { name: "Fundamentals và terminology", link: "m01-fundamentals.html", crit: false },
+    { name: "Cryptography, session, token (gồm token validation)", link: "m02-crypto-session-token.html#jwt-validation", crit: true },
+    { name: "OAuth/OIDC", link: "m03-oauth-oidc.html", crit: true },
+    { name: "SAML", link: "m04-saml.html", crit: false },
+    { name: "Enterprise/passwordless", link: "m05-enterprise-passwordless.html", crit: false },
+    { name: "Authorization/security", link: "m06-authz-security.html", crit: true },
+    { name: "Architecture/troubleshooting", link: "m07-architecture.html", crit: false },
+    { name: "Hands-on Lab (demo chạy được)", link: "lab.html", crit: true }
+  ];
+  function load() {
+    try { var v = JSON.parse(localStorage.getItem(KEY)); return (v && typeof v === "object") ? v : {}; }
+    catch (e) { return {}; }
+  }
+  function save(v) { try { localStorage.setItem(KEY, JSON.stringify(v)); } catch (e) { /* ignore */ } }
+
+  var body = document.getElementById("rubric-body");
+  var out = document.getElementById("rubric-out");
+  if (body && out) {
+    var state = load();
+    ITEMS.forEach(function (it, i) {
+      var tr = document.createElement("tr");
+      if (it.crit) tr.className = "crit";
+      var td1 = document.createElement("td"); td1.textContent = it.name;
+      var td2 = document.createElement("td"); td2.className = "pick";
+      [0, 1, 2].forEach(function (s) {
+        var lab = document.createElement("label"); lab.className = "r";
+        var inp = document.createElement("input");
+        inp.type = "radio"; inp.name = "rub" + i; inp.value = String(s);
+        if (state[i] === s) inp.checked = true;
+        inp.addEventListener("change", function () { state[i] = s; save(state); render(); });
+        lab.appendChild(inp); lab.appendChild(document.createTextNode(String(s)));
+        td2.appendChild(lab);
+      });
+      var td3 = document.createElement("td");
+      var a = document.createElement("a"); a.href = it.link; a.textContent = "Ôn lại";
+      td3.appendChild(a);
+      tr.appendChild(td1); tr.appendChild(td2); tr.appendChild(td3);
+      body.appendChild(tr);
+    });
+
+    function render() {
+      var total = 0, answered = 0, zeroCrit = [];
+      ITEMS.forEach(function (it, i) {
+        var v = state[i];
+        if (v === 0 || v === 1 || v === 2) {
+          answered++; total += v;
+          if (it.crit && v === 0) zeroCrit.push(it.name);
+        }
+      });
+      var html = '<div class="rubric-score">' + total + ' / 16</div>' +
+        '<div class="rubric-bar"><span style="width:' + Math.round(total / 16 * 100) + '%"></span></div>';
+      if (answered < ITEMS.length) {
+        html += '<span class="verdict-wait">Đã chấm ' + answered + '/' + ITEMS.length + ' năng lực — chấm đủ để xem kết luận.</span>';
+      } else if (total >= 12 && zeroCrit.length === 0) {
+        html += '<span class="verdict-ok">✅ Đạt mốc khuyến nghị: phù hợp để chia sẻ overview/technical sharing.</span>' +
+          '<br><small>Với câu hỏi chuyên sâu về giao thức, hãy tra specification/tài liệu nhà cung cấp thay vì suy đoán.</small>';
+      } else {
+        var reasons = [];
+        if (total < 12) reasons.push("tổng điểm " + total + "/16 &lt; 12 (còn thiếu " + (12 - total) + " điểm)");
+        if (zeroCrit.length) reasons.push("điểm 0 ở năng lực bắt buộc: <b>" + zeroCrit.join(", ") + "</b>");
+        html += '<span class="verdict-bad">⚠️ Chưa đạt mốc khuyến nghị</span><ul><li>' + reasons.join("</li><li>") + '</li></ul>' +
+          '<small>Ưu tiên ôn các năng lực đánh dấu ★ và các mục đang 0–1 điểm (dùng link “Ôn lại”).</small>';
+      }
+      out.innerHTML = html;
+    }
+    var reset = document.getElementById("rubric-reset");
+    if (reset) reset.addEventListener("click", function () {
+      state = {}; save(state);
+      body.querySelectorAll("input[type=radio]").forEach(function (r) { r.checked = false; });
+      render();
+    });
+    render();
+  }
+
+  /* ---------- Glossary filter ---------- */
+  var q = document.getElementById("gl-search");
+  var table = document.getElementById("gl-table");
+  var count = document.getElementById("gl-count");
+  if (q && table) {
+    var rows = Array.prototype.slice.call(table.tBodies[0].rows);
+    function norm(s) {
+      s = s.toLowerCase();
+      try { s = s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d"); } catch (e) { /* ignore */ }
+      return s;
+    }
+    var texts = rows.map(function (r) { return norm(r.textContent); });
+    function filter() {
+      var term = norm(q.value.trim()), shown = 0;
+      rows.forEach(function (r, i) {
+        var ok = !term || texts[i].indexOf(term) !== -1;
+        r.style.display = ok ? "" : "none";
+        if (ok) shown++;
+      });
+      if (count) count.textContent = "Hiển thị " + shown + " / " + rows.length + " thuật ngữ";
+    }
+    q.addEventListener("input", filter);
+    filter();
+  }
+})();
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>
