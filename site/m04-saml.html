@@ -191,7 +191,7 @@ Như vé xem phim: chỉ có giá trị cho <b>suất chiếu này</b> (khung gi
 <div class="grid cols-3">
   <div class="card acc"><span class="icon">🔑</span><h4>AuthnStatement</h4><p>“Subject đã xác thực <b>lúc nào</b> (<code>AuthnInstant</code>), <b>bằng cách nào</b> (<code>AuthnContextClassRef</code>), trong phiên nào (<code>SessionIndex</code>)”. Đây là phần cốt lõi của SSO.</p></div>
   <div class="card acc"><span class="icon">🏷️</span><h4>AttributeStatement</h4><p>Thuộc tính của subject: email, họ tên, phòng ban, nhóm (<code>groups</code>/<code>Role</code>)… SP dùng để tạo/cập nhật account và phân quyền.</p></div>
-  <div class="card"><span class="icon">⚖️</span><h4>AuthzDecisionStatement</h4><p>“Subject được/không được làm hành động X trên tài nguyên Y”. <b>Ít gặp</b> trong triển khai SSO; spec còn khuyến nghị dùng XACML thay thế. Chỉ cần biết tên.</p></div>
+  <div class="card"><span class="icon">⚖️</span><h4>AuthzDecisionStatement</h4><p>“Subject được/không được làm hành động X trên tài nguyên Y”. <b>Ít gặp</b> trong triển khai SSO; spec SAML 2.0 đã “đóng băng” tính năng này và gợi ý dùng XACML nếu cần phân quyền phức tạp. Chỉ cần biết tên.</p></div>
 </div>
 <div class="callout tip"><span class="callout-title">💡 Liên hệ OIDC</span>
 AuthnStatement ≈ các claim <code>auth_time</code>, <code>acr</code>, <code>amr</code> trong ID token; AttributeStatement ≈ các claim như <code>email</code>, <code>name</code>, <code>groups</code>; NameID ≈ <code>sub</code>; Issuer ≈ <code>iss</code>; Audience ≈ <code>aud</code>; InResponseTo đóng vai trò tương tự <code>state</code>/<code>nonce</code> (<a href="m03-oauth-oidc.html#state-nonce">M03</a>).</div>
@@ -350,14 +350,14 @@ sequenceDiagram
   participant IdP as 🔐 IdP Keycloak
   B->>SP: GET https://expense.example.com/reports
   Note over SP: Chưa có session.<br/>Tạo AuthnRequest ID=_a1b2..., lưu ID + URL gốc
-  SP-->>B: 302 Location: IdP SSO URL?SAMLRequest=...&amp;RelayState=...&amp;SigAlg=...&amp;Signature=...
+  SP-->>B: 302 tới SSO URL của IdP<br/>?SAMLRequest, RelayState, SigAlg, Signature
   Note over B,SP: HTTP-Redirect binding (DEFLATE + base64 + URL-encode)
   B->>IdP: GET /realms/corp/protocol/saml?SAMLRequest=...
   Note over IdP: Kiểm tra Issuer SP đã đăng ký, chữ ký request,<br/>ACS URL khớp metadata
   IdP-->>B: Trang đăng nhập (nếu chưa có phiên IdP)
   B->>IdP: Mật khẩu + MFA
   Note over IdP: Tạo phiên IdP, tạo Response + Assertion đã ký
-  IdP-->>B: 200 HTML form ẩn action=ACS, SAMLResponse=base64, RelayState
+  IdP-->>B: 200 HTML form ẩn (action = ACS)<br/>SAMLResponse (base64), RelayState
   Note over B,SP: HTTP-POST binding (form tự submit bằng JS)
   B->>SP: POST /saml/acs (SAMLResponse, RelayState)
   Note over SP: Validate: chữ ký, Issuer, Audience, Destination/Recipient,<br/>InResponseTo, thời gian, replay
@@ -493,7 +493,7 @@ sequenceDiagram
   participant IdP as IdP
   participant SP2 as SP Wiki
   B->>SP1: Bấm Đăng xuất
-  SP1-->>B: Xóa session SP1, redirect LogoutRequest (NameID, SessionIndex)
+  SP1-->>B: Xóa session SP1, redirect LogoutRequest<br/>(NameID, SessionIndex)
   B->>IdP: LogoutRequest
   IdP-->>B: redirect LogoutRequest tới SP2
   B->>SP2: LogoutRequest

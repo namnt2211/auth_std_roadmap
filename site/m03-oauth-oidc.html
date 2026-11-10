@@ -626,13 +626,13 @@ sequenceDiagram
 <ul>
 <li><b>OAuth 2.1</b> vẫn là <b>Internet-Draft</b>: <code>draft-ietf-oauth-v2-1-17</code> (31/10/2026), nhóm OAuth WG, <b>chưa có số RFC</b>. Có thể trích dẫn như “bản nháp đang hoàn thiện”, không phải chuẩn chính thức. Nếu thành RFC, nó sẽ thay thế RFC 6749 và RFC 6750.</li>
 <li><b>RFC 9700</b> — <i>Best Current Practice for OAuth 2.0 Security</i> (BCP 240) — đã ban hành <b>tháng 1/2025</b>. Đây là văn bản chính thức bạn có thể viện dẫn ngay hôm nay cho hầu hết các yêu cầu bên dưới.</li>
-<li><b>RFC 10017</b> — <i>OAuth 2.0 for Browser-Based Applications</i> (BCP 212) — đã ban hành năm 2026, hướng dẫn riêng cho SPA (liên quan <a href="m07-architecture.html#spa">M07 — SPA/BFF</a>).</li>
+<li><b>RFC 10017</b> — <i>OAuth 2.0 for Browser-Based Applications</i> — đã ban hành <b>08/2026</b>, thuộc <b>BCP 212</b> (cùng nhóm BCP với RFC 8252 <i>OAuth 2.0 for Native Apps</i>), hướng dẫn riêng cho SPA (liên quan <a href="m07-architecture.html#spa">M07 — SPA/BFF</a>).</li>
 </ul></div>
 
 <div class="table-wrap"><table>
 <thead><tr><th>#</th><th>Thay đổi trong OAuth 2.1 (draft -17, mục “Differences from OAuth 2.0”)</th><th>Vì sao</th></tr></thead>
 <tbody>
-<tr><td>1</td><td><b>PKCE là mặc định/bắt buộc</b> cho Authorization Code — kể cả confidential client.</td><td>Chặn code interception &amp; code injection (<a href="#pkce-attack">xem trên</a>).</td></tr>
+<tr><td>1</td><td><b>PKCE là mặc định/bắt buộc</b> cho Authorization Code — kể cả confidential client. (Ngoại lệ hẹp ở §7.5.1 của draft: confidential client mà AS có cơ sở tin chắc dùng đúng <code>nonce</code> của OIDC — dù vậy PKCE vẫn RECOMMENDED.)</td><td>Chặn code interception &amp; code injection (<a href="#pkce-attack">xem trên</a>).</td></tr>
 <tr><td>2</td><td><b>Bỏ phương thức PKCE <code>plain</code></b>, chỉ còn <code>S256</code>.</td><td><code>plain</code> để lộ verifier trên front-channel.</td></tr>
 <tr><td>3</td><td><b>Loại bỏ Implicit grant</b> (<code>response_type=token</code>).</td><td>Token trong URL, không client binding.</td></tr>
 <tr><td>4</td><td><b>Loại bỏ ROPC</b> (<code>grant_type=password</code>).</td><td>Client xử lý mật khẩu, không MFA/federation.</td></tr>
@@ -1039,7 +1039,7 @@ sequenceDiagram
 <h3 id="front-back-channel">Front-channel và back-channel logout (nhận biết)</h3>
 <div class="grid cols-2">
   <div class="card"><h4>Front-channel logout</h4><p>OP render trang chứa các <b>iframe</b> trỏ tới <code>frontchannel_logout_uri</code> của từng RP để chúng xóa cookie. Phụ thuộc trình duyệt; ngày càng kém tin cậy vì trình duyệt chặn cookie bên thứ ba trong iframe.</p></div>
-  <div class="card"><h4>Back-channel logout</h4><p>OP gửi <b>POST server-to-server</b> tới <code>backchannel_logout_uri</code> của RP, kèm <b>logout token</b> (JWT có <code>iss</code>, <code>aud</code>, <code>iat</code>, <code>jti</code>, <code>events</code>, <code>sub</code> và/hoặc <code>sid</code>; <b>không</b> có <code>nonce</code>). Tin cậy hơn, nhưng RP phải lưu được map <code>sid</code> → session.</p></div>
+  <div class="card"><h4>Back-channel logout</h4><p>OP gửi <b>POST server-to-server</b> tới <code>backchannel_logout_uri</code> của RP, kèm <b>logout token</b> (JWT có <code>iss</code>, <code>aud</code>, <code>iat</code>, <code>exp</code>, <code>jti</code>, <code>events</code>, <code>sub</code> và/hoặc <code>sid</code>; <b>cấm</b> có <code>nonce</code>; header nên có <code>typ: logout+jwt</code>). Tin cậy hơn, nhưng RP phải lưu được map <code>sid</code> → session.</p></div>
 </div>
 <div class="callout warn"><span class="callout-title">⚠️ Single Logout không bao giờ “tức thời và hoàn hảo”</span>
 RP có thể đang offline, không đăng ký logout URI, hoặc API vẫn nhận access token JWT cũ tới khi hết hạn. Thiết kế: access token ngắn hạn, refresh token revoke được, và chấp nhận rằng logout ở IdP <b>không</b> tự động xóa mọi thứ ở mọi nơi. (SAML SLO ở <a href="m04-saml.html">M04</a> có cùng vấn đề.)</div>
@@ -1236,7 +1236,7 @@ grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer
 <details><summary>Vì sao không dùng email làm khóa định danh người dùng?</summary>
 <p>Email có thể <b>thay đổi</b>, <b>được cấp lại</b> cho người khác, <b>chưa được xác minh</b> (<code>email_verified = false</code>), và ở một số provider người dùng tự đặt được. Dùng email làm khóa (hoặc tự liên kết theo email) có thể dẫn đến chiếm tài khoản. Khóa đúng: cặp <b>(<code>iss</code>, <code>sub</code>)</b>; email chỉ là thuộc tính liên lạc.</p></details>
 <details><summary>OAuth 2.1 bắt buộc và loại bỏ những gì?</summary>
-<p><b>Bắt buộc:</b> PKCE cho mọi Authorization Code (chỉ <code>S256</code>), redirect URI so khớp chính xác (trừ port loopback), refresh token của public client phải sender-constrained hoặc dùng một lần. <b>Loại bỏ:</b> Implicit grant, ROPC, PKCE <code>plain</code>, bearer token trong query string. Tại 11/2026 OAuth 2.1 vẫn là Internet-Draft (-17); các yêu cầu tương ứng đã có hiệu lực qua RFC 9700 (BCP).</p></details>
+<p><b>Bắt buộc:</b> PKCE cho mọi Authorization Code (chỉ <code>S256</code>; ngoại lệ hẹp cho confidential client dùng OIDC <code>nonce</code>), redirect URI so khớp chính xác (trừ port loopback), refresh token của public client phải sender-constrained hoặc dùng một lần. <b>Loại bỏ:</b> Implicit grant, ROPC, PKCE <code>plain</code>, bearer token trong query string. Tại 11/2026 OAuth 2.1 vẫn là Internet-Draft (-17); các yêu cầu tương ứng đã có hiệu lực qua RFC 9700 (BCP).</p></details>
 
 <div class="callout tip"><span class="callout-title">✅ Tiêu chí hoàn thành</span>
 Có thể <b>vẽ và giải thích</b> Authorization Code + PKCE và Client Credentials, và mô tả cách <b>client</b> xác minh ID token và <b>API</b> xác minh access token mà không nhầm vai trò của từng token. Kiểm chứng bằng tay ở <a href="lab.html#lab1">Lab 1</a>–<a href="lab.html#lab3">Lab 3</a>.</div>

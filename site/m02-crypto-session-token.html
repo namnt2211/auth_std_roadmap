@@ -418,7 +418,7 @@ Cookie: __Host-hr_sid=7f3kQx9…b2; hr_lang=vi</code></pre>
 <tr><td><code>None</code></td><td>Mọi ngữ cảnh, kể cả cross-site. <b>Bắt buộc kèm <code>Secure</code></b>, nếu không trình duyệt từ chối.</td><td>Chỉ dùng khi thật sự cần (iframe nhúng, một số flow SSO kiểu POST cross-site). Phải có biện pháp chống CSRF khác.</td></tr>
 </tbody></table></div>
 <div class="callout info"><span class="callout-title">ℹ️ “Site” khác “origin”</span>
-<b>Origin</b> = scheme + host + port. <b>Site</b> = scheme + <i>registrable domain</i> (ví dụ <code>kaopiz.com</code>). Vì vậy <code>hr.kaopiz.com</code> và <code>api.kaopiz.com</code> là <b>cross-origin</b> nhưng <b>same-site</b> → SameSite <b>không</b> bảo vệ bạn khỏi một subdomain khác bị chiếm. Nếu không đặt SameSite, các trình duyệt nhân Chromium mặc định coi như <code>Lax</code>, nhưng hành vi giữa các trình duyệt không hoàn toàn đồng nhất → luôn đặt tường minh.</div>
+<b>Origin</b> = scheme + host + port. <b>Site</b> = scheme + <i>registrable domain</i> (ví dụ <code>kaopiz.com</code>). Vì vậy <code>hr.kaopiz.com</code> và <code>api.kaopiz.com</code> là <b>cross-origin</b> nhưng <b>same-site</b> → SameSite <b>không</b> bảo vệ bạn khỏi một subdomain khác bị chiếm. Nếu không đặt SameSite, các trình duyệt nhân Chromium mặc định coi như <code>Lax</code> (kèm một ngoại lệ tạm thời cho phép POST cross-site top-level với cookie vừa được đặt vài phút), nhưng hành vi giữa các trình duyệt không hoàn toàn đồng nhất → luôn đặt tường minh.</div>
 <div class="callout tip"><span class="callout-title">✅ Cookie prefix</span>
 Tên bắt đầu bằng <code>__Host-</code> buộc trình duyệt chỉ chấp nhận cookie khi có <code>Secure</code>, <code>Path=/</code> và <b>không có</b> <code>Domain</code> → cookie bị “khóa” vào đúng host. <code>__Secure-</code> chỉ yêu cầu <code>Secure</code>. Đây là cách rẻ để chống việc subdomain khác ghi đè cookie đăng nhập.</div>
 
@@ -666,6 +666,8 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         // Authority → tự tải discovery document + JWKS (và làm mới khi key rotation)
         o.Authority = "https://sso.kaopiz.local/realms/kaopiz";
         o.Audience  = "hr-api";
+        // Mặc định (true) đổi tên claim: sub → ClaimTypes.NameIdentifier,
+        // scp → ".../identity/claims/scope" (claim "scope" của Keycloak thì KHÔNG bị đổi)
         o.MapInboundClaims = false;            // giữ nguyên tên claim gốc: sub, scope...
         o.TokenValidationParameters = new TokenValidationParameters
         {

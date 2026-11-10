@@ -182,14 +182,16 @@ sequenceDiagram
   U->>A: Mở App A
   A-->>U: Chuyển hướng tới IdP
   U->>I: Đăng nhập (mật khẩu + MFA)
-  I-->>U: Tạo phiên IdP (cookie của IdP) + gửi kết quả xác thực cho App A
-  U->>A: App A tạo session riêng của App A
+  I-->>U: Set cookie phiên IdP + kết quả xác thực
+  U->>A: Chuyển kết quả xác thực về App A
+  Note over A: App A tạo session riêng
   Note over U,B: Một lúc sau...
   U->>B: Mở App B
   B-->>U: Chuyển hướng tới IdP
   U->>I: Browser gửi kèm cookie phiên IdP
-  I-->>U: Phiên còn hiệu lực → KHÔNG hỏi mật khẩu lại
-  U->>B: App B tạo session riêng của App B
+  I-->>U: Phiên còn hiệu lực → KHÔNG hỏi mật khẩu
+  U->>B: Chuyển kết quả xác thực về App B
+  Note over B: App B tạo session riêng
 </pre>
 <div class="caption">SSO: mỗi app vẫn có session riêng; thứ được “chia sẻ” là phiên đăng nhập ở IdP.</div>
 </div>
@@ -299,28 +301,28 @@ Giải thích được các khái niệm trên trong 5 phút bằng ví dụ t�
 <script>
 window.QUIZ = [
   { q: "Người dùng gõ username vào ô đăng nhập. Bước này là gì?",
-    options: ["Authentication", "Identification", "Authorization", "Accounting"],
-    answer: 1,
+    options: ["Identification", "Authentication", "Authorization", "Accounting"],
+    answer: 0,
     explain: "Gõ username chỉ là <b>khai báo</b> danh tính (identification). Chưa có bằng chứng nào được kiểm tra." },
   { q: "Email <code>an@company.com</code> trong một hệ thống thường đóng vai trò gì?",
-    options: ["Credential", "Identifier", "Attribute bảo mật chứng minh danh tính", "Principal"],
-    answer: 1,
+    options: ["Credential", "Attribute bảo mật chứng minh danh tính", "Principal", "Identifier"],
+    answer: 3,
     explain: "Email là <b>identifier</b> — dùng để tham chiếu. Nó không chứng minh được người dùng là ai, vì ai cũng có thể gõ email của người khác." },
   { q: "Một người có tài khoản ở Entra ID, GitHub và ứng dụng HR. Phát biểu nào đúng?",
     options: ["Người đó có 3 identity và 3 account bắt buộc giống nhau", "Người đó là một thực thể có nhiều account ở nhiều hệ thống", "Account và identity là một", "Chỉ account Entra ID là identity thật"],
     answer: 1,
     explain: "Account là quan hệ của thực thể với <b>một hệ thống cụ thể</b>. Một người có thể có nhiều account." },
   { q: "API trả về lỗi khi người dùng đã đăng nhập hợp lệ nhưng mở hồ sơ lương của người khác. Lỗi này thuộc tầng nào và status code phù hợp?",
-    options: ["Authentication — 401", "Authorization — 403", "Identification — 400", "Accounting — 500"],
-    answer: 1,
+    options: ["Authentication — 401", "Identification — 400", "Authorization — 403", "Accounting — 500"],
+    answer: 2,
     explain: "Danh tính đã được xác minh; vấn đề là <b>thiếu quyền</b> → Authorization, trả <code>403 Forbidden</code>." },
   { q: "Trong giao thức SAML, ứng dụng nhận và xác minh assertion từ IdP được gọi là gì?",
     options: ["Relying Party", "Resource Server", "Service Provider", "Authorization Server"],
     answer: 2,
     explain: "SAML dùng thuật ngữ <b>Service Provider (SP)</b>. OIDC dùng Relying Party (RP)." },
   { q: "Thành phần nào trong OAuth <b>kiểm tra access token</b> và bảo vệ tài nguyên?",
-    options: ["Authorization Server", "Resource Server", "Client", "Resource Owner"],
-    answer: 1,
+    options: ["Resource Server", "Authorization Server", "Client", "Resource Owner"],
+    answer: 0,
     explain: "Resource Server (API) kiểm tra access token. Authorization Server mới là bên <b>cấp</b> token." },
   { q: "Những tổ hợp nào là MFA thực sự?",
     options: ["Mật khẩu + câu hỏi bảo mật", "Mật khẩu + mã TOTP từ app trên điện thoại", "Smart card + PIN", "Hai mật khẩu khác nhau nhập ở hai màn hình"],
@@ -339,12 +341,12 @@ window.QUIZ = [
     answer: 2,
     explain: "Sinh trắc học chỉ dùng <b>cục bộ</b> để mở khóa authenticator; server nhận bằng chứng mật mã (chữ ký), không nhận dữ liệu sinh trắc." },
   { q: "Phát biểu nào về OAuth 2.0 là đúng?",
-    options: ["OAuth 2.0 là giao thức authentication thuần túy", "OAuth 2.0 là authorization framework; lớp xác thực danh tính chuẩn hóa là OpenID Connect", "OAuth 2.0 và JWT là một", "OAuth 2.0 thay thế hoàn toàn SAML"],
-    answer: 1,
+    options: ["OAuth 2.0 là giao thức authentication thuần túy", "OAuth 2.0 và JWT là một", "OAuth 2.0 thay thế hoàn toàn SAML", "OAuth 2.0 là authorization framework; lớp xác thực danh tính chuẩn hóa là OpenID Connect"],
+    answer: 3,
     explain: "OAuth tập trung vào ủy quyền truy cập (access token). OIDC xây trên OAuth để chuẩn hóa xác thực (ID token)." },
   { q: "JWT là gì?",
-    options: ["Một giao thức đăng nhập độc lập", "Một định dạng biểu diễn claims, có thể được ký hoặc mã hóa", "Một loại mật khẩu dùng một lần", "Một thuật toán mã hóa"],
-    answer: 1,
+    options: ["Một giao thức đăng nhập độc lập", "Một loại mật khẩu dùng một lần", "Một định dạng biểu diễn claims, có thể được ký hoặc mã hóa", "Một thuật toán mã hóa"],
+    answer: 2,
     explain: "JWT (RFC 7519) là <b>định dạng</b> token. Các giao thức như OIDC dùng JWT làm ID token." },
   { q: "Vai trò nào ghi nhận “ai đã làm gì, lúc nào” để phục vụ điều tra?",
     options: ["Identification", "Authorization", "Accounting / Auditing", "Federation"],
@@ -353,7 +355,19 @@ window.QUIZ = [
   { q: "Phát biểu nào về các thuật ngữ vai trò là đúng?",
     options: ["IdP, RP, SP, AS luôn là bốn sản phẩm riêng biệt", "Một sản phẩm như Keycloak có thể đồng thời đóng vai trò OpenID Provider, Authorization Server và SAML IdP", "RP và Resource Server là một", "Client luôn là trình duyệt"],
     answer: 1,
-    explain: "Các vai trò có thể do thành phần khác nhau đảm nhiệm hoặc gộp trong cùng một sản phẩm. Client là <b>ứng dụng</b>, không phải trình duyệt." }
+    explain: "Các vai trò có thể do thành phần khác nhau đảm nhiệm hoặc gộp trong cùng một sản phẩm. Client là <b>ứng dụng</b>, không phải trình duyệt." },
+  { q: "Mã 6 chữ số sinh trong app Authenticator (TOTP) thuộc nhóm yếu tố nào?",
+    options: ["Something you know — vì người dùng phải gõ mã", "Something you are", "Something you have — chứng minh đang giữ thiết bị chứa secret dùng chung", "Không phải yếu tố xác thực"],
+    answer: 2,
+    explain: "TOTP (RFC 6238) tính mã từ secret dùng chung + thời gian; secret nằm trên thiết bị nên mã chứng minh <b>sở hữu</b> (have). Gõ mã bằng tay không biến nó thành “know”. Lưu ý: TOTP vẫn bị phishing/AiTM." },
+  { q: "Những phát biểu nào đúng về SSO và Federation?",
+    options: ["SSO có thể diễn ra hoàn toàn trong một miền, ví dụ Kerberos trong một Windows domain", "Federation luôn đi kèm trải nghiệm SSO", "Federation là quan hệ tin cậy giữa các miền, thiết lập bằng việc trao đổi metadata/certificate", "SSO nghĩa là mọi ứng dụng dùng chung một session"],
+    answer: [0, 2],
+    explain: "SSO là trải nghiệm; Federation là quan hệ tin cậy. Federation có thể tồn tại mà không có SSO (chính sách bắt đăng nhập lại mỗi lần), và mỗi app vẫn có session riêng. Xem <a href=\"#sso-federation-mfa\">mục D</a>." },
+  { q: "API nhận một access token <b>đã hết hạn</b>. Phản hồi phù hợp nhất là gì?",
+    options: ["401 Unauthorized — xác thực thất bại, client cần lấy token mới", "403 Forbidden — người dùng thiếu quyền", "404 Not Found — để giấu tài nguyên", "200 OK nhưng trả dữ liệu rỗng"],
+    answer: 0,
+    explain: "Token hết hạn nghĩa là credential không còn hợp lệ → thất bại ở tầng <b>authentication</b> → 401. 403 dành cho trường hợp đã xác thực nhưng thiếu quyền. Xem <a href=\"#401-403\">401 vs 403</a>." }
 ];
 </script>
 <script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>

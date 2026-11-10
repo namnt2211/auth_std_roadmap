@@ -136,7 +136,7 @@ Trong <b>Windows PowerShell 5.1</b>, <code>curl</code> là alias của <code>Inv
 <li>Realm <code>demo</code> có user <code>alice</code> đăng nhập được (mật khẩu không bị bắt đổi).</li>
 <li>Client <code>demo-client</code>: public, chỉ bật Standard flow, PKCE method <code>S256</code>, redirect URI đúng <code>http://127.0.0.1:7890/</code>.</li>
 <li>Client scope <code>orders.read</code> và <code>orders.write</code>, mỗi scope có Audience mapper thêm <code>demo-api</code> vào <code>aud</code> của access token.</li>
-<li>Client <code>worker</code>: confidential, bật Service accounts roles, được gán 2 scope trên.</li>
+<li>Client <code>worker</code>: confidential, bật Service account roles, được gán 2 scope trên.</li>
 <li><b>Nộp:</b> một bảng ghi lại <code>issuer</code>, <code>authorization_endpoint</code>, <code>token_endpoint</code>, <code>jwks_uri</code>, <code>introspection_endpoint</code>, <code>revocation_endpoint</code> và <code>kid</code> của khóa ký RS256; ảnh chụp tab “Evaluate” cho thấy access token chứa <code>"aud": "demo-api"</code> khi xin scope <code>orders.read</code>.</li>
 </ol>
 
@@ -146,7 +146,7 @@ flowchart LR
   subgraph R["Realm demo"]
     A["👤 User alice"]
     DC["demo-client<br/>public · Standard flow<br/>PKCE S256"]
-    WK["worker<br/>confidential<br/>Service accounts roles"]
+    WK["worker<br/>confidential<br/>Service account roles"]
     DA["demo-api<br/>(chỉ là audience)"]
     S1["Client scope orders.read<br/>+ Audience mapper"]
     S2["Client scope orders.write<br/>+ Audience mapper"]
@@ -211,12 +211,12 @@ Hướng dẫn viết theo admin console Keycloak 26.x (tài liệu <a href="htt
 <li><b>Tạo client public <code>demo-client</code>.</b> <b>Clients</b> → <b>Create client</b>:
 <ol>
 <li>General settings: Client type <b>OpenID Connect</b>, Client ID <code>demo-client</code> → <b>Next</b>.</li>
-<li>Capability config: <b>Client authentication</b> <b>Off</b> (= public client), <b>Authorization</b> Off, Authentication flow: chỉ chọn <b>Standard flow</b>; bỏ <b>Direct access grants</b>, <b>Implicit flow</b>. <b>PKCE Method</b> = <code>S256</code> → <b>Next</b>.</li>
+<li>Capability config: <b>Client authentication</b> <b>Off</b> (= public client), <b>Authorization</b> Off, Authentication flow: chỉ chọn <b>Standard flow</b>; bỏ <b>Direct access grants</b>, <b>Implicit flow</b>. Bật <b>Require PKCE</b> = On → ô <b>PKCE Method</b> hiện ra, chọn <code>S256</code> → <b>Next</b>.</li>
 <li>Login settings: <b>Valid redirect URIs</b> = <code>http://127.0.0.1:7890/</code> (có dấu <code>/</code> cuối), <b>Valid post logout redirect URIs</b> = <code>http://127.0.0.1:7890/</code>, <b>Web origins</b> để trống → <b>Save</b>.</li>
 <li>Tab <b>Client scopes</b> của <code>demo-client</code> → <b>Add client scope</b> → chọn <code>orders.read</code>, <code>orders.write</code> → <b>Add ▾ → Optional</b>.</li>
 </ol>
 <div class="callout warn"><span class="callout-title">⚠️ Vị trí cài đặt PKCE thay đổi theo phiên bản</span>
-Tài liệu Keycloak hiện hành đặt <b>PKCE Method</b> (giá trị: trống / <code>S256</code> / <code>plain</code>) trong <b>Settings → Capability config</b>. Release notes Keycloak 26.3.0 ghi nhận việc <b>chuyển</b> cài đặt này từ tab <b>Advanced</b> sang tab <b>Settings</b>. Nếu bạn dùng bản cũ hơn: tab <b>Advanced</b> → mục <b>Advanced settings</b> → <b>Proof Key for Code Exchange Code Challenge Method</b> = <code>S256</code>. Để <b>trống</b> nghĩa là PKCE chỉ được áp dụng khi client tự gửi tham số — <i>không bắt buộc</i>.</div>
+Ở admin console Keycloak 26.8 (đã đối chiếu mã nguồn), mục <b>Settings → Capability config</b> có công tắc <b>Require PKCE</b>; bật lên thì hiện ô <b>PKCE Method</b> (<code>S256</code> / <code>plain</code>). Bản 26.x cũ hơn có thể chỉ có ô <b>PKCE Method</b> (trống / <code>S256</code> / <code>plain</code>). Release notes Keycloak 26.3.0 ghi nhận việc <b>chuyển</b> cài đặt này từ tab <b>Advanced</b> sang tab <b>Settings</b>. Nếu bạn dùng bản cũ hơn: tab <b>Advanced</b> → mục <b>Advanced settings</b> → <b>Proof Key for Code Exchange Code Challenge Method</b> = <code>S256</code>. Để <b>trống</b> nghĩa là PKCE chỉ được áp dụng khi client tự gửi tham số — <i>không bắt buộc</i>.</div>
 <ul>
 <li><i>Vì sao public:</i> console/WPF app được cài trên máy người dùng — ai cũng có thể dịch ngược lấy secret. PKCE thay thế vai trò “chứng minh tôi là người đã bắt đầu flow” (<a href="m03-oauth-oidc.html#pkce">M03 — PKCE</a>).</li>
 <li><i>Vì sao tắt Direct access grants:</i> đó là ROPC (client cầm mật khẩu user) — bị loại khỏi OAuth 2.1 và Security BCP (<a href="m03-oauth-oidc.html#ropc-implicit">M03</a>).</li>
@@ -237,9 +237,9 @@ Tài liệu Keycloak hiện hành đặt <b>PKCE Method</b> (giá trị: trống
 </tbody></table></div>
 </li>
 
-<li><b>Tạo client confidential <code>worker</code>.</b> <b>Clients</b> → <b>Create client</b> → Client ID <code>worker</code> → <b>Next</b> → <b>Client authentication</b> <b>On</b>, bỏ <b>Standard flow</b> và <b>Direct access grants</b>, chọn <b>Service accounts roles</b> → <b>Next</b> → <b>Save</b>. Tab <b>Credentials</b> → copy <b>Client Secret</b>. Tab <b>Client scopes</b> → <b>Add client scope</b> → <code>orders.read</code>, <code>orders.write</code> → <b>Optional</b>.
+<li><b>Tạo client confidential <code>worker</code>.</b> <b>Clients</b> → <b>Create client</b> → Client ID <code>worker</code> → <b>Next</b> → <b>Client authentication</b> <b>On</b>, bỏ <b>Standard flow</b> và <b>Direct access grants</b>, chọn <b>Service account roles</b> → <b>Next</b> → <b>Save</b>. Tab <b>Credentials</b> → copy <b>Client Secret</b>. Tab <b>Client scopes</b> → <b>Add client scope</b> → <code>orders.read</code>, <code>orders.write</code> → <b>Optional</b>.
 <ul>
-<li><i>Vì sao:</i> “Service accounts roles” chính là bật <b>Client Credentials grant</b> cho client này (theo tài liệu Keycloak). Client confidential vì worker chạy trên server, giữ được secret.</li>
+<li><i>Vì sao:</i> “Service account roles” chính là bật <b>Client Credentials grant</b> cho client này (theo tài liệu Keycloak). Client confidential vì worker chạy trên server, giữ được secret.</li>
 <li><i>Kiểm tra:</i>
 <pre data-title="bash (Git Bash / WSL)"><code class="language-bash">export KC=http://localhost:8080/realms/demo
 export WORKER_SECRET='dán-secret-vào-đây'
@@ -291,7 +291,7 @@ curl -s $KC/protocol/openid-connect/certs | jq '.keys[] | {kid, kty, alg, use}'<
 <tr><td><code>Conflict. The container name "/kc" is already in use</code></td><td>Container cũ còn tồn tại.</td><td><code>docker start -a kc</code> để chạy lại (giữ dữ liệu), hoặc <code>docker rm kc</code> để tạo mới (mất dữ liệu).</td></tr>
 <tr><td>Đăng nhập alice bị bắt đổi mật khẩu / cập nhật thông tin</td><td>Temporary = On, hoặc thiếu email/họ tên.</td><td>Đặt lại mật khẩu với Temporary Off; điền đủ thông tin; xóa “Required user actions”.</td></tr>
 <tr><td>Evaluate không có <code>demo-api</code> trong <code>aud</code></td><td>Chưa chọn <code>orders.read</code> trong Scope parameter; mapper chưa bật “Add to access token”; client <code>demo-api</code> sai tên/bị disable.</td><td>Kiểm tra lại từng điểm.</td></tr>
-<tr><td>Token client_credentials: <code>unauthorized_client</code></td><td>Chưa bật Service accounts roles cho <code>worker</code>.</td><td>Bật và Save.</td></tr>
+<tr><td>Token client_credentials: <code>unauthorized_client</code></td><td>Chưa bật Service account roles cho <code>worker</code>.</td><td>Bật và Save.</td></tr>
 <tr><td><code>invalid_client</code></td><td>Sai secret (thường do copy thiếu ký tự) hoặc client đang là public.</td><td>Copy lại secret từ tab Credentials; Client authentication = On.</td></tr>
 <tr><td><code>invalid_scope</code></td><td>Xin scope chưa được gán cho client.</td><td>Gán scope ở tab Client scopes của client đó.</td></tr>
 </tbody></table></div>
@@ -327,10 +327,11 @@ curl -s $KC/protocol/openid-connect/certs | jq '.keys[] | {kid, kty, alg, use}'<
 <pre data-title="Terminal"><code class="language-bash">mkdir auth-lab &amp;&amp; cd auth-lab
 dotnet new webapi -n DemoApi
 cd DemoApi
-dotnet add package Microsoft.AspNetCore.Authentication.JwtBearer</code></pre>
+dotnet add package Microsoft.AspNetCore.Authentication.JwtBearer --version "10.0.*"</code></pre>
 <ul>
-<li><i>Vì sao:</i> template <code>webapi</code> của .NET 10 tạo minimal API. Handler JWT Bearer nằm trong package riêng <code>Microsoft.AspNetCore.Authentication.JwtBearer</code> (phiên bản 10.0.x khớp với SDK).</li>
-<li><i>Kiểm tra:</i> <code>DemoApi.csproj</code> có <code>PackageReference</code> tới JwtBearer.</li>
+<li><i>Vì sao:</i> template <code>webapi</code> của .NET 10 tạo minimal API (<code>&lt;TargetFramework&gt;net10.0&lt;/TargetFramework&gt;</code>). Handler JWT Bearer nằm trong package riêng <code>Microsoft.AspNetCore.Authentication.JwtBearer</code>, và <b>major version của package phải khớp với target framework</b>.</li>
+<li><i>Vì sao phải ghi <code>--version "10.0.*"</code>:</i> từ khi .NET 11 phát hành (11/2026), lệnh <code>dotnet add package</code> không ghi version sẽ lấy bản mới nhất <code>11.0.x</code> — bản này chỉ hỗ trợ <code>net11.0</code> nên restore báo <code>NU1202: Package Microsoft.AspNetCore.Authentication.JwtBearer 11.0.0 is not compatible with net10.0</code>, rồi build lỗi <code>CS0234: The type or namespace name 'JwtBearer' does not exist</code>. <code>10.0.*</code> = bản vá mới nhất của dòng 10.0. (Nếu máy bạn dùng SDK 11 và csproj ghi <code>net11.0</code> thì đổi thành <code>"11.0.*"</code>.)</li>
+<li><i>Kiểm tra:</i> <code>DemoApi.csproj</code> có <code>&lt;PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.*" /&gt;</code>; <code>dotnet list package</code> cho thấy bản resolved <code>10.0.x</code>.</li>
 </ul></li>
 
 <li><b>Thay toàn bộ <code>Program.cs</code></b> bằng code sau (dựa trên code roadmap, bổ sung <code>using</code>, logging để thấy lỗi IDX, và công tắc cho kịch bản 6).
@@ -576,6 +577,7 @@ Bảng ánh xạ mặc định (<code>JsonWebTokenHandler.DefaultInboundClaimTyp
 <div class="table-wrap"><table>
 <thead><tr><th>Hiện tượng</th><th>Nguyên nhân</th><th>Cách xử lý</th></tr></thead>
 <tbody>
+<tr><td><code>dotnet add package</code> báo <code>NU1202 ... JwtBearer 11.0.0 is not compatible with net10.0</code>; build lỗi <code>CS0234 ... 'JwtBearer' does not exist</code></td><td>Không ghi version → NuGet lấy bản 11.x (chỉ cho <code>net11.0</code>).</td><td>Chạy lại <code>dotnet add package Microsoft.AspNetCore.Authentication.JwtBearer --version "10.0.*"</code> (major khớp TargetFramework).</td></tr>
 <tr><td>500, exception <code>The MetadataAddress or Authority must use HTTPS...</code></td><td>Quên <code>RequireHttpsMetadata = false</code> khi Authority là <code>http://</code>.</td><td>Đặt false <b>chỉ cho lab</b>.</td></tr>
 <tr><td>500, log <code>IDX20803: Unable to obtain configuration from ...</code></td><td>Keycloak chưa chạy / sai URL Authority / sai tên realm.</td><td>Mở URL discovery bằng browser để kiểm tra.</td></tr>
 <tr><td>401 <code>The issuer '...' is invalid</code> (IDX10205)</td><td>Token lấy qua <code>127.0.0.1:8080</code> nhưng Authority là <code>localhost:8080</code> (hoặc ngược lại).</td><td>Dùng thống nhất một hostname.</td></tr>
@@ -618,7 +620,7 @@ sequenceDiagram
   autonumber
   actor U as alice
   participant App as DemoClient (console)
-  participant L as HttpListener 127.0.0.1:7890
+  participant L as Loopback listener 127.0.0.1:7890
   participant B as System browser
   participant KC as Keycloak realm demo
   participant API as DemoApi :5005
@@ -658,9 +660,8 @@ dotnet add package Duende.IdentityModel.OidcClient</code></pre>
 <li><b>Tự gửi <code>nonce</code>:</b> OidcClient 7.x (đã kiểm tra mã nguồn) chỉ gửi <code>state</code> + PKCE, <b>không</b> tự gửi <code>nonce</code>. Ta thêm <code>nonce</code> qua tham số front-channel và tự kiểm tra trong ID token — để thấy cơ chế này hoạt động (<a href="m03-oauth-oidc.html#state-nonce">M03 — state &amp; nonce</a>).</li>
 </ul></li>
 
-<li><b>Dán <code>Program.cs</code>.</b>
+<li><b>Dán <code>Program.cs</code> và tạo thêm <code>Loopback.cs</code></b> (hai file, cùng thư mục <code>DemoClient</code>).
 <pre data-title="DemoClient/Program.cs"><code class="language-csharp">using System.Diagnostics;
-using System.Net;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
@@ -700,26 +701,17 @@ Console.WriteLine($"state         = {state.State}");
 Console.WriteLine($"code_verifier = {state.CodeVerifier}  (bí mật - KHÔNG nằm trong URL)");
 Console.WriteLine($"nonce         = {nonce}");
 
-// 3) Mở listener loopback TRƯỚC khi mở browser
-using var http = new HttpListener();
-http.Prefixes.Add(RedirectUri);
-http.Start();
+// 3) Mở listener loopback TRƯỚC khi mở browser (lớp Loopback ở file Loopback.cs bên dưới).
+//    Gọi hàm là listener chạy ngay; ta giữ Task lại và await SAU khi đã mở browser.
+var waitForCallback = Loopback.WaitForCallbackAsync(new Uri(RedirectUri).Port);
 
 Process.Start(new ProcessStartInfo(state.StartUrl) { UseShellExecute = true });
 Console.WriteLine("\nĐã mở trình duyệt, đang chờ callback...");
 
-// 4) Nhận callback từ browser
-var ctx = await http.GetContextAsync();
-var callback = ctx.Request.RawUrl ?? "";
+// 4) Nhận callback từ browser: phần "/?state=...&amp;code=..." của URL
+var callback = await waitForCallback;
 Console.WriteLine("\n=== CALLBACK ===");
-Console.WriteLine(ctx.Request.Url);
-
-var html = Encoding.UTF8.GetBytes("&lt;html&gt;&lt;body&gt;&lt;h3&gt;Đăng nhập xong. Bạn có thể đóng tab này.&lt;/h3&gt;&lt;/body&gt;&lt;/html&gt;");
-ctx.Response.ContentType = "text/html; charset=utf-8";
-ctx.Response.ContentLength64 = html.Length;
-await ctx.Response.OutputStream.WriteAsync(html);
-ctx.Response.Close();
-http.Stop();
+Console.WriteLine("http://127.0.0.1:7890" + callback);
 
 // 5) Kiểm tra state + đổi code lấy token (gửi code_verifier)
 var result = await oidc.ProcessResponseAsync(callback, state);
@@ -768,6 +760,56 @@ static JsonElement DecodePayload(string jwt)
 
 static string Show(JsonElement e, string name) =&gt;
     e.TryGetProperty(name, out var v) ? v.ToString() : "(không có)";</code></pre>
+<p>Thêm file <code>Loopback.cs</code> cùng thư mục — một “web server” tí hon chỉ nghe <code>127.0.0.1:7890</code> để nhận đúng một callback:</p>
+<pre data-title="DemoClient/Loopback.cs"><code class="language-csharp">using System.Net;
+using System.Net.Sockets;
+using System.Text;
+
+// Vì sao TcpListener mà không phải HttpListener? Trên Windows, HttpListener chạy qua http.sys;
+// prefix http://127.0.0.1:port/ có thể bị "Access is denied" nếu chưa đăng ký URL ACL (netsh, cần admin).
+// TcpListener chỉ mở socket trên 127.0.0.1 -&gt; không cần quyền đặc biệt.
+public static class Loopback
+{
+    public static async Task&lt;string&gt; WaitForCallbackAsync(int port, CancellationToken ct = default)
+    {
+        var listener = new TcpListener(IPAddress.Loopback, port);
+        listener.Start();   // chạy ngay khi hàm được gọi (trước await đầu tiên)
+        try
+        {
+            while (true)
+            {
+                using var client = await listener.AcceptTcpClientAsync(ct);
+                try
+                {
+                    using var stream = client.GetStream();
+                    var reader = new StreamReader(stream, Encoding.ASCII);
+                    // Dòng đầu của HTTP request, ví dụ: "GET /?state=...&amp;code=... HTTP/1.1"
+                    var requestLine = await reader.ReadLineAsync(ct);
+                    while (!string.IsNullOrEmpty(await reader.ReadLineAsync(ct))) { } // bỏ qua các header
+
+                    var parts = requestLine?.Split(' ');
+                    var target = parts is { Length: &gt;= 2 } ? parts[1] : "";
+                    var isCallback = target.StartsWith("/?");
+
+                    var body = Encoding.UTF8.GetBytes(isCallback
+                        ? "&lt;html&gt;&lt;body&gt;&lt;h3&gt;Đăng nhập xong. Bạn có thể đóng tab này.&lt;/h3&gt;&lt;/body&gt;&lt;/html&gt;" : "");
+                    var head = Encoding.ASCII.GetBytes(
+                        $"HTTP/1.1 {(isCallback ? "200 OK" : "404 Not Found")}\r\n" +
+                        $"Content-Type: text/html; charset=utf-8\r\nContent-Length: {body.Length}\r\nConnection: close\r\n\r\n");
+                    await stream.WriteAsync(head, ct);
+                    await stream.WriteAsync(body, ct);
+
+                    if (isCallback) return target;   // request khác (favicon...) -&gt; 404, chờ tiếp
+                }
+                catch (IOException) { /* browser đóng kết nối sớm -&gt; bỏ qua, chờ request tiếp */ }
+            }
+        }
+        finally
+        {
+            listener.Stop();
+        }
+    }
+}</code></pre>
 </li>
 
 <li><b>Chạy.</b> Bật DemoApi (Lab 2) ở terminal khác, rồi:
@@ -779,36 +821,34 @@ static string Show(JsonElement e, string name) =&gt;
 
 <li><b>(Tùy chọn) Chuyển sang <code>LoginAsync</code> + <code>IBrowser</code>.</b> Đây là cách “gọn” khi đưa vào WPF thật (xem <a href="m07-architecture.html#wpf-example">M07 — ví dụ WPF</a>). <code>IBrowser</code> có một method <code>InvokeAsync(BrowserOptions options, CancellationToken)</code>, trả <code>BrowserResult</code> (namespace <code>Duende.IdentityModel.OidcClient.Browser</code>):
 <pre data-title="LoopbackBrowser.cs"><code class="language-csharp">using System.Diagnostics;
-using System.Net;
-using System.Text;
 using Duende.IdentityModel.OidcClient.Browser;
 
 public sealed class LoopbackBrowser : IBrowser
 {
     public async Task&lt;BrowserResult&gt; InvokeAsync(BrowserOptions options, CancellationToken ct = default)
     {
-        using var http = new HttpListener();
-        http.Prefixes.Add(options.EndUrl);            // = RedirectUri
-        http.Start();
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(options.Timeout);                        // mặc định 5 phút
+
+        // Dùng lại Loopback.cs: listener bắt đầu nghe NGAY, trước khi mở browser
+        var wait = Loopback.WaitForCallbackAsync(new Uri(options.EndUrl).Port, cts.Token);
         Process.Start(new ProcessStartInfo(options.StartUrl) { UseShellExecute = true });
 
-        var getCtx = http.GetContextAsync();
-        var done = await Task.WhenAny(getCtx, Task.Delay(options.Timeout, ct));
-        if (done != getCtx)
+        try
+        {
+            var callback = await wait;                          // "/?state=...&amp;code=..."
+            return new BrowserResult { ResultType = BrowserResultType.Success, Response = callback };
+        }
+        catch (OperationCanceledException)
+        {
             return new BrowserResult { ResultType = BrowserResultType.Timeout };
-
-        var ctx = await getCtx;
-        var bytes = Encoding.UTF8.GetBytes("&lt;html&gt;&lt;body&gt;Bạn có thể đóng tab này.&lt;/body&gt;&lt;/html&gt;");
-        ctx.Response.ContentType = "text/html; charset=utf-8";
-        await ctx.Response.OutputStream.WriteAsync(bytes, ct);
-        ctx.Response.Close();
-
-        return new BrowserResult { ResultType = BrowserResultType.Success, Response = ctx.Request.RawUrl };
+        }
     }
 }
 // Dùng: options.Browser = new LoopbackBrowser();  var result = await oidc.LoginAsync();
-// Nhớ: LoginAsync tự sinh state/PKCE; muốn gửi nonce dùng LoginRequest { FrontChannelExtraParameters = ... }.</code></pre>
-<p>Nếu tên thuộc tính <code>FrontChannelExtraParameters</code> khác trong phiên bản bạn cài, xem IntelliSense của <code>LoginRequest</code> — phần còn lại của API (<code>OidcClientOptions</code>, <code>LoginAsync</code>, <code>LoginResult</code>) theo <a href="https://docs.duendesoftware.com/identitymodel-oidcclient/" target="_blank" rel="noopener">tài liệu Duende</a>.</p></li>
+// Nhớ: LoginAsync tự sinh state/PKCE; muốn gửi nonce dùng
+//   new LoginRequest { FrontChannelExtraParameters = new Parameters { { "nonce", nonce } } }.</code></pre>
+<p>Các tên API ở trên (<code>IBrowser.InvokeAsync</code>, <code>BrowserOptions.StartUrl/EndUrl/Timeout</code>, <code>BrowserResult</code>, <code>LoginRequest.FrontChannelExtraParameters</code>) đã đối chiếu với mã nguồn <a href="https://github.com/DuendeSoftware/foss/tree/main/identity-model-oidc-client" target="_blank" rel="noopener">DuendeSoftware/foss</a>; tài liệu sử dụng ở <a href="https://docs.duendesoftware.com/identitymodel-oidcclient/" target="_blank" rel="noopener">docs.duendesoftware.com</a>.</p></li>
 </ol>
 
 <h4>(d) Kết quả mong đợi</h4>
@@ -846,9 +886,8 @@ GET /orders -&gt; 200 OK  ["order-1"]</code></pre>
 <tbody>
 <tr><td>Trang Keycloak báo <b>Invalid parameter: redirect_uri</b></td><td>Redirect URI không khớp tuyệt đối (thiếu <code>/</code>, dùng <code>localhost</code> thay <code>127.0.0.1</code>, sai cổng).</td><td>Sửa cho giống hệt trong client <code>demo-client</code>.</td></tr>
 <tr><td>Keycloak báo thiếu <code>code_challenge</code> / PKCE</td><td>Client đặt PKCE S256 nhưng app không gửi (ví dụ tự viết flow bằng tay).</td><td>Dùng OidcClient hoặc gửi đủ <code>code_challenge</code> + <code>code_challenge_method=S256</code>.</td></tr>
-<tr><td><code>HttpListenerException: Access is denied</code></td><td>Windows yêu cầu quyền URL ACL cho prefix này trên một số máy.</td><td>Chạy (admin) một lần: <code>netsh http add urlacl url=http://127.0.0.1:7890/ user=%USERNAME%</code>, hoặc đổi sang <code>TcpListener</code>.</td></tr>
-<tr><td>Cổng 7890 bị chiếm</td><td>Lần chạy trước chưa thoát.</td><td>Tắt process cũ; hoặc đổi cổng ở cả code và Keycloak.</td></tr>
-<tr><td>URL chỉ có <code>request_uri=urn:...</code></td><td>OidcClient dùng PAR.</td><td>Đặt <code>DisablePushedAuthorization = true</code> (chỉ để quan sát).</td></tr>
+<tr><td><code>HttpListenerException: Access is denied</code> (nếu bạn tự viết lại bằng <code>HttpListener</code>)</td><td>HttpListener dùng http.sys; prefix <code>127.0.0.1</code> có thể cần đăng ký URL ACL.</td><td>Dùng <code>Loopback.cs</code> (TcpListener) như trang này, hoặc chạy (admin) một lần <code>netsh http add urlacl url=http://127.0.0.1:7890/ user=%USERNAME%</code>.</td></tr>
+<tr><td><code>SocketException</code> “Only one usage of each socket address…” / cổng 7890 bị chiếm</td><td>Lần chạy trước chưa thoát hoặc app khác dùng cổng.</td><td>Tắt process cũ; hoặc đổi cổng ở cả code và Keycloak.</td></tr><tr><td>URL chỉ có <code>request_uri=urn:...</code></td><td>OidcClient dùng PAR.</td><td>Đặt <code>DisablePushedAuthorization = true</code> (chỉ để quan sát).</td></tr>
 <tr><td><code>invalid_grant</code> “Code not valid” khi đổi token</td><td>Code đã dùng rồi / hết hạn (rất ngắn) / gửi sai <code>redirect_uri</code>.</td><td>Đăng nhập lại; không đổi code hai lần.</td></tr>
 <tr><td><code>invalid_grant</code> “PKCE verification failed”</td><td><code>code_verifier</code> không khớp challenge.</td><td>Dùng đúng đối tượng <code>state</code> của lần PrepareLogin tương ứng.</td></tr>
 <tr><td>GET /orders → 401 audience</td><td>Quên <code>orders.read</code> trong <code>Scope</code>.</td><td>Thêm scope.</td></tr>

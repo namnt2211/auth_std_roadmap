@@ -72,18 +72,25 @@ Trước khi mua khóa, hỏi: <b>ai</b> cần vào (nhân viên, khách, xe gia
 flowchart TD
   S{"Subject là ai?"}
   S -- "Service / workload<br/>không có user" --> W["Client Credentials<br/>hoặc workload identity<br/>(+ mTLS tùy chọn)"]
-  S -- "Thiết bị / user<br/>vào mạng Wi-Fi, VPN" --> N["RADIUS / 802.1X / EAP"]
-  S -- "User" --> C{"Client là gì?"}
-  C -- "Server-side web" --> SW["OIDC Code Flow<br/>confidential client + cookie"]
-  C -- "SPA" --> SPA{"Dữ liệu nhạy cảm?"}
-  SPA -- "Có" --> BFF["BFF + cookie<br/>(token ở server)"]
-  SPA -- "Không nhiều" --> PK["Code + PKCE<br/>token trong memory"]
-  C -- "Desktop / Mobile / CLI" --> NAT["Code + PKCE<br/>system browser"]
-  C -- "Thiết bị không có<br/>browser / bàn phím" --> DF["Device Authorization flow"]
-  C -- "Máy Windows trong domain,<br/>app nội bộ" --> K["Kerberos / IWA<br/>(hoặc OIDC qua IdP)"]
-  C -- "SaaS chỉ hỗ trợ SAML" --> SAML["SAML 2.0 SP-initiated"]
+  S -- "Thiết bị / user<br/>vào Wi-Fi, VPN" --> N["RADIUS / 802.1X / EAP"]
+  S -- "User" --> C["Xem cây 2:<br/>Client là gì?"]
 </pre>
-<div class="caption">Cây quyết định nhanh. Sau khi chọn flow, vẫn phải trả lời câu 7–10 (lưu trữ, authorization, vòng đời, sự cố).</div>
+<div class="caption">Cây 1: bắt đầu từ <b>subject</b> (ai cần xác thực).</div>
+</div>
+<div class="diagram">
+<pre class="mermaid">
+flowchart LR
+  C{"Client là gì?"}
+  C --> SW["Server-side web:<br/>OIDC Code Flow + cookie"]
+  C --> SPA{"SPA: dữ liệu<br/>nhạy cảm?"}
+  SPA -- "Có" --> BFF["BFF + cookie"]
+  SPA -- "Không" --> PK["Code + PKCE,<br/>token trong memory"]
+  C --> NAT["Desktop / Mobile / CLI:<br/>Code + PKCE, system browser"]
+  C --> DF["Không browser/bàn phím:<br/>Device Authorization flow"]
+  C --> K["Máy Windows domain:<br/>Kerberos / IWA"]
+  C --> SAML["SaaS chỉ hỗ trợ SAML:<br/>SAML 2.0 SP-initiated"]
+</pre>
+<div class="caption">Cây 2: khi subject là user, chọn flow theo loại client. Sau khi chọn flow, vẫn phải trả lời câu 7–10 (lưu trữ, authorization, vòng đời, sự cố).</div>
 </div>
 
 <!-- ===================================================== -->
