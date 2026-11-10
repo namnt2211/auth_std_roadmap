@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="DemoApi/DemoApi.csproj" />
+  <Project Path="DemoClient/DemoClient.csproj" />
+  <Project Path="DemoClientBrowser/DemoClientBrowser.csproj" />
+</Solution>

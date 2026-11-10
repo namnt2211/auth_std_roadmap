@@ -40,10 +40,15 @@ Cần kết nối Internet để tải font (Google Fonts), Mermaid (jsDelivr) v
 
 Có thể bật **GitHub Pages** (Settings → Pages → Deploy from branch → `main` / root), rồi truy cập `<pages-url>/site/`.
 
+## Code Lab
+
+Thư mục [`lab/`](lab/) chứa solution `AuthLab` hoàn chỉnh cho bài lab: `DemoApi` (ASP.NET Core Web API xác minh JWT), `DemoClient` (console app Authorization Code + PKCE) và biến thể `DemoClientBrowser`. Xem [lab/README.md](lab/README.md).
+
 ## Cấu trúc
 
 ```
 authentication_standards_15h_roadmap.md   # đề cương gốc
+lab/                                      # code mẫu Lab (.NET 10): DemoApi, DemoClient, DemoClientBrowser
 site/
   index.html, m0x-*.html, lab.html, appendix.html
   assets/style.css   # giao diện dùng chung (light / dark)
