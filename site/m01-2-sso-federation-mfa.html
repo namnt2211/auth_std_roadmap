@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M01 · Bài 1.2 · SSO, Federation, MFA &amp; authentication factors</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<main class="content">
+
+<div class="page-head">
+  <div class="breadcrumb"><a href="index.html">Lộ trình</a> / <a href="m01-fundamentals.html">Module 01</a> / Bài 1.2</div>
+  <h1>Bài 1.2 — SSO, Federation, MFA &amp; authentication factors</h1>
+  <p class="lead">Ba cụm từ bạn sẽ nghe hằng ngày: SSO (đăng nhập một lần, dùng nhiều app), Federation (hai hệ thống đồng ý tin nhau) và MFA (cần nhiều loại bằng chứng). Bài này giúp bạn tách bạch chúng và nhận ra khi nào “MFA” thật ra không phải MFA.</p>
+  <div class="meta-row">
+    <span class="chip">⏱ ~15 phút</span>
+    <span class="chip">📘 <a href="m01-fundamentals.html">Module 01 · Identity &amp; Authentication Fundamentals</a></span>
+  </div>
+</div>
+
+<p>Bài này dùng tiếp ví dụ <b>Kaopiz HR</b> ở <a href="m01-1-identity-roles.html#vai-tro">Bài 1.1</a>: An đăng nhập ở <b>Entra ID</b> (IdP), rồi dùng <b>hr-web</b> và các app nội bộ khác như <b>Wiki</b>. Nếu bạn chưa rõ IdP/RP là gì, hãy xem lại bài đó trước.</p>
+
+<div class="terms"><span class="terms-title">📖 Thuật ngữ trong bài</span><dl>
+<dt>SSO (Single Sign-On)</dt><dd>Đăng nhập một lần ở IdP rồi vào được nhiều app mà không phải gõ lại mật khẩu.</dd>
+<dt>Session (phiên)</dt><dd>Trạng thái “đã đăng nhập” được ghi nhớ (thường qua cookie) để không phải đăng nhập lại mỗi request.</dd>
+<dt>Federation (liên kết danh tính)</dt><dd>Hai hệ thống/tổ chức thỏa thuận <b>tin</b> kết quả đăng nhập do bên kia phát hành.</dd>
+<dt>Trust (quan hệ tin cậy)</dt><dd>Bên A đã lưu metadata và certificate của bên B nên kiểm tra được chữ ký của B.</dd>
+<dt>MFA (Multi-Factor Authentication)</dt><dd>Xác thực đa yếu tố: cần ≥ 2 bằng chứng thuộc <b>các nhóm khác nhau</b> (biết / có / là).</dd>
+<dt>2-step verification</dt><dd>Đăng nhập qua 2 bước; chỉ là MFA khi hai bước dùng hai <b>nhóm</b> yếu tố khác nhau.</dd>
+<dt>Authentication factor</dt><dd>Một nhóm bằng chứng: thứ bạn <b>biết</b>, thứ bạn <b>có</b>, thứ bạn <b>là</b>.</dd>
+<dt>TOTP</dt><dd>Mã 6 số đổi mỗi ~30 giây trong app Authenticator, tính từ một secret lưu trên điện thoại.</dd>
+<dt>Passkey</dt><dd>Khóa đăng nhập lưu trong thiết bị, thay mật khẩu; mở khóa bằng vân tay/khuôn mặt/PIN.</dd>
+</dl></div>
+
+<!-- ===================================================== -->
+<h2 id="sso-federation-mfa">D. SSO, Federation, MFA <span class="badge must">Must</span></h2>
+
+<h3 id="sso">Single Sign-On (SSO)</h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Giống <b>vòng đeo tay ở công viên giải trí</b>: bạn mua vé và xác minh <b>một lần ở cổng</b>, sau đó mỗi trò chơi chỉ cần nhìn vòng tay là cho vào. Mỗi trò chơi vẫn tự quản lý hàng chờ của mình (session riêng) — chỉ có “vòng tay” (phiên ở IdP) là dùng chung.</div>
+<p>Định nghĩa: người dùng đăng nhập qua <b>một</b> hệ thống xác thực và truy cập được <b>nhiều</b> ứng dụng mà không phải nhập lại thông tin đăng nhập mỗi lần — miễn là phiên còn hiệu lực và chính sách cho phép.</p>
+<p>Sơ đồ dưới đây là chuyện xảy ra khi An mở hr-web, rồi sau đó mở Wiki. Hãy để ý: <b>lần thứ hai IdP không hỏi mật khẩu</b>, nhưng Wiki vẫn tự tạo session riêng.</p>
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  participant U as 👤 User (Browser)
+  participant A as App A (HR)
+  participant I as IdP
+  participant B as App B (Wiki)
+  U->>A: Mở App A
+  A-->>U: Chuyển hướng tới IdP
+  U->>I: Đăng nhập (mật khẩu + MFA)
+  I-->>U: Set cookie phiên IdP + kết quả xác thực
+  U->>A: Chuyển kết quả xác thực về App A
+  Note over A: App A tạo session riêng
+  Note over U,B: Một lúc sau...
+  U->>B: Mở App B
+  B-->>U: Chuyển hướng tới IdP
+  U->>I: Browser gửi kèm cookie phiên IdP
+  I-->>U: Phiên còn hiệu lực → KHÔNG hỏi mật khẩu
+  U->>B: Chuyển kết quả xác thực về App B
+  Note over B: App B tạo session riêng
+</pre>
+<div class="caption">SSO: mỗi app vẫn có session riêng; thứ được “chia sẻ” là phiên đăng nhập ở IdP.</div>
+</div>
+<div class="callout example"><span class="callout-title">🧪 Ví dụ: ba session của An</span>
+Sau khi An dùng cả hr-web và Wiki, trình duyệt của An đang giữ <b>ba</b> cookie khác nhau: cookie phiên ở Entra ID, cookie session của hr-web và cookie session của Wiki. Nếu An bấm “Đăng xuất” chỉ ở hr-web, session hr-web mất nhưng Wiki và phiên Entra ID vẫn còn — mở lại hr-web sẽ được đăng nhập ngay mà không hỏi mật khẩu. Đăng xuất “sạch” trên mọi app là chủ đề riêng (<a href="m03-6-discovery-logout.html">Module 03</a>).</div>
+
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>SSO nghĩa là tất cả ứng dụng dùng chung một session.</span><span class="f-label">Thực tế</span><span>Mỗi ứng dụng thường có session riêng; thứ dùng chung là <b>phiên ở IdP</b>. Trong ví dụ trên, trình duyệt của An giữ ba cookie khác nhau cho Entra ID, hr-web và Wiki.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Đã có SSO thì đăng xuất ở một app là đăng xuất khỏi mọi nơi.</span><span class="f-label">Thực tế</span><span>SSO chỉ lo phần <b>đăng nhập</b>. Đăng xuất đồng loạt cần cơ chế riêng (vd. OIDC RP-Initiated / Back-Channel Logout, SAML Single Logout) và phải được cấu hình. Nếu không, An bấm “Đăng xuất” ở hr-web trên máy dùng chung thì Wiki và phiên Entra ID vẫn mở cho người ngồi sau.</span></div>
+
+<h3 id="federation">Federation</h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Federation giống <b>thỏa thuận miễn thị thực</b> giữa hai quốc gia: nước A đồng ý chấp nhận hộ chiếu do nước B cấp. Thỏa thuận đó là <b>quan hệ tin cậy</b>, không phải trải nghiệm đi lại. Trong phần mềm, “thỏa thuận” là việc hai bên trao đổi <b>metadata</b> (thông tin cấu hình: địa chỉ endpoint, định danh) và <b>certificate</b> để kiểm tra được chữ ký của nhau.</div>
+<p>Định nghĩa: các miền bảo mật (security domain — mỗi tổ chức/hệ thống quản lý danh tính riêng) thiết lập <b>trust</b> để chấp nhận thông tin danh tính, assertion hoặc token do bên kia phát hành.</p>
+<p>Ví dụ: công ty A cho nhân viên của đối tác B đăng nhập bằng tài khoản của B — vì A tin chữ ký của IdP thuộc B (hai bên đã trao đổi metadata/certificate). A không cần tạo mật khẩu cho người của B.</p>
+
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: SSO vs Federation</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>SSO</th><th>Federation</th></tr></thead>
+<tbody>
+<tr><td>Trả lời câu hỏi</td><td>“Người dùng có phải đăng nhập lại khi chuyển sang app khác không?”</td><td>“Miền bảo mật này có <b>tin</b> danh tính do miền kia phát hành không?”</td></tr>
+<tr><td>Bản chất</td><td><b>Trải nghiệm</b> người dùng</td><td><b>Quan hệ tin cậy</b> giữa các hệ thống</td></tr>
+<tr><td>Dựa vào</td><td>Phiên đăng nhập còn hiệu lực ở IdP (thường là cookie)</td><td>Metadata + certificate đã trao đổi trước, chữ ký trên assertion/token</td></tr>
+<tr><td>Phạm vi</td><td>Có thể nằm gọn trong <b>một</b> miền</td><td>Luôn nói về <b>giữa</b> các miền độc lập</td></tr>
+<tr><td>Đời thường</td><td>Vòng tay công viên: vào nhiều trò chơi không phải mua vé lại</td><td>Hiệp định miễn thị thực giữa hai nước</td></tr>
+<tr><td>Trong Kaopiz HR</td><td>An đăng nhập Entra ID một lần, dùng cả hr-web và Wiki</td><td><i>Giả sử</i> kế toán thuê ngoài của công ty đối tác đăng nhập hr-web bằng tài khoản <b>do công ty họ quản lý</b> — Entra ID của Kaopiz tin IdP của đối tác</td></tr>
+<tr><td>Có cái này mà không có cái kia?</td><td>Có: SSO bằng Kerberos trong một Windows domain — không có miền thứ hai nào</td><td>Có: trust đã thiết lập nhưng chính sách bắt đăng nhập lại ở mỗi app → không có trải nghiệm SSO</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> Bạn đăng nhập Gmail rồi mở YouTube không phải gõ lại mật khẩu — đó là SSO trong cùng hệ thống tài khoản Google. Còn khi một trang web lạ có nút “Đăng nhập bằng Google” và tin kết quả Google gửi về — trang đó đang dựa vào quan hệ tin cậy với Google, gần với ý tưởng federation.</p>
+<span class="rule">SSO là cảm giác “không phải đăng nhập lại”; Federation là lý do một hệ thống “chịu tin” hệ thống khác. Hay đi cùng nhau (federated SSO) nhưng không đồng nghĩa.</span>
+</div>
+
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Federation = SSO.</span><span class="f-label">Thực tế</span><span>Federation là <b>quan hệ tin cậy</b> giữa các miền; SSO là <b>trải nghiệm</b> đăng nhập một lần. Thường đi cùng nhau nhưng không đồng nghĩa: SSO bằng Kerberos trong một Windows domain không cần federation.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Federation nghĩa là hai bên đồng bộ database người dùng hoặc chia sẻ mật khẩu cho nhau.</span><span class="f-label">Thực tế</span><span>Mật khẩu không bao giờ rời IdP của bên kia. Bên nhận chỉ kiểm tra <b>chữ ký</b> trên assertion/token bằng certificate đã trao đổi trước. Ví dụ: Entra ID của Kaopiz không biết mật khẩu của kế toán thuê ngoài — nó chỉ tin kết quả đăng nhập có chữ ký hợp lệ từ IdP đối tác.</span></div>
+
+<h3 id="mfa">Multi-Factor Authentication (MFA)</h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Rút tiền ATM cần <b>thẻ</b> (thứ bạn có) <b>và</b> <b>mã PIN</b> (thứ bạn biết). Kẻ trộm nhìn trộm được PIN vẫn chưa rút được tiền nếu không có thẻ, và ngược lại. Ý tưởng của MFA là: lộ <b>một</b> yếu tố chưa đủ để chiếm tài khoản. Nếu cả hai yếu tố đều là “thứ bạn biết” (hai mật khẩu), một trang lừa đảo có thể hỏi và lấy cả hai cùng lúc — nên không còn tác dụng.</div>
+<p>MFA (Multi-Factor Authentication — xác thực đa yếu tố) dùng <b>ít nhất hai yếu tố thuộc các nhóm độc lập</b>:</p>
+<div class="grid cols-3">
+  <div class="card"><span class="icon">🧠</span><h4>Something you know</h4><p>Thứ bạn <b>biết</b>: mật khẩu, PIN.</p></div>
+  <div class="card"><span class="icon">📱</span><h4>Something you have</h4><p>Thứ bạn <b>có</b>: thiết bị, điện thoại, security key.</p></div>
+  <div class="card"><span class="icon">👆</span><h4>Something you are</h4><p>Thứ bạn <b>là</b>: đặc điểm sinh trắc học (vân tay, khuôn mặt).</p></div>
+</div>
+
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: ba nhóm factor — và những thứ “trông giống” nhưng không thuộc nhóm đó</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Know (biết)</th><th>Have (có)</th><th>Are (là)</th></tr></thead>
+<tbody>
+<tr><td>Kẻ tấn công phải làm gì để có</td><td>Lừa hỏi, đoán, nhìn trộm, mua dữ liệu rò rỉ</td><td>Lấy được thiết bị/secret trong thiết bị</td><td>Giả được đặc điểm cơ thể <i>trên đúng thiết bị</i> đó</td></tr>
+<tr><td>Ví dụ đúng</td><td>Mật khẩu, PIN, câu hỏi bảo mật</td><td>Điện thoại có app TOTP, security key, smart card</td><td>Vân tay, khuôn mặt</td></tr>
+<tr><td>Trông giống nhưng <b>KHÔNG</b> thuộc nhóm này</td><td>Mã TOTP 6 số: bạn gõ tay nên tưởng là “biết”, nhưng bạn không thuộc nó — nó chứng minh bạn <b>có</b> điện thoại chứa secret → nhóm <b>have</b></td><td>Số điện thoại bạn khai báo: chỉ là thông tin, ai cũng biết được. Thứ chứng minh “có” là việc <b>nhận được mã</b> gửi tới SIM đó (và đó là have yếu)</td><td>PIN mở khóa Windows Hello/passkey: dùng thay cho vân tay, nhưng là <b>know</b>, không phải are</td></tr>
+<tr><td>Trong Kaopiz HR</td><td>Mật khẩu Entra ID của An</td><td>Điện thoại giữ passkey của An</td><td>Vân tay An dùng để mở khóa passkey trên điện thoại</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> Email/username <b>không</b> thuộc nhóm nào — đó là identifier, không phải bằng chứng. Địa chỉ IP hay vị trí cũng không phải factor; IdP có thể dùng chúng làm <i>tín hiệu rủi ro</i> (vd. đăng nhập từ nước lạ thì đòi thêm MFA), nhưng chúng không thay được một yếu tố xác thực.</p>
+<span class="rule">Hỏi “kẻ gian cần làm gì để có nó?” — câu trả lời cho biết nó thuộc nhóm nào. Hai thứ bị lấy cùng một cách thì cùng một nhóm.</span>
+</div>
+
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: MFA vs 2-step verification vs nhiều mật khẩu</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>MFA</th><th>2-step verification (2SV)</th><th>Nhiều mật khẩu / nhiều câu hỏi</th></tr></thead>
+<tbody>
+<tr><td>Đếm cái gì</td><td>Số <b>nhóm</b> yếu tố khác nhau (≥ 2)</td><td>Số <b>bước</b> đăng nhập (= 2)</td><td>Số bí mật cùng nhóm “know”</td></tr>
+<tr><td>Có phải MFA không?</td><td>Có (theo định nghĩa)</td><td><b>Tùy</b>: là MFA nếu bước 2 khác nhóm với bước 1 (mật khẩu → mã TOTP); không phải nếu cùng nhóm</td><td><b>Không</b> — vẫn là 1 nhóm</td></tr>
+<tr><td>Ví dụ</td><td>Mật khẩu + passkey; smart card + PIN</td><td>Nhập mật khẩu → màn hình 2 nhập mã từ app</td><td>Mật khẩu + “mật khẩu cấp 2”; mật khẩu + câu hỏi bảo mật</td></tr>
+<tr><td>Một trang phishing lấy được gì</td><td>Mật khẩu, nhưng không lấy được điện thoại/khóa trong thiết bị</td><td>Tùy bước 2 — mã TOTP vẫn có thể bị lừa gõ vào trang giả</td><td>Hỏi và lấy được <b>tất cả</b> trong cùng một trang</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> Một hệ thống cũ hỏi mật khẩu, rồi màn hình thứ hai hỏi “mật khẩu cấp 2”. Đó là 2 bước nhưng chỉ 1 nhóm (know) — kẻ dùng keylogger ghi được cả hai. Trong Kaopiz HR, Entra ID được cấu hình đòi mật khẩu (know) + passkey trên điện thoại (have) → đây mới là MFA. hr-web không tự kiểm tra các yếu tố này; nó nhận kết quả từ IdP (sau này bạn sẽ thấy IdP có thể báo phương thức đã dùng qua claim <code>amr</code> — <a href="m03-5-oidc.html#id-token">Module 03</a>).</p>
+<span class="rule">MFA đếm <b>loại</b>, không đếm <b>bước</b>. Hai bước cùng loại = vẫn một yếu tố.</span>
+</div>
+
+<div class="dodont">
+<div class="do"><h5>✅ Là MFA</h5><ul><li>Mật khẩu + mã TOTP trong app trên điện thoại (know + have).</li><li>Passkey mở khóa bằng vân tay (have: thiết bị giữ private key + are/know: sinh trắc/PIN để mở khóa).</li><li>Smart card + PIN.</li></ul></div>
+<div class="dont"><h5>❌ Không phải MFA</h5><ul><li>Mật khẩu + câu hỏi bảo mật (cả hai đều là “know”).</li><li>Hai mật khẩu khác nhau.</li><li>Hai màn hình nhập liệu liên tiếp cùng một loại yếu tố.</li></ul></div>
+</div>
+<div class="callout info"><span class="callout-title">ℹ️ Sinh trắc học không bị gửi lên server</span>
+Với passkey/Windows Hello/Face ID, sinh trắc học thường được dùng <b>cục bộ</b> để mở khóa <i>authenticator</i> (thiết bị/bộ phận giữ khóa bí mật). Server chỉ nhận <b>chữ ký số</b>, không nhận ảnh khuôn mặt hay vân tay. Chi tiết ở <a href="m05-3-webauthn.html#webauthn">Module 05 — WebAuthn</a>.</div>
+
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Có hai màn hình đăng nhập là MFA.</span><span class="f-label">Thực tế</span><span>MFA đếm <b>loại</b> yếu tố (biết / có / là), không đếm <b>bước</b>. “Mật khẩu + mật khẩu cấp 2” hay “mật khẩu + câu hỏi bảo mật” là 2 bước nhưng chỉ 1 loại (know).</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Mã TOTP phải gõ tay nên là “thứ bạn biết”.</span><span class="f-label">Thực tế</span><span>Bạn không thuộc mã đó — nó được tính từ secret nằm trong điện thoại. Gõ đúng mã chứng minh bạn đang <b>có</b> thiết bị giữ secret → nhóm <b>have</b>. Kẻ gian biết mật khẩu của An mà không có điện thoại (hoặc secret) thì không tính ra mã.</span></div>
+
+<!-- ===================================================== -->
+<h2 id="factors">E. Authentication factors và phương thức <span class="badge should">Should</span></h2>
+<p>Bảng dưới liệt kê các cách đăng nhập phổ biến, mỗi cách thuộc nhóm yếu tố nào và yếu ở đâu. Ở module này bạn chỉ cần <b>nhận ra và xếp đúng nhóm</b>; cách triển khai sẽ học sau.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Phương thức</th><th>Yếu tố</th><th>Cách hoạt động (tóm tắt)</th><th>Điểm yếu tiêu biểu</th></tr></thead>
+<tbody>
+<tr><td>Password-based</td><td>Know</td><td>So khớp mật khẩu với hash đã lưu (<a href="m02-1-crypto.html#password-hashing">M02</a>).</td><td>Đoán, lộ, tái sử dụng, phishing.</td></tr>
+<tr><td>TOTP / HOTP</td><td>Have</td><td>App sinh mã từ secret chung + thời gian (TOTP, RFC 6238) hoặc bộ đếm (HOTP, RFC 4226).</td><td>Vẫn bị phishing/AiTM (người dùng gõ mã vào trang giả).</td></tr>
+<tr><td>OTP qua SMS / email</td><td>Have (yếu)</td><td>Server gửi mã qua kênh SMS/email.</td><td>SIM swap, chặn SMS, chiếm email; phishing.</td></tr>
+<tr><td>Certificate / public-key</td><td>Have</td><td>Chứng minh sở hữu private key gắn với chứng thư X.509 (smart card, mTLS).</td><td>Cần PKI, cấp phát/thu hồi chứng thư.</td></tr>
+<tr><td>Push-based</td><td>Have</td><td>App xác thực nhận thông báo, người dùng bấm “Chấp nhận”.</td><td>MFA fatigue (push bombing), AiTM.</td></tr>
+<tr><td>Passkey / FIDO2</td><td>Have (+ know/are để mở khóa)</td><td>Ký challenge bằng private key gắn với origin của website.</td><td>Cần quy trình recovery khi mất thiết bị.</td></tr>
+<tr><td>Biometric-assisted</td><td>Are</td><td>Sinh trắc mở khóa authenticator cục bộ.</td><td>Không thay đổi được nếu bị lộ; nên dùng cục bộ.</td></tr>
+</tbody></table></div>
+<p class="small muted">Giải thích nhanh vài từ trong bảng: <b>phishing</b> = trang/email giả để lừa bạn nhập thông tin; <b>AiTM</b> (Adversary-in-the-Middle) = trang giả đứng giữa chuyển tiếp mọi thứ bạn gõ sang trang thật; <b>SIM swap</b> = kẻ gian làm lại SIM số điện thoại của bạn để nhận SMS; <b>MFA fatigue</b> = gửi dồn dập thông báo “Chấp nhận?” đến khi bạn lỡ bấm.</p>
+<p>Mức độ bảo vệ khác nhau và các tấn công cụ thể (SIM swap, MFA fatigue, AiTM) được phân tích ở <a href="m06-3-web-threats.html#threats">Module 06</a>.</p>
+
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Đã bật MFA thì không thể bị phishing.</span><span class="f-label">Thực tế</span><span>Phụ thuộc vào phương thức. Mã TOTP/SMS vẫn có thể bị lừa gõ vào trang giả kiểu AiTM; push có thể bị dội liên tục (MFA fatigue). Passkey/FIDO2 chống phishing tốt hơn vì chữ ký gắn với <b>origin</b> (địa chỉ website) thật, nên trang giả không dùng được.</span></div>
+
+<div class="callout tip"><span class="callout-title">✅ Tự kiểm tra nhanh</span><ul>
+<li>An đã đăng nhập hr-web, mở Wiki không bị hỏi mật khẩu. Đó là SSO hay Federation? Nếu Wiki thuộc một công ty khác thì sao?</li>
+<li>Mật khẩu + mã gửi qua SMS: có phải MFA không? Mạnh hay yếu?</li>
+<li>Vì sao “mật khẩu + mật khẩu cấp 2” là 2-step nhưng không phải MFA?</li>
+</ul></div>
+
+<h2 id="quiz-bai">Quiz nhanh — Bài 1.2</h2>
+<div id="quiz"></div>
+
+</main>
+<script>
+window.QUIZ = [
+  { q: "Trên máy tính dùng chung, An đăng nhập Entra ID rồi dùng hr-web và Wiki. Hệ thống <b>chưa cấu hình</b> cơ chế đăng xuất đồng loạt nào. An bấm “Đăng xuất” ở hr-web rồi rời đi. Đồng nghiệp ngồi vào mở Wiki. Nhiều khả năng điều gì xảy ra?", tricky: true,
+    options: ["Wiki đòi đăng nhập, vì SSO nghĩa là đăng xuất một nơi là đăng xuất mọi nơi", "Wiki vẫn mở dưới tài khoản An, vì session riêng của Wiki chưa bị xóa", "Wiki đòi đăng nhập nhưng nếu đồng nghiệp mở lại hr-web thì sẽ phải nhập mật khẩu của An", "Entra ID tự hủy phiên của An ngay khi hr-web xóa session"],
+    answer: 1,
+    why: ["SSO chỉ lo phần đăng nhập; đăng xuất đồng loạt cần cơ chế riêng (OIDC logout, SAML SLO), và đề bài nói chưa cấu hình.", "Đăng xuất ở hr-web chỉ xóa cookie session của hr-web; cookie session của Wiki và cookie phiên Entra ID vẫn còn.", "Ngược lại: phiên Entra ID còn hiệu lực nên mở lại hr-web sẽ được đăng nhập lại ngay mà không hỏi mật khẩu.", "hr-web xóa session cục bộ không tự báo cho Entra ID; IdP chỉ biết khi có request logout gửi tới nó."],
+    explain: "Có ba session độc lập: ở Entra ID, ở hr-web, ở Wiki. Đăng xuất một app không chạm tới hai cái còn lại nếu không có cơ chế logout riêng — xem <a href='m01-2-sso-federation-mfa.html#sso'>SSO</a> và <a href='m03-6-discovery-logout.html'>Module 03</a>." },
+  { q: "Ngân hàng X đăng nhập qua ba màn hình: mật khẩu → câu hỏi bảo mật “Tên trường tiểu học?” → mã PIN giao dịch 6 số do bạn tự đặt. Đánh giá nào đúng?", tricky: true,
+    options: ["Đây là MFA 3 yếu tố vì có 3 bước", "Là MFA vì có ít nhất 2 bước", "Chỉ có 1 nhóm yếu tố (know) — đây là 3-step nhưng không phải MFA", "Là MFA vì mã PIN 6 số giống mã OTP nên thuộc nhóm have"],
+    answer: 2,
+    why: ["MFA đếm số <b>loại</b> yếu tố, không đếm số màn hình; cả ba đều là thứ bạn biết.", "Số bước không quyết định; hai bước cùng nhóm vẫn chỉ là một yếu tố.", "Mật khẩu, câu trả lời bí mật và PIN tự đặt đều là “know” — một trang phishing có thể hỏi và lấy cả ba cùng lúc.", "PIN tự đặt là thứ bạn nhớ (know). Mã OTP thuộc have vì sinh từ secret trong thiết bị, còn PIN thì không sinh từ đâu cả — giống “6 số” chỉ là hình thức."],
+    explain: "Hỏi “kẻ gian cần làm gì để có nó?”: cả ba đều lấy được bằng lừa hỏi/keylogger → cùng nhóm know. Xem <a href='m01-2-sso-federation-mfa.html#mfa'>MFA</a>." },
+  { q: "Kẻ gian đã biết mật khẩu Entra ID của An và biết An dùng app Authenticator (TOTP). Để qua được bước thứ hai, hắn <b>còn cần</b> gì?",
+    options: ["Thuộc thuật toán TOTP trong RFC 6238", "Secret TOTP nằm trong điện thoại An — hoặc lừa An gõ mã hiện tại vào trang giả", "Số điện thoại của An", "Biết tên app Authenticator An đang dùng"],
+    answer: 1,
+    why: ["Thuật toán TOTP là công khai; không có secret thì biết thuật toán cũng không tính ra mã.", "Mã TOTP chỉ tính được từ secret trên thiết bị — đó là lý do TOTP thuộc nhóm have; phishing/AiTM là cách lách bằng cách lấy mã hiện tại từ chính An.", "TOTP không gửi qua SMS; số điện thoại chỉ là thông tin, không sinh ra mã.", "Tên app là thông tin công khai, không giúp tính được mã."],
+    explain: "TOTP chứng minh bạn <b>có</b> thiết bị giữ secret, dù bạn gõ mã bằng tay. Điểm yếu của nó là vẫn bị lừa nhập vào trang giả — xem <a href='m01-2-sso-federation-mfa.html#factors'>mục E</a>." },
+  { q: "Những tình huống nào cần <b>federation</b> (quan hệ tin cậy giữa các miền danh tính độc lập)?",
+    options: ["Kế toán thuê ngoài đăng nhập hr-web bằng tài khoản do công ty của họ quản lý; Entra ID của Kaopiz tin IdP của đối tác", "Nhân viên đăng nhập máy tính trong Windows domain rồi mở các app nội bộ dùng Kerberos mà không gõ lại mật khẩu", "Kaopiz trao đổi metadata SAML và certificate với IdP của công ty mẹ để nhân viên công ty mẹ vào được hr-web", "hr-web và Wiki mỗi app tự lưu mật khẩu trong DB riêng, An đặt cùng một mật khẩu cho cả hai"],
+    answer: [0, 2],
+    why: ["Hai tổ chức, hai IdP độc lập; Kaopiz chấp nhận danh tính do bên kia phát hành → federation.", "Đây là SSO nằm gọn trong <b>một</b> miền (một domain, một KDC) — không có miền thứ hai cần tin.", "Trao đổi metadata/certificate để tin assertion của một IdP thuộc tổ chức khác chính là thiết lập federation.", "Không có trust nào giữa các bên — chỉ là hai hệ thống tự xác thực riêng, tình cờ trùng mật khẩu (cũng không phải SSO)."],
+    explain: "Federation luôn nói về <b>giữa</b> các miền độc lập, dựa trên metadata + certificate. SSO có thể nằm trong một miền. Xem <a href='m01-2-sso-federation-mfa.html#federation'>Federation</a>." },
+  { q: "Những phương thức nào thuộc nhóm <b>have</b> (thứ bạn có)?",
+    options: ["Mã OTP gửi qua SMS", "PIN dùng để mở khóa Windows Hello", "Smart card", "Câu hỏi bảo mật", "Bấm “Chấp nhận” trên thông báo push của app xác thực"],
+    answer: [0, 2, 4],
+    why: ["Nhận được mã gửi tới SIM chứng minh bạn giữ SIM đó — have, dù yếu (SIM swap, chặn SMS).", "PIN là thứ bạn nhớ → know, dù nó thay vân tay để mở khóa thiết bị.", "Smart card chứa private key; chứng minh sở hữu key → have.", "Câu trả lời là thứ bạn biết (và thường dễ đoán/tra được) → know.", "Push chỉ tới được thiết bị đã đăng ký; bấm chấp nhận chứng minh bạn đang cầm thiết bị đó → have."],
+    explain: "Xếp nhóm theo câu hỏi “kẻ gian cần làm gì để có nó?”. Xem bảng phương thức ở <a href='m01-2-sso-federation-mfa.html#factors'>mục E</a>." },
+  { q: "2 giờ sáng, điện thoại An liên tục hiện thông báo “Chấp nhận đăng nhập Entra ID?” dù An không đăng nhập. Cách hiểu và phản ứng đúng là gì?",
+    options: ["App bị lỗi, bấm “Chấp nhận” một lần cho hết thông báo", "Có người đã biết mật khẩu của An và đang dội push mong An lỡ bấm (MFA fatigue) — từ chối, đổi mật khẩu và báo IT", "Entra ID đang kiểm tra định kỳ, không cần làm gì", "Điện thoại An đã bị đánh cắp"],
+    answer: 1,
+    why: ["Bấm “Chấp nhận” là trao yếu tố thứ hai cho kẻ gian — đúng điều tấn công này mong muốn.", "Push chỉ được gửi sau khi bước mật khẩu đã qua, nên mật khẩu đã lộ; kẻ gian dội push để An mệt mà bấm nhầm.", "IdP không gửi yêu cầu đăng nhập khi không có ai đang đăng nhập.", "Điện thoại vẫn ở chỗ An (đang nhận push); thứ bị lộ là yếu tố know (mật khẩu), không phải thiết bị."],
+    explain: "MFA fatigue (push bombing) khai thác thói quen bấm “Chấp nhận”. Yếu tố have chặn được kẻ gian chỉ khi An không tự trao nó. Xem <a href='m06-3-web-threats.html#threats'>Module 06</a>." }
+];
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="assets/pages.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

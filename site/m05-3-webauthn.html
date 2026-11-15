@@ -1,0 +1,349 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M05 · Bài 5.3 · WebAuthn: thành phần, đăng ký, đăng nhập</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<main class="content">
+
+<div class="page-head">
+  <div class="breadcrumb"><a href="index.html">Lộ trình</a> / <a href="m05-enterprise-passwordless.html">Module 05</a> / Bài 5.3</div>
+  <h1>Bài 5.3 — WebAuthn: thành phần, đăng ký, đăng nhập</h1>
+  <p class="lead">Đăng nhập không cần mật khẩu hoạt động thế nào? Bài này giới thiệu các “mảnh ghép” FIDO2, WebAuthn, CTAP, rồi đi qua hai bước chính: <b>đăng ký</b> (thiết bị tạo cặp khóa, gửi public key cho website) và <b>đăng nhập</b> (thiết bị ký câu đố, website kiểm chữ ký).</p>
+  <div class="meta-row">
+    <span class="chip">⏱ ~20 phút</span>
+    <span class="chip">📘 <a href="m05-enterprise-passwordless.html">Module 05 · Enterprise Auth &amp; Passwordless</a></span>
+  </div>
+</div>
+
+<!-- ===================================================== -->
+<h2 id="passwordless">Passwordless: FIDO2, WebAuthn, CTAP, Passkeys</h2>
+
+<div class="terms"><span class="terms-title">📖 Thuật ngữ trong bài</span><dl>
+<dt>Authenticator</dt><dd>Thứ giữ private key và hỏi vân tay/PIN của bạn: điện thoại, laptop (Windows Hello), security key USB.</dd>
+<dt>Relying Party (RP)</dt><dd>Website/ứng dụng mà bạn đăng nhập vào, vd. Kaopiz HR.</dd>
+<dt>RP ID</dt><dd>Tên miền mà passkey “thuộc về”, vd. <code>hr.company.com</code>.</dd>
+<dt>Challenge</dt><dd>Chuỗi ngẫu nhiên server phát ra mỗi lần, để thiết bị ký — chống dùng lại chữ ký cũ.</dd>
+<dt>Credential ID</dt><dd>Mã số định danh của một passkey, để server biết cần dùng public key nào.</dd>
+<dt>Ceremony</dt><dd>“Nghi thức” — cách WebAuthn gọi một lượt thao tác: <i>registration</i> (đăng ký) hoặc <i>authentication</i> (đăng nhập).</dd>
+<dt>Attestation</dt><dd>“Giấy xuất xưởng” của authenticator, gửi kèm khi <b>đăng ký</b> (tùy chọn).</dd>
+<dt>Assertion</dt><dd>Gói dữ liệu đã ký mà authenticator trả về khi <b>đăng nhập</b>.</dd>
+<dt>Passkey</dt><dd>Tên thân thiện của một credential FIDO dùng thay mật khẩu.</dd>
+</dl></div>
+
+<h3 id="webauthn">A. Các thành phần <span class="badge must">Must</span></h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Thay vì một mật khẩu (bí mật mà <b>cả bạn và server cùng biết</b>), bạn có một <b>cặp chìa khóa</b>: chìa riêng (private key) nằm trong điện thoại/security key và <b>không bao giờ rời khỏi đó</b>; ổ khóa (public key) gửi cho website. Mỗi lần đăng nhập, website đưa một câu đố mới, thiết bị dùng chìa riêng “ký” câu đố, website dùng ổ khóa kiểm tra. Server bị hack cũng chỉ lộ ổ khóa — vô dụng với kẻ trộm.</div>
+
+<p>Sơ đồ dưới cho thấy <b>ai nói chuyện với ai</b>: website chỉ nói chuyện với trình duyệt (qua WebAuthn); trình duyệt/hệ điều hành mới là bên nói chuyện với authenticator (qua CTAP nếu authenticator nằm ngoài máy).</p>
+
+<div class="diagram">
+<pre class="mermaid">
+flowchart LR
+  subgraph FIDO2["FIDO2"]
+    direction LR
+    WA["WebAuthn<br/>(W3C)<br/>API JavaScript trong browser"]
+    CT["CTAP<br/>(FIDO Alliance)<br/>giao thức browser ⇄ authenticator"]
+  end
+  RP["🌐 Relying Party<br/>hr.company.com<br/>(server + JS)"] -- "JS gọi navigator.credentials" --> BR["🧭 Browser / OS<br/>(client)"]
+  BR --- WA
+  BR -- "nội bộ" --> PA["📱 Platform authenticator<br/>Windows Hello, Touch ID,<br/>Android"]
+  BR -- "CTAP qua USB / NFC / BLE" --> RA["🔑 Roaming authenticator<br/>security key"]
+  BR -- "hybrid (QR + Bluetooth)" --> PH["📱 Điện thoại gần đó"]
+  CT --- RA
+</pre>
+<div class="caption">FIDO2 = WebAuthn (website ⇄ browser) + CTAP (browser/OS ⇄ authenticator rời). Platform authenticator nằm sẵn trong thiết bị nên không cần CTAP qua dây/sóng.</div>
+</div>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Thuật ngữ</th><th>Ý nghĩa</th><th>Ví dụ</th></tr></thead>
+<tbody>
+<tr><td><b>FIDO2</b></td><td>Bộ tiêu chuẩn xác thực không mật khẩu, gồm <b>WebAuthn + CTAP</b>.</td><td>—</td></tr>
+<tr><td><b>WebAuthn</b> (Web Authentication)</td><td>Chuẩn W3C định nghĩa API JavaScript <code>navigator.credentials.create()/get()</code> để website làm việc với authenticator. Phiên bản hiện hành: WebAuthn Level 3 (W3C Recommendation, 8/2026).</td><td>Code JS trên trang đăng nhập HR.</td></tr>
+<tr><td><b>CTAP</b> (Client to Authenticator Protocol)</td><td>Giao thức của FIDO Alliance giữa client platform (browser/OS) và authenticator rời qua USB/NFC/BLE, hoặc điện thoại qua “hybrid”.</td><td>Cắm YubiKey vào laptop.</td></tr>
+<tr><td><b>Authenticator</b></td><td>Thiết bị/phần mềm tạo và giữ cặp khóa, xác minh người dùng cục bộ, ký challenge.</td><td>Windows Hello, iCloud Keychain, Google Password Manager, security key.</td></tr>
+<tr><td><b>Relying Party (RP)</b></td><td>Website/ứng dụng đăng ký và xác minh credential. <b>RP ID</b> = tên miền mà credential gắn vào.</td><td>Kaopiz HR, RP ID <code>hr.company.com</code>.</td></tr>
+<tr><td><b>Platform authenticator</b></td><td>Tích hợp sẵn trong thiết bị.</td><td>Windows Hello, Touch ID/Face ID, Android.</td></tr>
+<tr><td><b>Roaming authenticator</b></td><td>Rời, mang đi dùng với nhiều máy.</td><td>Security key USB/NFC.</td></tr>
+<tr><td><b>Passkey</b></td><td>Tên gọi thân thiện của FIDO credential dạng <i>discoverable</i> (tự tìm được, không cần nhập username) — có thể <b>đồng bộ</b> giữa các thiết bị hoặc <b>gắn với một thiết bị</b>.</td><td>Passkey của An trong Google Password Manager.</td></tr>
+</tbody></table></div>
+
+<div class="compare" id="fido2-webauthn-ctap-passkey"><span class="compare-title">Phân biệt dễ nhầm: FIDO2 vs WebAuthn vs CTAP vs Passkey</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tên</th><th>Loại</th><th>Ai định nghĩa</th><th>Nói chuyện giữa</th><th>Developer web có đụng tới?</th></tr></thead>
+<tbody>
+<tr><td><b>FIDO2</b></td><td>Tên <b>bộ</b> chuẩn (ô dù)</td><td>FIDO Alliance + W3C</td><td>Gồm hai chuẩn dưới</td><td>Chỉ là tên gọi chung</td></tr>
+<tr><td><b>WebAuthn</b></td><td>API JavaScript</td><td>W3C</td><td>Website ⇄ trình duyệt</td><td>✅ Có — bạn gọi <code>navigator.credentials.create/get</code></td></tr>
+<tr><td><b>CTAP</b></td><td>Giao thức thiết bị</td><td>FIDO Alliance</td><td>Trình duyệt/OS ⇄ authenticator (USB, NFC, BLE, hybrid)</td><td>❌ Hầu như không — trình duyệt lo</td></tr>
+<tr><td><b>Passkey</b></td><td>Tên thân thiện của <b>credential</b></td><td>Tên gọi phổ biến (Apple, Google, Microsoft, FIDO)</td><td>— (là “thứ được tạo ra”, không phải giao thức)</td><td>Là cái người dùng nhìn thấy trong UI</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> An bấm “Tạo passkey” trên Kaopiz HR. Code JS của trang gọi <b>WebAuthn</b>. Chrome thấy An cắm YubiKey nên nói chuyện với nó bằng <b>CTAP</b> qua USB. Kết quả là một <b>passkey</b> nằm trong YubiKey. Toàn bộ quy trình này được gọi là đăng nhập kiểu <b>FIDO2</b>.</p>
+<span class="rule">WebAuthn là thứ bạn code; CTAP là thứ trình duyệt lo; FIDO2 là tên gộp; passkey là kết quả.</span>
+</div>
+
+<div class="compare" id="platform-vs-roaming"><span class="compare-title">Phân biệt dễ nhầm: Platform authenticator vs Roaming authenticator</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Platform authenticator</th><th>Roaming authenticator</th></tr></thead>
+<tbody>
+<tr><td>Nằm ở đâu</td><td><b>Gắn sẵn</b> trong thiết bị đang dùng (TPM, Secure Enclave)</td><td><b>Thiết bị rời</b>, mang đi cắm/chạm vào nhiều máy</td></tr>
+<tr><td>Ví dụ</td><td>Windows Hello, Touch ID/Face ID, khóa màn hình Android</td><td>Security key USB/NFC (YubiKey…); điện thoại dùng qua hybrid cũng đóng vai trò này với laptop</td></tr>
+<tr><td>Kết nối</td><td>Nội bộ trong máy</td><td>CTAP qua USB, NFC, BLE hoặc hybrid</td></tr>
+<tr><td>Hợp với</td><td>Đăng nhập nhanh hằng ngày trên máy của mình</td><td>Dùng trên nhiều máy, máy dùng chung, tài khoản admin</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> trên laptop riêng, An đăng nhập HR bằng Windows Hello (platform). Khi ngồi máy phòng họp, An chạm YubiKey (roaming) hoặc quét QR bằng điện thoại.</p>
+<span class="rule">Platform = “ở trong máy này”; roaming = “mang theo người, dùng được ở máy khác”.</span>
+</div>
+
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Làm passkey cho website thì developer phải tự code CTAP để nói chuyện với YubiKey.</span><span class="f-label">Thực tế</span><span>Code web chỉ gọi WebAuthn (<code>navigator.credentials.create/get</code>); trình duyệt/hệ điều hành tự lo CTAP qua USB/NFC/BLE/hybrid.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Passkey là một giao thức mới, khác FIDO2/WebAuthn.</span><span class="f-label">Thực tế</span><span>Passkey là tên thân thiện của <b>credential</b> FIDO (dạng discoverable) — thứ được tạo ra bằng WebAuthn, không phải giao thức riêng.</span></div>
+
+<h3 id="webauthn-registration">B. Đăng ký (Registration)</h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Như <b>làm chìa khóa mới cho một ổ khóa</b>: website đưa “mã đơn hàng” (challenge) để chống làm giả; thiết bị của bạn đúc một cặp chìa–ổ <b>riêng cho website này</b>, giữ chìa, gửi ổ khóa cho website cất.</div>
+<p>Đăng ký xảy ra <b>một lần cho mỗi thiết bị/passkey</b>, thường khi An đã đăng nhập bằng cách cũ và vào trang “Bảo mật → Tạo passkey”. Điều cần rút ra từ sơ đồ: private key <b>sinh ra và ở lại</b> trong authenticator; thứ đi về server chỉ là public key + credential ID (+ attestation nếu có).</p>
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant U as 👤 An
+  participant B as 🧭 Browser
+  participant A as 🔑 Authenticator
+  participant RP as 🌐 RP Server (hr.company.com)
+  U->>B: Bấm Tạo passkey (đã đăng nhập)
+  B->>RP: POST /passkeys/register/options
+  Note over RP: Sinh challenge ngẫu nhiên, lưu vào session (dùng 1 lần)
+  RP-->>B: options: challenge, rp.id, user.id,<br/>pubKeyCredParams, attestation
+  B->>B: navigator.credentials.create(options)<br/>kiểm tra rp.id hợp lệ với origin
+  B->>A: authenticatorMakeCredential<br/>(hash clientDataJSON, rpId, user)
+  A->>U: Yêu cầu chạm (UP) và PIN/vân tay (UV)
+  A->>A: Tạo cặp khóa MỚI cho rpId này, cất private key
+  A-->>B: credential ID, public key,<br/>authenticatorData, attestation
+  B->>RP: POST /passkeys/register<br/>clientDataJSON + attestationObject
+  Note over RP: Verify type, challenge, origin, rpIdHash, flags UP/UV,<br/>thuật toán, attestation theo policy
+  RP->>RP: Lưu credential ID, public key, signCount, user handle...
+  RP-->>B: Đăng ký thành công
+</pre>
+<div class="caption">Registration: private key được sinh và giữ trong authenticator; RP chỉ nhận public key.</div>
+</div>
+
+<p>Code JS phía trình duyệt khá ngắn: lấy <b>options</b> từ server → gọi <code>navigator.credentials.create()</code> → gửi kết quả về server. Phần khó (kiểm tra) nằm ở server. Hai trường đáng chú ý trong options: <code>user.id</code> là <b>user handle</b> (mã ngẫu nhiên đại diện cho An, không chứa email); <code>residentKey: "required"</code> yêu cầu tạo credential <b>discoverable</b> (authenticator tự nhớ tài khoản, nên lúc đăng nhập không cần gõ username).</p>
+<pre data-title="register.js — options đăng ký (rút gọn)"><code class="language-javascript">// Server trả về options (các trường nhị phân ở dạng base64url).
+// WebAuthn L3 có helper chuyển JSON -&gt; options:
+const serverJson = await (await fetch("/passkeys/register/options", { method: "POST" })).json();
+const publicKey = PublicKeyCredential.parseCreationOptionsFromJSON(serverJson);
+
+// Nội dung tương đương (PublicKeyCredentialCreationOptions):
+// {
+//   challenge: &lt;ArrayBuffer 32 byte ngẫu nhiên từ server&gt;,
+//   rp:   { id: "hr.company.com", name: "Kaopiz HR" },
+//   user: { id: &lt;user handle: byte ngẫu nhiên, KHÔNG phải email&gt;,
+//           name: "an.nv@company.com", displayName: "Nguyễn Văn An" },
+//   pubKeyCredParams: [ { type: "public-key", alg: -7 },     // ES256
+//                       { type: "public-key", alg: -257 } ], // RS256
+//   authenticatorSelection: { residentKey: "required", userVerification: "preferred" },
+//   attestation: "none",
+//   excludeCredentials: [ /* credential đã đăng ký, tránh tạo trùng */ ],
+//   timeout: 60000
+// }
+
+const credential = await navigator.credentials.create({ publicKey });
+await fetch("/passkeys/register", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify(credential.toJSON())   // clientDataJSON + attestationObject (base64url)
+});</code></pre>
+
+<p>Kết quả gửi về server gồm hai “gói” chính. Bạn cần nhớ: <b>clientDataJSON</b> do <b>trình duyệt</b> viết (chứa challenge và origin thật); <b>authenticatorData</b> do <b>authenticator</b> viết (chứa hash của RP ID và các cờ). Server kiểm cả hai.</p>
+<div class="grid cols-2">
+<div class="card"><h4>clientDataJSON (do browser tạo)</h4>
+<pre data-title="clientDataJSON (đã decode)"><code class="language-json">{
+  "type": "webauthn.create",
+  "challenge": "q4vT8xP2...base64url",
+  "origin": "https://hr.company.com",
+  "crossOrigin": false
+}</code></pre>
+<p>Browser tự điền <code>origin</code> thật của trang — JS của trang <b>không thể</b> giả mạo. Khi đăng nhập, <code>type</code> là <code>webauthn.get</code>.</p></div>
+<div class="card"><h4>authenticatorData (do authenticator tạo)</h4>
+<div class="table-wrap"><table>
+<thead><tr><th>Trường</th><th>Kích thước</th><th>Ý nghĩa</th></tr></thead>
+<tbody>
+<tr><td><code>rpIdHash</code></td><td>32 byte</td><td>SHA-256 của RP ID</td></tr>
+<tr><td><code>flags</code></td><td>1 byte</td><td>Bit 0 <b>UP</b>, bit 2 <b>UV</b>, bit 3 <b>BE</b>, bit 4 <b>BS</b>, bit 6 <b>AT</b>, bit 7 <b>ED</b></td></tr>
+<tr><td><code>signCount</code></td><td>4 byte</td><td>Bộ đếm chữ ký (có thể luôn = 0)</td></tr>
+<tr><td><code>attestedCredentialData</code></td><td>thay đổi</td><td>Chỉ khi đăng ký: AAGUID, credential ID, public key (COSE)</td></tr>
+</tbody></table></div></div>
+</div>
+<p class="small">Flags: <b>UP</b> = User Present; <b>UV</b> = User Verified; <b>BE</b> = Backup Eligible (có thể sao lưu/đồng bộ); <b>BS</b> = Backup State (đang được sao lưu); <b>AT</b> = có attested credential data; <b>ED</b> = có extension data.</p>
+
+<div class="callout info"><span class="callout-title">ℹ️ Attestation là gì?</span>
+<b>Attestation</b> là “giấy chứng nhận xuất xưởng” của authenticator: chứng minh credential được tạo bởi loại thiết bị nào (qua AAGUID và chữ ký của nhà sản xuất). Giá trị <code>attestation</code>: <code>"none"</code> (mặc định, phù hợp hầu hết website công khai), <code>"indirect"</code>, <code>"direct"</code>, <code>"enterprise"</code>. Doanh nghiệp chỉ cho phép security key được cấp phát mới cần yêu cầu và kiểm attestation (thường đối chiếu FIDO Metadata Service).</div>
+
+<div class="compare" id="attestation-vs-assertion"><span class="compare-title">Phân biệt dễ nhầm: Attestation vs Assertion (WebAuthn) — và SAML Assertion</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>WebAuthn Attestation</th><th>WebAuthn Assertion</th><th>SAML Assertion (<a href="m04-2-assertion.html#assertion-statements">M04</a>)</th></tr></thead>
+<tbody>
+<tr><td>Xuất hiện khi</td><td><b>Đăng ký</b> (<code>create()</code>)</td><td><b>Đăng nhập</b> (<code>get()</code>)</td><td>Đăng nhập SSO qua SAML</td></tr>
+<tr><td>Ai tạo</td><td>Authenticator (ký bằng khóa của nhà sản xuất, nếu có)</td><td>Authenticator (ký bằng private key của passkey)</td><td>IdP (ký bằng khóa của IdP)</td></tr>
+<tr><td>Chứng minh</td><td>“Credential này được tạo bởi <b>loại thiết bị</b> X”</td><td>“Tôi đang giữ <b>private key</b> của credential này, cho challenge này”</td><td>“IdP xác nhận người dùng này là An, với các thuộc tính…”</td></tr>
+<tr><td>Bắt buộc?</td><td>Không — thường <code>"none"</code></td><td>Có — đây chính là bằng chứng đăng nhập</td><td>Có trong luồng SAML</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> khi An tạo passkey trên YubiKey, server HR có thể nhận <b>attestation</b> cho biết “đây là YubiKey 5 thật” (qua AAGUID — mã định danh model authenticator). Mỗi lần An đăng nhập sau đó, server nhận <b>assertion</b> gồm chữ ký trên challenge mới. Không có XML, không có IdP nào ở đây — khác hẳn SAML Assertion.</p>
+<span class="rule">Attestation = giấy xuất xưởng (lúc đăng ký). Assertion = chữ ký đăng nhập (mỗi lần login). Trùng chữ “assertion” với SAML nhưng khác hoàn toàn.</span>
+</div>
+
+<h4 id="rp-storage">RP lưu những gì sau khi đăng ký?</h4>
+<div class="table-wrap"><table>
+<thead><tr><th>Dữ liệu</th><th>Để làm gì</th></tr></thead>
+<tbody>
+<tr><td><b>Credential ID</b></td><td>Tìm credential khi đăng nhập (duy nhất, không được trùng giữa các user).</td></tr>
+<tr><td><b>Public key</b> (định dạng COSE — cách mã hóa khóa dạng nhị phân dùng trong WebAuthn) + thuật toán</td><td>Kiểm chữ ký khi đăng nhập.</td></tr>
+<tr><td><b>signCount</b></td><td>Phát hiện authenticator bị nhân bản (nếu bộ đếm có dùng).</td></tr>
+<tr><td><b>User handle</b> (<code>user.id</code>) → account</td><td>Ánh xạ credential về người dùng; với passkey discoverable, authenticator trả lại user handle khi đăng nhập.</td></tr>
+<tr><td>Cờ <b>BE/BS</b>, transports, AAGUID, ngày tạo, tên thân thiện</td><td>Chính sách (passkey đồng bộ hay gắn thiết bị), hiển thị “Passkey trên iPhone, tạo 10/11/2026” để người dùng quản lý/thu hồi.</td></tr>
+</tbody></table></div>
+<p><b>Không lưu</b> private key (RP không bao giờ có), không lưu dữ liệu sinh trắc học.</p>
+
+<div class="compare" id="challenge-credid-pubkey"><span class="compare-title">Phân biệt dễ nhầm: Challenge vs Credential ID vs Public key</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Challenge</th><th>Credential ID</th><th>Public key</th></tr></thead>
+<tbody>
+<tr><td>Ai tạo</td><td>Server (RP)</td><td>Authenticator</td><td>Authenticator (cùng lúc với private key)</td></tr>
+<tr><td>Sống bao lâu</td><td><b>Một lần</b>, vài phút</td><td>Suốt đời passkey</td><td>Suốt đời passkey</td></tr>
+<tr><td>Bí mật không?</td><td>Không bí mật, nhưng phải <b>khó đoán và chưa dùng</b></td><td>Không bí mật (như “số seri”)</td><td>Không bí mật — lộ cũng không sao</td></tr>
+<tr><td>Dùng để</td><td>Chống replay: chữ ký phải là chữ ký <b>mới</b> cho lần này</td><td>Tra xem dùng public key nào</td><td>Kiểm chữ ký</td></tr>
+<tr><td>Server lưu ở đâu</td><td>Session tạm, xóa sau khi dùng</td><td>Bảng credential trong DB</td><td>Bảng credential trong DB</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> bảng <code>passkeys</code> của Kaopiz HR có một dòng cho An: <code>credential_id = "Xk3p…"</code>, <code>public_key = (COSE, ES256)</code>, <code>sign_count = 0</code>, <code>user_handle → user_id 57</code>. Challenge <b>không</b> nằm trong bảng này; nó nằm trong session đăng nhập và bị xóa ngay khi An đăng nhập xong.</p>
+<span class="rule">Challenge đổi mỗi lần; credential ID và public key cố định cho mỗi passkey. Không cái nào trong ba cái là bí mật — bí mật duy nhất là private key, và nó không bao giờ rời authenticator.</span>
+</div>
+
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>“Assertion” trong WebAuthn giống SAML Assertion.</span><span class="f-label">Thực tế</span><span>WebAuthn assertion là chữ ký của authenticator trên challenge khi đăng nhập, kiểm bằng public key RP đã lưu; SAML Assertion là tài liệu XML do IdP ký. Chỉ trùng tên. Xem <a href="#attestation-vs-assertion">so sánh</a>.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Website nào cũng nên yêu cầu attestation <code>"direct"</code> cho chắc.</span><span class="f-label">Thực tế</span><span>Website công khai thường để <code>"none"</code>: attestation chỉ cho biết <i>loại thiết bị</i>, không chứng minh người dùng là ai, và đòi hỏi nhiều sẽ chặn nhầm nhiều passkey hợp lệ. Chỉ doanh nghiệp cần giới hạn loại authenticator mới yêu cầu và kiểm attestation.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Lộ public key hoặc credential ID của An là nguy hiểm như lộ mật khẩu.</span><span class="f-label">Thực tế</span><span>Cả hai đều không bí mật; không có private key thì không ký được challenge. Đó là lý do lộ bảng <code>passkeys</code> không cho kẻ tấn công đăng nhập.</span></div>
+
+<h3 id="webauthn-authentication">C. Đăng nhập (Authentication)</h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Website đưa một <b>câu đố mới tinh</b>. Thiết bị hỏi bạn vân tay/PIN để “mở két”, rồi dùng chìa riêng ký câu đố <b>kèm theo tên website đang hiện trên thanh địa chỉ</b>. Website kiểm: đúng câu đố mình vừa đưa, đúng tên mình, chữ ký khớp ổ khóa đã cất.</div>
+<p>Luồng đăng nhập có hình dạng giống đăng ký, nhưng lần này <b>không tạo khóa mới</b>: authenticator dùng private key đã có để ký. <code>allowCredentials: []</code> (rỗng) nghĩa là “bất kỳ passkey nào của site này” — authenticator tự đưa danh sách tài khoản cho An chọn, nhờ đó An không cần gõ username.</p>
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant U as 👤 An
+  participant B as 🧭 Browser
+  participant A as 🔑 Authenticator
+  participant RP as 🌐 RP Server
+  B->>RP: POST /passkeys/login/options
+  Note over RP: Challenge MỚI, lưu vào session
+  RP-->>B: challenge, rpId, allowCredentials,<br/>userVerification
+  B->>A: credentials.get() → authenticatorGetAssertion<br/>(rpId, hash clientDataJSON)
+  A->>U: Chọn passkey + vân tay / PIN
+  A->>A: Ký authenticatorData + SHA-256(clientDataJSON)<br/>bằng private key
+  A-->>B: credential ID, authenticatorData,<br/>signature, userHandle
+  B->>RP: POST /passkeys/login<br/>(các trường trên + clientDataJSON)
+  Note over RP: Tìm credential theo ID, kiểm type webauthn.get, challenge,<br/>origin, rpIdHash, UP/UV, chữ ký, signCount
+  RP-->>B: Tạo session (Set-Cookie) - An đã đăng nhập
+</pre>
+<div class="caption">Authentication: chữ ký phủ cả authenticatorData (chứa rpIdHash) và hash của clientDataJSON (chứa challenge + origin) → gắn chặt với website và lần đăng nhập này.</div>
+</div>
+<pre data-title="login.js — đăng nhập với passkey (rút gọn)"><code class="language-javascript">const opts = PublicKeyCredential.parseRequestOptionsFromJSON(
+  await (await fetch("/passkeys/login/options", { method: "POST" })).json());
+// opts ≈ { challenge, rpId: "hr.company.com", allowCredentials: [], userVerification: "preferred" }
+
+const assertion = await navigator.credentials.get({ publicKey: opts });
+// Biến thể "autofill": navigator.credentials.get({ publicKey: opts, mediation: "conditional" })
+// kết hợp &lt;input autocomplete="username webauthn"&gt; để passkey hiện trong gợi ý ô username.
+
+await fetch("/passkeys/login", { method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify(assertion.toJSON()) });</code></pre>
+
+<div class="compare" id="registration-vs-authentication"><span class="compare-title">Phân biệt dễ nhầm: Registration ceremony vs Authentication ceremony</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Registration (đăng ký)</th><th>Authentication (đăng nhập)</th></tr></thead>
+<tbody>
+<tr><td>Bao lâu một lần</td><td>Một lần cho mỗi passkey</td><td>Mỗi lần đăng nhập</td></tr>
+<tr><td>API JS</td><td><code>navigator.credentials.create()</code></td><td><code>navigator.credentials.get()</code></td></tr>
+<tr><td>Lệnh CTAP</td><td><code>authenticatorMakeCredential</code></td><td><code>authenticatorGetAssertion</code></td></tr>
+<tr><td><code>clientDataJSON.type</code></td><td><code>webauthn.create</code></td><td><code>webauthn.get</code></td></tr>
+<tr><td>Authenticator làm gì</td><td><b>Tạo</b> cặp khóa mới</td><td><b>Dùng</b> private key có sẵn để ký</td></tr>
+<tr><td>Server nhận</td><td>Public key, credential ID, attestation (tùy chọn)</td><td>Assertion: chữ ký, authenticatorData, user handle</td></tr>
+<tr><td>Server làm gì</td><td><b>Lưu</b> credential mới vào DB</td><td><b>So</b> chữ ký với public key đã lưu, rồi tạo session</td></tr>
+<tr><td>Điều kiện trước</td><td>Thường An đã đăng nhập (để biết gắn passkey vào tài khoản nào)</td><td>An chưa đăng nhập</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> thứ Hai An tạo passkey cho Kaopiz HR (registration, một lần). Từ thứ Ba trở đi, mỗi sáng An mở HR và chạm vân tay (authentication). Nếu An mua điện thoại mới không đồng bộ passkey, An phải làm lại registration trên máy mới.</p>
+<span class="rule">create = đúc chìa mới, server cất ổ khóa; get = dùng chìa cũ ký câu đố, server thử ổ khóa.</span>
+</div>
+
+<h4 id="rp-verify">RP phải kiểm tra gì? <span class="badge must">Must</span></h4>
+<div class="table-wrap"><table>
+<thead><tr><th>#</th><th>Kiểm tra</th><th>Vì sao</th></tr></thead>
+<tbody>
+<tr><td>1</td><td><code>clientDataJSON.type</code> = <code>webauthn.create</code> / <code>webauthn.get</code></td><td>Không dùng lẫn dữ liệu đăng ký và đăng nhập.</td></tr>
+<tr><td>2</td><td><code>challenge</code> = challenge server vừa phát, chưa dùng, còn hạn</td><td>Chống replay (gửi lại một phản hồi cũ đã bắt được). Challenge phải <b>mới, ngẫu nhiên, dùng một lần</b>.</td></tr>
+<tr><td>3</td><td><code>origin</code> nằm trong danh sách origin được phép (vd. <code>https://hr.company.com</code>)</td><td>Chống phishing: trang giả có origin khác.</td></tr>
+<tr><td>4</td><td><code>rpIdHash</code> = SHA-256(RP ID mong đợi)</td><td>Credential thuộc đúng website.</td></tr>
+<tr><td>5</td><td>Flag <b>UP</b> bật; <b>UV</b> bật nếu policy yêu cầu</td><td>Có người thật thao tác; người đó đã được xác minh (PIN/sinh trắc).</td></tr>
+<tr><td>6</td><td>Chữ ký hợp lệ với <b>public key đã lưu</b> của credential ID này</td><td>Chứng minh sở hữu private key.</td></tr>
+<tr><td>7</td><td>Credential thuộc đúng user (userHandle khớp), chưa bị thu hồi</td><td>Xác định subject.</td></tr>
+<tr><td>8</td><td><code>signCount</code>: nếu giá trị mới <b>hoặc</b> giá trị đã lưu khác 0, mà giá trị mới không lớn hơn giá trị đã lưu → nghi ngờ nhân bản</td><td>Tín hiệu rủi ro (passkey đồng bộ thường luôn trả 0).</td></tr>
+<tr><td>9</td><td>(Đăng ký) thuật toán được phép, attestation theo policy, credential ID chưa tồn tại</td><td>Đảm bảo chất lượng credential.</td></tr>
+</tbody></table></div>
+<div class="callout tip"><span class="callout-title">💡 Đừng tự viết bộ verify</span>
+Giống SAML ở <a href="m04-4-security.html#saml-validation">M04</a>: dùng thư viện đã kiểm định. Trên .NET 10, <b>ASP.NET Core Identity</b> đã có hỗ trợ passkey tích hợp (template Blazor Web App bật sẵn); nếu cần kiểm soát đầy đủ WebAuthn (attestation, metadata) có thể dùng thư viện cộng đồng <b>fido2-net-lib</b>. Hoặc để IdP (Keycloak, Entra ID) lo phần passkey và app chỉ dùng OIDC.</div>
+
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Chữ ký hợp lệ với public key đã lưu là đủ để cho đăng nhập.</span><span class="f-label">Thực tế</span><span>Chữ ký đúng chỉ chứng minh “có private key”. Không kiểm <code>challenge</code> thì kẻ tấn công gửi lại assertion cũ bắt được (replay); không kiểm <code>origin</code>/<code>rpIdHash</code> thì mất khả năng chống phishing; không kiểm UV thì không biết có xác minh người dùng chưa.</span></div>
+
+<div class="callout tip"><span class="callout-title">✅ Tự kiểm tra nhanh</span><ul>
+<li>Database của Kaopiz HR bị lộ toàn bộ bảng <code>passkeys</code>. Kẻ tấn công có đăng nhập được thay An không? Vì sao?</li>
+<li>Nếu server quên kiểm tra <code>challenge</code>, kẻ tấn công có thể làm gì?</li>
+<li>Website thông thường có cần yêu cầu attestation không?</li>
+</ul></div>
+
+<h2 id="quiz-bai">Quiz nhanh — Bài 5.3</h2>
+<div id="quiz"></div>
+
+</main>
+<script>
+window.QUIZ = [
+  { q: "Database của Kaopiz HR bị lộ toàn bộ bảng <code>passkeys</code> (credential ID, public key, signCount, user handle). Kẻ tấn công có đăng nhập được thay An không?",
+    options: ["Có, vì credential ID giống mật khẩu", "Có, dùng public key để ký challenge", "Không, vì muốn ký challenge cần private key, mà private key chỉ nằm trong authenticator của An", "Không, nhưng chỉ khi server đã bật attestation"],
+    answer: 2,
+    why: ["Credential ID chỉ như “số seri” để tra public key, không phải bí mật.", "Public key chỉ dùng để <b>kiểm</b> chữ ký, không tạo được chữ ký.", "RP chỉ lưu dữ liệu công khai; bí mật duy nhất là private key và nó không bao giờ rời authenticator.", "Attestation chỉ liên quan tới loại thiết bị lúc đăng ký, không ảnh hưởng việc DB lộ có nguy hiểm hay không."],
+    explain: "Lộ DB passkey không lộ credential. Xem <a href='m05-3-webauthn.html#challenge-credid-pubkey'>challenge / credential ID / public key</a>." },
+  { q: "Trong kết quả WebAuthn, trường nào do <b>authenticator</b> viết (nằm trong authenticatorData)? (chọn nhiều)",
+    options: ["<code>rpIdHash</code>", "Các flag UP, UV, BE, BS", "<code>origin</code>", "<code>challenge</code>"],
+    answer: [0, 1],
+    why: ["rpIdHash = SHA-256 của RP ID, do authenticator ghi vào authenticatorData.", "Flags là 1 byte trong authenticatorData; authenticator bật UP/UV tùy việc người dùng đã chạm/xác minh.", "origin nằm trong clientDataJSON do <b>trình duyệt</b> ghi, JS của trang không giả được.", "challenge cũng nằm trong clientDataJSON; authenticator chỉ nhận hash của clientDataJSON để ký."],
+    explain: "clientDataJSON (browser) chứa type, challenge, origin; authenticatorData (authenticator) chứa rpIdHash, flags, signCount. Xem <a href='m05-3-webauthn.html#webauthn-registration'>phần B</a>." },
+  { q: "Đồng nghiệp nói: “Đăng nhập passkey xong server nhận một <i>assertion</i>, tức là XML do IdP ký như SAML, nên phải verify bằng certificate của IdP”. Cách verify đúng là gì?", tricky: true,
+    options: ["Verify chữ ký XML bằng certificate của IdP, như SAML", "Verify chữ ký bằng certificate trong attestation đã nhận lúc đăng ký", "Verify chữ ký trên authenticatorData + hash của clientDataJSON bằng <b>public key đã lưu</b> của credential ID đó, cùng challenge, origin, rpIdHash, flags", "Assertion là JWT, verify bằng JWKS của server"],
+    answer: 2,
+    why: ["Không có IdP và không có XML trong WebAuthn; chỉ trùng chữ “assertion” với SAML.", "Nhầm attestation (giấy xuất xưởng, ký bằng khóa nhà sản xuất lúc đăng ký) với assertion (ký bằng private key của passkey lúc đăng nhập).", "Assertion WebAuthn là chữ ký của private key passkey; RP kiểm bằng public key đã lưu và kiểm các trường đi kèm.", "Assertion WebAuthn không phải JWT; dữ liệu là authenticatorData nhị phân + clientDataJSON + signature."],
+    explain: "Ba thứ tên na ná: WebAuthn attestation, WebAuthn assertion, SAML Assertion. Xem <a href='m05-3-webauthn.html#attestation-vs-assertion'>so sánh</a>." },
+  { q: "Server HR verify chữ ký và origin nhưng <b>quên</b> kiểm <code>challenge</code> có đúng là challenge vừa phát và chưa dùng không. Kẻ tấn công có thể làm gì?",
+    options: ["Không làm được gì vì chữ ký vẫn phải hợp lệ", "Gửi lại một assertion cũ đã bắt được (replay) để đăng nhập thành An", "Tự tạo passkey mới cho An", "Đọc được private key từ chữ ký"],
+    answer: 1,
+    why: ["Assertion cũ vẫn mang chữ ký hợp lệ; chính challenge mới là thứ làm nó hết giá trị.", "Không kiểm challenge thì một assertion hợp lệ từng bắt được (qua log, proxy, malware) dùng lại được mãi.", "Tạo passkey cần registration ceremony và tài khoản đã đăng nhập; lỗi này không cho làm thế trực tiếp.", "Chữ ký số không làm lộ private key."],
+    explain: "Challenge phải mới, ngẫu nhiên, dùng một lần. Xem <a href='m05-3-webauthn.html#rp-verify'>RP phải kiểm tra gì</a>." },
+  { q: "Một website bán hàng công khai cấu hình <code>attestation: \"direct\"</code> và từ chối mọi authenticator không có trong danh sách model “tin cậy”. Hệ quả đáng lo nhất?",
+    options: ["Website an toàn hơn trước phishing", "Nhiều khách hàng không tạo được passkey (vd. passkey đồng bộ thường không cung cấp attestation), trong khi attestation không chứng minh người dùng là ai", "Server phải lưu private key của khách", "Không có hệ quả gì, mọi authenticator đều trả attestation"],
+    answer: 1,
+    why: ["Chống phishing đến từ origin binding, có sẵn với mọi passkey; attestation không thêm gì cho việc này.", "Attestation chỉ cho biết loại thiết bị; website công khai nên dùng <code>\"none\"</code> để không chặn nhầm người dùng hợp lệ.", "RP không bao giờ nhận hoặc lưu private key, với bất kỳ cấu hình attestation nào.", "Nhiều authenticator/provider trả attestation <code>none</code> hoặc không trả được attestation theo yêu cầu."],
+    explain: "Attestation hợp với doanh nghiệp cần giới hạn loại security key. Xem <a href='m05-3-webauthn.html#attestation-vs-assertion'>attestation vs assertion</a>." }
+];
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="assets/pages.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

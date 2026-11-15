@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M05 · Ôn tập &amp; Quiz</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<main class="content">
+
+<div class="page-head">
+  <div class="breadcrumb"><a href="index.html">Lộ trình</a> / <a href="m05-enterprise-passwordless.html">Module 05</a> / Ôn tập</div>
+  <h1>Module 05 — Ôn tập &amp; Quiz</h1>
+  <p class="lead">Tổng hợp cuối Module 05: các hiểu lầm cần tránh, tóm tắt, deliverables, câu hỏi tự luận và quiz trắc nghiệm. Làm sau khi học xong các bài; đạt ≥ 80% quiz để đánh dấu hoàn thành module.</p>
+  <div class="meta-row">
+    <span class="chip">⏱ ~15 phút</span>
+    <span class="chip">📘 <a href="m05-enterprise-passwordless.html">Module 05 · Enterprise Auth &amp; Passwordless</a></span>
+  </div>
+</div>
+
+<!-- ===================================================== -->
+<h2 id="hieu-lam">Các hiểu lầm cần tránh</h2>
+<p>Bản tóm tắt để ôn nhanh. Chi tiết và ví dụ nằm ngay dưới từng phần trong bài.</p>
+<ul>
+<li><b>Hiểu lầm:</b> LDAP và Active Directory là một → <b>Thực tế:</b> AD là sản phẩm directory + dịch vụ domain; LDAP chỉ là một giao thức truy cập AD và nhiều directory khác (<a href="m05-1-ldap-ad.html#ad">xem bài</a>)</li>
+<li><b>Hiểu lầm:</b> Đăng nhập bằng LDAP là SSO, tương đương OIDC → <b>Thực tế:</b> app tự nhận mật khẩu rồi bind; không redirect, không token, không SSO (<a href="m05-1-ldap-ad.html#ldap">xem bài</a>)</li>
+<li><b>Hiểu lầm:</b> Bind thành công là mật khẩu đúng, kể cả mật khẩu rỗng → <b>Thực tế:</b> DN + mật khẩu rỗng là unauthenticated bind, nhiều server vẫn trả success; app phải chặn mật khẩu rỗng (<a href="m05-1-ldap-ad.html#ldap">xem bài</a>)</li>
+<li><b>Hiểu lầm:</b> Mạng nội bộ thì <code>ldap://…:389</code> không TLS cũng được → <b>Thực tế:</b> simple bind lộ mật khẩu dạng rõ; dùng LDAPS hoặc StartTLS bắt buộc (<a href="m05-1-ldap-ad.html#ldap-tls">xem bài</a>)</li>
+<li><b>Hiểu lầm:</b> OU là nhóm phân quyền → <b>Thực tế:</b> OU để tổ chức cây và áp GPO; phân quyền dựa vào group (<a href="m05-1-ldap-ad.html#ldap-names">xem bài</a>)</li>
+<li><b>Hiểu lầm:</b> Entra ID là AD trên cloud → <b>Thực tế:</b> Entra ID nói OIDC/OAuth/SAML, không có LDAP cho app; app LDAP bind phải chuyển sang OIDC (<a href="m05-1-ldap-ad.html#ldap-ad-entra">xem bài</a>)</li>
+<li><b>Hiểu lầm:</b> AS trong Kerberos là Authorization Server → <b>Thực tế:</b> là Authentication Server, phần của KDC cấp TGT (<a href="m05-2-kerberos-enterprise.html#kerberos">xem bài</a>)</li>
+<li><b>Hiểu lầm:</b> Kerberos lỗi đồng hồ nghĩa là phải cùng múi giờ → <b>Thực tế:</b> Kerberos so thời điểm UTC; lỗi khi đồng hồ thực lệch quá 5 phút (<a href="m05-2-kerberos-enterprise.html#kerberos-ops">xem bài</a>)</li>
+<li><b>Hiểu lầm:</b> Thêm user vào nhóm là có quyền ngay → <b>Thực tế:</b> nhóm nằm trong vé đã cấp; cần vé mới (<a href="m05-2-kerberos-enterprise.html#kerberos-ops">xem bài</a>)</li>
+<li><b>Hiểu lầm:</b> Truy cập bằng IP hay bằng tên đều dùng Kerberos → <b>Thực tế:</b> IP không khớp SPN nên rơi về NTLM (<a href="m05-2-kerberos-enterprise.html#kerberos-vs-ntlm">xem bài</a>)</li>
+<li><b>Hiểu lầm:</b> Không bị hỏi mật khẩu là chắc chắn Kerberos → <b>Thực tế:</b> trình duyệt có thể gửi NTLM im lặng cho site Intranet; xem token Negotiate (<a href="m05-2-kerberos-enterprise.html#kerberos-vs-ntlm">xem bài</a>)</li>
+<li><b>Hiểu lầm:</b> RADIUS mã hóa toàn bộ gói tin → <b>Thực tế:</b> RADIUS chỉ che mật khẩu; TACACS+ che body nhưng cũng chỉ là obfuscation (<a href="m05-2-kerberos-enterprise.html#radius-vs-tacacs">xem bài</a>)</li>
+<li><b>Hiểu lầm:</b> TACACS+ là phiên bản mới của RADIUS → <b>Thực tế:</b> hai giao thức khác nhau, phục vụ hai việc khác nhau (<a href="m05-2-kerberos-enterprise.html#radius-vs-tacacs">xem bài</a>)</li>
+<li><b>Hiểu lầm:</b> Smart card và passkey là một → <b>Thực tế:</b> smart card dựa vào CA; passkey không cần CA, mỗi site một cặp khóa, gắn origin (<a href="m05-2-kerberos-enterprise.html#smartcard-cba-passkey">xem bài</a>)</li>
+<li><b>Hiểu lầm:</b> Developer phải tự code CTAP; passkey là giao thức riêng → <b>Thực tế:</b> web chỉ gọi WebAuthn, trình duyệt lo CTAP; passkey là credential, không phải giao thức (<a href="m05-3-webauthn.html#fido2-webauthn-ctap-passkey">xem bài</a>)</li>
+<li><b>Hiểu lầm:</b> “Assertion” trong WebAuthn giống SAML Assertion → <b>Thực tế:</b> WebAuthn assertion là chữ ký của passkey trên challenge; SAML Assertion là XML do IdP ký (<a href="m05-3-webauthn.html#attestation-vs-assertion">xem bài</a>)</li>
+<li><b>Hiểu lầm:</b> Website nào cũng nên đòi attestation <code>"direct"</code> → <b>Thực tế:</b> website công khai thường dùng <code>"none"</code>; attestation chỉ nói loại thiết bị (<a href="m05-3-webauthn.html#attestation-vs-assertion">xem bài</a>)</li>
+<li><b>Hiểu lầm:</b> Lộ public key/credential ID nguy hiểm như lộ mật khẩu → <b>Thực tế:</b> không bí mật; không có private key thì không ký được (<a href="m05-3-webauthn.html#challenge-credid-pubkey">xem bài</a>)</li>
+<li><b>Hiểu lầm:</b> Chữ ký hợp lệ là đủ → <b>Thực tế:</b> còn phải kiểm challenge, origin, rpIdHash, UP/UV (<a href="m05-3-webauthn.html#rp-verify">xem bài</a>)</li>
+<li><b>Hiểu lầm:</b> Passkey chống phishing nhờ sinh trắc học → <b>Thực tế:</b> nhờ origin binding; security key chỉ chạm (UV=0) vẫn chống phishing (<a href="m05-4-passkey.html#phishing-resistance">xem bài</a>)</li>
+<li><b>Hiểu lầm:</b> OTP / push chống phishing như passkey → <b>Thực tế:</b> OTP bị chuyển tiếp, push bị duyệt nhầm (kể cả number matching); chỉ passkey có origin binding (<a href="m05-4-passkey.html#phishing-resistance">xem bài</a>)</li>
+<li><b>Hiểu lầm:</b> Passkey gửi vân tay lên server → <b>Thực tế:</b> sinh trắc xử lý cục bộ; server chỉ nhận chữ ký và flag UV (<a href="m05-4-passkey.html#up-uv">xem bài</a>)</li>
+<li><b>Hiểu lầm:</b> <code>UV=0</code> nghĩa là không ai thao tác → <b>Thực tế:</b> UP=1 vẫn là có người chạm; UV=0 chỉ là chưa xác minh là ai (<a href="m05-4-passkey.html#up-uv">xem bài</a>)</li>
+<li><b>Hiểu lầm:</b> Synced passkey hết chống phishing; có passkey thì recovery sao cũng được → <b>Thực tế:</b> vẫn gắn RP ID, chỉ đổi mô hình trust; recovery yếu là cửa sau (<a href="m05-4-passkey.html#passkey">xem bài</a>)</li>
+<li><b>Hiểu lầm:</b> PIN Windows Hello yếu hơn mật khẩu domain → <b>Thực tế:</b> PIN chỉ mở khóa key trong TPM của đúng máy đó, không đi qua mạng (<a href="m05-4-passkey.html#windows-hello">xem bài</a>)</li>
+</ul>
+
+<!-- ===================================================== -->
+<h2 id="tom-tat">Tóm tắt nhanh</h2>
+<ul>
+<li><b>LDAP</b> là giao thức hỏi/sửa directory (389, LDAPS 636, StartTLS); không phải AD, không phải SSO, không tương đương OIDC.</li>
+<li><b>Active Directory</b> là sản phẩm Microsoft: directory + Domain Controller + Kerberos + LDAP + GPO.</li>
+<li><b>Kerberos</b>: AS-REQ/REP → <b>TGT</b>; TGS-REQ/REP → <b>service ticket</b>; AP-REQ/REP → vào dịch vụ, có mutual auth. Cần đúng giờ (lệch ≤ 5 phút mặc định), SPN, DNS.</li>
+<li><b>NTLM</b> là challenge-response cũ, đang bị Microsoft loại dần; ưu tiên Kerberos qua Negotiate.</li>
+<li><b>RADIUS</b> (UDP 1812/1813) cho truy cập mạng (Wi-Fi, VPN); <b>TACACS+</b> (TCP 49) cho quản trị thiết bị mạng. AAA là mô hình, không phải giao thức.</li>
+<li><b>FIDO2 = WebAuthn + CTAP</b>. Private key nằm trong authenticator; RP chỉ lưu public key, credential ID, signCount, user handle.</li>
+<li>RP luôn kiểm: <b>challenge</b> dùng một lần, <b>origin</b>, <b>rpIdHash</b>, flags <b>UP/UV</b>, <b>chữ ký</b>.</li>
+<li>Passkey <b>chống phishing</b> nhờ origin binding — điểm khác biệt lớn nhất so với password/OTP.</li>
+<li><b>UP</b> = có người; <b>UV</b> = đúng chủ nhân. Passkey đồng bộ tiện nhưng phụ thuộc provider; thiết kế <b>recovery</b> cẩn thận.</li>
+</ul>
+
+<div class="callout info"><span class="callout-title">🗂️ Các cặp khái niệm dễ nhầm trong module (bấm để ôn lại)</span><ul>
+<li>Bài 5.1: <a href="m05-1-ldap-ad.html#ldap-names">DN / CN / OU / sAMAccountName / UPN</a> · <a href="m05-1-ldap-ad.html#bind-vs-search">bind vs search</a> · <a href="m05-1-ldap-ad.html#ldap-tls">LDAP vs LDAPS vs StartTLS</a> · <a href="m05-1-ldap-ad.html#ldap-ad-entra">LDAP vs AD vs Entra ID</a></li>
+<li>Bài 5.2: <a href="m05-2-kerberos-enterprise.html#kerberos-vs-ntlm">Kerberos vs NTLM</a> · <a href="m05-2-kerberos-enterprise.html#radius-vs-tacacs">RADIUS vs TACACS+</a> · <a href="m05-2-kerberos-enterprise.html#aaa-vs-iaaa">AAA vs IAAA</a> · <a href="m05-2-kerberos-enterprise.html#smartcard-cba-passkey">Smart card vs CBA vs passkey</a></li>
+<li>Bài 5.3: <a href="m05-3-webauthn.html#fido2-webauthn-ctap-passkey">FIDO2 / WebAuthn / CTAP / Passkey</a> · <a href="m05-3-webauthn.html#platform-vs-roaming">platform vs roaming</a> · <a href="m05-3-webauthn.html#attestation-vs-assertion">attestation vs assertion</a> · <a href="m05-3-webauthn.html#challenge-credid-pubkey">challenge / credential ID / public key</a> · <a href="m05-3-webauthn.html#registration-vs-authentication">registration vs authentication</a></li>
+<li>Bài 5.4: <a href="m05-4-passkey.html#up-uv">UP vs UV</a> · <a href="m05-4-passkey.html#passkey">synced vs device-bound</a> · <a href="m05-4-passkey.html#hello-whfb-passkey">Windows Hello vs WHfB vs passkey</a> · <a href="m05-4-passkey.html#password-otp-passkey">password vs OTP vs push vs passkey</a></li>
+</ul></div>
+
+<!-- ===================================================== -->
+<h2 id="output">Output / Deliverables</h2>
+<ul class="checklist">
+<li><span><b>Bảng phân biệt</b> LDAP, AD, Kerberos, NTLM, RADIUS, TACACS+: là gì, dùng khi nào, <i>không phải</i> là gì (kèm vì sao LDAP không tương đương OIDC) — xem <a href="m05-2-kerberos-enterprise.html#enterprise-compare">bảng</a>. <span class="badge core">Core</span></span></li>
+<li><span><b>Sơ đồ Kerberos</b> ở mức AS → TGT → TGS → Service Ticket — xem <a href="m05-2-kerberos-enterprise.html#kerberos-flow">sơ đồ</a>.</span></li>
+<li><span><b>Sơ đồ WebAuthn</b> registration và authentication — xem <a href="m05-3-webauthn.html#webauthn-registration">B</a>, <a href="m05-3-webauthn.html#webauthn-authentication">C</a>. <span class="badge core">Core</span></span></li>
+<li><span><b>Bảng so sánh</b> password, OTP và passkey — xem <a href="m05-4-passkey.html#password-otp-passkey">bảng</a>. <span class="badge core">Core</span></span></li>
+</ul>
+<p class="small muted">Use case “khi nào doanh nghiệp dùng Kerberos, RADIUS, SAML/OIDC hoặc FIDO2” được đưa vào <a href="m07-5-decision-matrix.html#decision-matrix">decision matrix ở Module 07</a>.</p>
+
+<h2 id="knowledge-check">Knowledge Check (tự luận)</h2>
+<p>Tự trả lời trước, sau đó mở đáp án gợi ý để so sánh.</p>
+<details><summary>LDAP khác Active Directory thế nào?</summary>
+<p>LDAP là <b>giao thức</b> chuẩn để truy vấn/sửa directory. Active Directory là <b>sản phẩm</b> directory của Microsoft cho Windows domain, gồm cơ sở dữ liệu directory, Domain Controller, Kerberos KDC, Group Policy… AD hỗ trợ LDAP như một trong các cách truy cập. Nói “LDAP server” có thể là AD, OpenLDAP, 389 Directory Server…</p></details>
+<details><summary>Kerberos sử dụng ticket để làm gì?</summary>
+<p>Ticket là bằng chứng do KDC phát hành, được mã hóa bằng khóa mà chỉ KDC và dịch vụ đích biết. Nhờ đó người dùng xác thực <b>một lần</b> rồi truy cập nhiều dịch vụ mà mật khẩu không đi qua mạng, dịch vụ tự kiểm tra ticket mà không cần gọi KDC, và có thể xác thực hai chiều (mutual authentication).</p></details>
+<details><summary>TGT khác service ticket thế nào?</summary>
+<p>TGT do AS cấp sau đăng nhập, mã hóa bằng khóa <code>krbtgt</code>, chỉ dùng để xin service ticket từ TGS. Service ticket do TGS cấp cho <b>một dịch vụ cụ thể</b> (theo SPN), mã hóa bằng khóa của dịch vụ đó, và được trình cho dịch vụ trong AP-REQ.</p></details>
+<details><summary>RADIUS thường được dùng trong trường hợp nào?</summary>
+<p>Kiểm soát truy cập <b>mạng</b>: Wi-Fi doanh nghiệp (802.1X/EAP), VPN, các Network Access Server. Thiết bị mạng hỏi RADIUS server (thường dựa trên AD) để quyết định cho vào, gán VLAN/chính sách, và gửi accounting. Không dùng cho đăng nhập web app thông thường.</p></details>
+<details><summary>WebAuthn lưu private key ở đâu?</summary>
+<p>Trong <b>authenticator</b>: chip bảo mật của security key, TPM/Secure Enclave của thiết bị (platform authenticator), hoặc trong passkey provider được đồng bộ mã hóa đầu-cuối giữa các thiết bị của người dùng (synced passkey). RP <b>không bao giờ</b> nhận private key — chỉ lưu public key và metadata.</p></details>
+<details><summary>Vì sao WebAuthn có khả năng chống phishing tốt hơn password/OTP?</summary>
+<p>Credential gắn với RP ID; browser chỉ cho dùng credential khi RP ID hợp lệ với origin của trang, và ghi origin thật vào clientDataJSON được ký. Trang giả không dùng được passkey của site thật, và nếu chuyển tiếp dữ liệu thì RP thật thấy origin sai và từ chối. Password/OTP là chuỗi người dùng tự gõ nên có thể bị trang giả thu và chuyển tiếp ngay (AiTM).</p></details>
+<details><summary>User Presence khác User Verification thế nào?</summary>
+<p>UP chỉ chứng minh có người tương tác (chạm/bấm). UV chứng minh authenticator đã xác minh đúng người dùng bằng PIN/sinh trắc/mật khẩu thiết bị. UV kết hợp với việc sở hữu authenticator tạo thành MFA; RP phải tự kiểm flag UV nếu policy yêu cầu.</p></details>
+
+<div class="callout tip"><span class="callout-title">✅ Tiêu chí hoàn thành</span>
+Có thể phân loại các công nghệ theo use case và giải thích luồng Kerberos/WebAuthn ở mức tổng quan.</div>
+
+<h2 id="quiz">Quiz trắc nghiệm</h2>
+<div id="quiz"></div>
+
+</main>
+<script>
+window.QUIZ = [
+  { q: "Một đồng nghiệp nói: “Công ty mình dùng LDAP nên đã có SSO rồi”. Nhận xét nào chính xác nhất?",
+    options: ["Đúng, LDAP là giao thức SSO", "Đúng nếu dùng LDAPS cổng 636", "Đúng vì LDAP chính là Active Directory", "Sai, LDAP là giao thức truy cập directory; SSO cần cơ chế như Kerberos, SAML hay OIDC"],
+    answer: 3,
+    why: ["LDAP không có redirect, token hay phiên đăng nhập dùng chung; mỗi app vẫn tự hỏi mật khẩu.", "LDAPS chỉ thêm TLS cho đường truyền, không biến LDAP thành SSO.", "LDAP là giao thức, AD là sản phẩm; và kể cả AD thì SSO đến từ Kerberos chứ không từ LDAP.", "LDAP chỉ truy vấn/sửa directory; SSO cần một cơ chế phát bằng chứng dùng lại được như vé Kerberos, SAML Assertion hay ID token OIDC."],
+    explain: "LDAP chỉ là cách truy vấn/sửa directory. Web app “login bằng LDAP” vẫn tự nhận mật khẩu và mỗi app hỏi lại — không phải SSO." },
+  { q: "Trong DN <code>CN=Nguyen Van An,OU=RnD,OU=Users,DC=corp,DC=company,DC=com</code>, RDN là gì?",
+    options: ["<code>DC=com</code>", "<code>OU=Users</code>", "<code>CN=Nguyen Van An</code>", "Toàn bộ chuỗi"],
+    answer: 2,
+    why: ["<code>DC=com</code> là thành phần cuối, gần gốc nhất của cây, không phải tên của entry.", "<code>OU=Users</code> là một nút cha phía trên, không phải tên của chính entry.", "RDN là thành phần đầu tiên của DN — tên của entry trong nút cha.", "Toàn bộ chuỗi là DN, không phải RDN."],
+    explain: "RDN là thành phần đầu tiên của DN — tên tương đối của entry trong nút cha." },
+  { q: "Web app cũ bind LDAP bằng simple bind qua <code>ldap://dc01:389</code> mà không có StartTLS. Rủi ro chính là gì?",
+    options: ["Mật khẩu đi qua mạng dạng rõ, có thể bị nghe lén", "Không có rủi ro vì đang ở mạng nội bộ", "LDAP sẽ tự mã hóa bằng Kerberos", "Chỉ ảnh hưởng hiệu năng"],
+    answer: 0,
+    why: ["Simple bind gửi DN + mật khẩu; không có TLS thì ai bắt được gói tin cũng đọc được.", "“Mạng nội bộ” không phải lớp bảo vệ: máy nhiễm malware hoặc người trong mạng vẫn nghe lén được.", "LDAP không tự mã hóa bằng Kerberos; simple bind không dùng Kerberos (đó là SASL/GSSAPI bind).", "Vấn đề ở đây là lộ mật khẩu, không phải hiệu năng."],
+    explain: "Simple bind gửi DN + mật khẩu. Không TLS (LDAPS 636 hoặc StartTLS bắt buộc) thì mật khẩu lộ trên mạng." },
+  { q: "Code ghép <code>$\"(sAMAccountName={input})\"</code> với input người dùng nhập là <code>*</code>. Lỗi gì và cách khắc phục?",
+    options: ["XSS — encode HTML", "LDAP injection — escape ký tự đặc biệt theo RFC 4515 (vd. * → \\2a)", "SQL injection — dùng tham số SQL", "Không có lỗi"],
+    answer: 1,
+    why: ["Input đi vào filter LDAP chứ không đi vào HTML trả về trình duyệt, nên không phải XSS.", "<code>*</code> là ký tự đại diện trong filter LDAP; không escape thì <code>(sAMAccountName=*)</code> khớp mọi user. Escape theo RFC 4515.", "Không có câu SQL nào ở đây; tham số SQL không bảo vệ filter LDAP.", "Có lỗi: kẻ tấn công thay đổi được ý nghĩa truy vấn."],
+    explain: "Ký tự <code>*</code>, <code>(</code>, <code>)</code>, <code>\\</code>, NUL trong filter LDAP phải được escape, nếu không kẻ tấn công thay đổi được ý nghĩa truy vấn." },
+  { q: "Phát biểu nào về Active Directory là đúng? (chọn nhiều)",
+    options: ["AD hỗ trợ LDAP như một trong các giao thức truy cập", "Domain Controller của AD đóng vai trò KDC của Kerberos", "AD và Microsoft Entra ID là cùng một sản phẩm chạy ở hai nơi", "AD lưu users, computers, groups và Group Policy"],
+    answer: [0, 1, 3],
+    why: ["AD trả lời được truy vấn LDAP/LDAPS.", "Mỗi Domain Controller chạy KDC (AS + TGS) của Kerberos.", "Entra ID là IdP cloud nói OIDC/OAuth/SAML, không phải AD DS chạy trên cloud.", "AD lưu users, computers, groups, OU và GPO."],
+    explain: "Entra ID là IdP cloud nói OIDC/OAuth/SAML, không phải AD DS trên cloud — dù hai bên thường được đồng bộ." },
+  { q: "Trong Kerberos, viết tắt “AS” là gì?",
+    options: ["Authorization Server", "Application Server", "Attribute Service", "Authentication Server — thành phần của KDC cấp TGT"],
+    answer: 3,
+    why: ["Nhầm với AS của OAuth (Authorization Server) — chỉ trùng viết tắt.", "Dịch vụ đích trong Kerberos gọi là service server, không phải “AS”.", "Không có thành phần “Attribute Service” trong Kerberos.", "AS = Authentication Server, phần của KDC xác thực ban đầu và cấp TGT."],
+    explain: "Kerberos AS = Authentication Server. Đừng nhầm với Authorization Server của OAuth." },
+  { q: "Sắp xếp đúng thứ tự message Kerberos để An truy cập web app HR:",
+    options: ["AS-REQ → TGS-REQ → AP-REQ", "TGS-REQ → AS-REQ → AP-REQ", "AP-REQ → AS-REQ → TGS-REQ", "AS-REQ → AP-REQ → TGS-REQ"],
+    answer: 0,
+    why: ["Đúng thứ tự: lấy TGT → đổi TGT lấy service ticket → trình service ticket cho dịch vụ.", "Chưa có TGT thì không gửi TGS-REQ được.", "AP-REQ cần service ticket, mà service ticket chỉ có sau AS và TGS.", "Phải có service ticket (từ TGS) trước khi gửi AP-REQ."],
+    explain: "AS-REQ/REP lấy TGT; TGS-REQ/REP dùng TGT lấy service ticket; AP-REQ/REP trình ticket cho dịch vụ." },
+  { q: "Khi nhận AP-REQ, service server kiểm tra service ticket thế nào?",
+    options: ["Tự giải mã ticket bằng khóa bí mật của chính account dịch vụ", "Gọi KDC để hỏi ticket có hợp lệ không", "Hỏi người dùng nhập mật khẩu", "Tra LDAP để so ticket"],
+    answer: 0,
+    why: ["Service ticket mã hóa bằng khóa của account dịch vụ (theo SPN), nên dịch vụ tự giải mã và kiểm.", "Không cần gọi KDC — đó là điểm khác NTLM, nơi server phải chuyển câu trả lời về DC.", "Kerberos không bao giờ hỏi lại mật khẩu ở bước này.", "Ticket không được tra bằng LDAP."],
+    explain: "Service ticket được mã hóa bằng khóa của dịch vụ (theo SPN), nên dịch vụ tự kiểm được mà không cần gọi KDC." },
+  { q: "Laptop của An lệch giờ 12 phút so với Domain Controller (cấu hình AD mặc định). Điều gì có khả năng xảy ra?",
+    options: ["Không ảnh hưởng gì", "Kerberos tự chuyển sang SAML", "Xác thực Kerberos thất bại do vượt độ lệch đồng hồ cho phép (mặc định 5 phút)", "Ticket được gia hạn thêm 12 phút"],
+    answer: 2,
+    why: ["Lệch 12 phút vượt ngưỡng 5 phút mặc định nên có ảnh hưởng.", "Kerberos không có cơ chế chuyển sang SAML.", "Kerberos dùng timestamp chống replay; vượt độ lệch cho phép thì KDC/dịch vụ từ chối (lỗi clock skew).", "Không có cơ chế gia hạn theo độ lệch đồng hồ."],
+    explain: "Kerberos dùng timestamp chống replay; mặc định AD cho lệch tối đa 5 phút." },
+  { q: "Người dùng truy cập web app nội bộ bằng <code>http://10.0.5.20</code> thì bị hỏi mật khẩu, còn qua <code>http://hr.corp.company.com</code> thì vào thẳng. Nguyên nhân hợp lý nhất?",
+    options: ["Địa chỉ IP bị chặn bởi firewall", "Kerberos cần SPN dựa trên tên máy (DNS); truy cập bằng IP không khớp SPN nên rơi về NTLM/hỏi mật khẩu", "Trình duyệt không hỗ trợ IP", "LDAP bị lỗi"],
+    answer: 1,
+    why: ["Firewall chặn thì cả hai URL (cùng server) đều không vào được, chứ không phải bị hỏi mật khẩu.", "Client dựng SPN từ tên trên URL; IP không khớp SPN đã đăng ký nên không lấy được vé, Negotiate rơi về NTLM hoặc hỏi mật khẩu.", "Trình duyệt mở địa chỉ IP bình thường.", "LDAP không tham gia vào việc trình duyệt xác thực với web app."],
+    explain: "Client dựng SPN từ tên máy chủ (vd. HTTP/hr.corp.company.com). Không có SPN tương ứng thì không lấy được vé Kerberos." },
+  { q: "Công ty muốn kiểm soát nhân viên nào được kết nối Wi-Fi doanh nghiệp và gán VLAN theo phòng ban. Công nghệ phù hợp nhất?",
+    options: ["OIDC", "SAML", "LDAP injection", "RADIUS (802.1X)"],
+    answer: 3,
+    why: ["OIDC dành cho đăng nhập ứng dụng web/mobile, không điều khiển việc cho thiết bị vào Wi-Fi.", "SAML là SSO cho web app, không dùng cho 802.1X.", "LDAP injection là một lỗ hổng, không phải công nghệ.", "RADIUS (802.1X) là AAA cho truy cập mạng: Access Point hỏi RADIUS, nhận Access-Accept kèm VLAN."],
+    explain: "RADIUS là giao thức AAA cho truy cập mạng: Access Point hỏi RADIUS server, nhận Access-Accept kèm thuộc tính như VLAN." },
+  { q: "So sánh RADIUS và TACACS+, phát biểu nào đúng? (chọn nhiều)",
+    options: ["RADIUS dùng UDP 1812/1813, TACACS+ dùng TCP 49", "RADIUS chỉ che mật khẩu, TACACS+ che toàn bộ body gói tin", "TACACS+ thường dùng cho quản trị thiết bị mạng với phân quyền từng lệnh", "TACACS+ là giao thức đăng nhập web thay thế OIDC"],
+    answer: [0, 1, 2],
+    why: ["RADIUS dùng UDP 1812/1813, TACACS+ dùng TCP 49.", "RADIUS chỉ che thuộc tính mật khẩu; TACACS+ che toàn bộ body (dù chỉ là obfuscation).", "TACACS+ tách rõ authorization nên phân quyền được từng lệnh trên router/switch.", "TACACS+ phục vụ thiết bị mạng, không phải giao thức đăng nhập web."],
+    explain: "Cả hai phục vụ hạ tầng mạng, không thay OIDC cho web app. Lưu ý TACACS+ “che” bằng obfuscation, RFC 8907 nói rõ không phải mã hóa thực sự." },
+  { q: "FIDO2 gồm những thành phần nào?",
+    options: ["WebAuthn + CTAP", "OAuth + OIDC", "SAML + WS-Federation", "TOTP + HOTP"],
+    answer: 0,
+    why: ["FIDO2 = WebAuthn (W3C) + CTAP (FIDO Alliance).", "OAuth/OIDC là ủy quyền/federation, không thuộc FIDO2.", "SAML/WS-Federation là federation dựa trên XML, không thuộc FIDO2.", "TOTP/HOTP là OTP (RFC 6238/4226), không thuộc FIDO2."],
+    explain: "FIDO2 = WebAuthn (API web của W3C) + CTAP (giao thức client ⇄ authenticator của FIDO Alliance)." },
+  { q: "Sau khi An đăng ký passkey, RP (server HR) lưu những gì? (chọn nhiều)",
+    options: ["Credential ID", "Public key của credential", "Private key để dự phòng", "signCount và user handle ánh xạ về tài khoản"],
+    answer: [0, 1, 3],
+    why: ["Credential ID dùng để tra credential khi đăng nhập.", "Public key dùng để kiểm chữ ký.", "Private key không bao giờ rời authenticator; RP không có để mà lưu.", "signCount phát hiện nhân bản; user handle ánh xạ credential về tài khoản."],
+    explain: "Private key không bao giờ rời authenticator. RP lưu credential ID, public key, signCount, user handle và metadata như BE/BS." },
+  { q: "Trang phishing <code>https://hr-company-login.com</code> lừa An đăng nhập. Vì sao passkey của <code>hr.company.com</code> bảo vệ được An?",
+    options: ["Vì passkey dài hơn mật khẩu", "Vì browser chỉ cho dùng credential khi RP ID khớp origin, và origin thật được ghi vào dữ liệu được ký nên RP thật từ chối dữ liệu chuyển tiếp", "Vì server chặn IP lạ", "Vì passkey hết hạn sau 30 giây"],
+    answer: 1,
+    why: ["Độ dài không phải lý do; passkey không phải chuỗi để gõ.", "Origin binding: browser kiểm RP ID với origin, và origin thật nằm trong clientDataJSON được ký nên dữ liệu chuyển tiếp bị RP thật từ chối.", "Trang phishing có thể dùng IP bình thường; chặn IP không phải cơ chế của WebAuthn.", "Passkey không hết hạn sau 30 giây; nhầm với TOTP."],
+    explain: "Origin binding là cơ chế cốt lõi chống phishing/AiTM của WebAuthn. Xem <a href='m05-4-passkey.html#phishing-resistance'>sơ đồ</a>." },
+  { q: "Server nhận assertion WebAuthn có flags UP = 1, UV = 0, trong khi policy yêu cầu xác minh người dùng cho thao tác duyệt lương. Server nên làm gì?",
+    options: ["Chấp nhận vì UP = 1 là đủ", "Chấp nhận nếu chữ ký hợp lệ", "Tự bật bit UV rồi lưu lại", "Từ chối (hoặc yêu cầu lại với userVerification required) vì UV chưa được xác minh"],
+    answer: 3,
+    why: ["UP chỉ chứng minh có người chạm, không chứng minh đúng chủ nhân.", "Chữ ký hợp lệ không đủ khi policy đòi UV; flag UV là một phần của kiểm tra.", "Flags nằm trong authenticatorData được ký; server không được và không thể “bật hộ”.", "Policy yêu cầu UV thì phải từ chối hoặc yêu cầu lại với <code>userVerification: \"required\"</code>."],
+    explain: "UP chỉ chứng minh có người chạm. Policy yêu cầu UV thì server phải kiểm flag UV = 1; <code>\"preferred\"</code> có thể trả về UV = 0." },
+  { q: "Trong clientDataJSON, những trường nào RP <b>phải</b> kiểm tra? (chọn nhiều)",
+    options: ["<code>type</code>", "<code>challenge</code>", "<code>origin</code>", "<code>userAgent</code>"],
+    answer: [0, 1, 2],
+    why: ["<code>type</code> phải là <code>webauthn.create</code>/<code>webauthn.get</code> để không lẫn đăng ký và đăng nhập.", "<code>challenge</code> phải khớp challenge server vừa phát, chưa dùng — chống replay.", "<code>origin</code> phải nằm trong danh sách được phép — chống phishing.", "clientDataJSON không có trường <code>userAgent</code>."],
+    explain: "clientDataJSON chứa type (webauthn.create/get), challenge, origin (và crossOrigin/topOrigin). Không có trường userAgent." },
+  { q: "Passkey có flags BE = 1, BS = 1 nhiều khả năng là loại nào?",
+    options: ["Passkey gắn thiết bị trên security key", "Mật khẩu một lần", "Passkey đồng bộ (synced), đang được sao lưu qua passkey provider", "Certificate smart card"],
+    answer: 2,
+    why: ["Passkey gắn thiết bị trên security key có BE = 0.", "OTP không có flags WebAuthn.", "BE = 1 (có thể sao lưu) và BS = 1 (đang được sao lưu) là dấu hiệu passkey đồng bộ.", "Smart card dùng certificate X.509, không có flags BE/BS."],
+    explain: "BE = Backup Eligible, BS = Backup State. Device-bound passkey có BE = 0." },
+  { q: "Phát biểu nào về WebAuthn và OIDC là đúng?",
+    options: ["WebAuthn thay thế hoàn toàn OIDC", "WebAuthn là cơ chế xác thực public-key tại RP; OIDC là giao thức federation — có thể kết hợp: đăng nhập IdP bằng passkey rồi IdP phát ID token", "OIDC là một phần của FIDO2", "WebAuthn chỉ dùng được với SAML"],
+    answer: 1,
+    why: ["WebAuthn không phát token cho các app khác; vẫn cần OIDC/SAML để federation.", "WebAuthn xác thực người dùng tại RP/IdP; OIDC mang kết quả tới các app — hai lớp bổ sung cho nhau.", "FIDO2 = WebAuthn + CTAP; OIDC là chuẩn của OpenID Foundation.", "WebAuthn là API trình duyệt độc lập, không gắn với SAML."],
+    explain: "Hai lớp khác nhau và bổ sung cho nhau: passkey xác thực người dùng tại IdP, OIDC đưa kết quả tới các ứng dụng." },
+  { q: "Cả laptop và điện thoại của An đều tắt đồng bộ giờ và chạy <b>nhanh 10 phút</b>. Cách đăng nhập nào sẽ hỏng? (chọn nhiều)", tricky: true,
+    options: ["Đăng nhập domain bằng Kerberos trên laptop", "Mã TOTP 6 số từ app authenticator trên điện thoại", "Passkey trên điện thoại để đăng nhập Kaopiz HR", "Mật khẩu gõ vào form web của một app nội bộ (server so hash)"],
+    answer: [0, 1],
+    why: ["Kerberos dùng timestamp chống replay; lệch 10 phút vượt ngưỡng 5 phút mặc định của AD.", "TOTP tính mã từ thời gian hiện tại theo bước 30 giây; server thường chỉ chấp nhận lệch khoảng ±1 bước, nên lệch 10 phút là sai mã.", "Bẫy: passkey cũng “ký để chống replay” nhưng độ mới do <b>challenge của server</b> đảm bảo; dữ liệu WebAuthn được ký không chứa giờ của thiết bị.", "Server tự so mật khẩu với hash đã lưu, không dùng đồng hồ của client."],
+    explain: "Hai cơ chế chống replay khác nhau: dựa vào thời gian (Kerberos, TOTP) và dựa vào challenge (WebAuthn). Xem <a href='m05-2-kerberos-enterprise.html#kerberos-ops'>vận hành Kerberos</a> và <a href='m05-3-webauthn.html#challenge-credid-pubkey'>challenge</a>." },
+  { q: "Từ “authenticator” xuất hiện ở cả bài Kerberos và bài WebAuthn. Phát biểu nào đúng? (chọn nhiều)", tricky: true,
+    options: ["Trong Kerberos, authenticator là gói nhỏ chứa tên client + thời điểm, mã hóa bằng session key, gửi kèm vé", "Trong WebAuthn, authenticator là thiết bị/phần mềm giữ private key (security key, Windows Hello, passkey provider)", "Hai nghĩa là một: Kerberos authenticator chính là security key cắm vào máy", "Authenticator của Kerberos được gửi lên RP để kiểm chữ ký passkey"],
+    answer: [0, 1],
+    why: ["Đúng: authenticator Kerberos chứng minh người trình vé chính là người được cấp vé, và có timestamp chống replay.", "Đúng: authenticator WebAuthn là thứ tạo/giữ cặp khóa và ký challenge.", "Chỉ trùng từ: một bên là gói dữ liệu trong message Kerberos, một bên là thiết bị.", "Kerberos và WebAuthn là hai cơ chế độc lập; RP WebAuthn không nhận gì từ Kerberos."],
+    explain: "Cùng một từ, hai nghĩa. Xem <a href='m05-2-kerberos-enterprise.html#kerberos-flow'>luồng Kerberos</a> và <a href='m05-3-webauthn.html#webauthn'>thành phần WebAuthn</a>." },
+  { q: "App HR đang “đăng nhập bằng LDAP” (form + bind với AD). Công ty muốn nhân viên dùng passkey cho app này. Hướng nào khả thi? (chọn nhiều)", tricky: true,
+    options: ["Lưu public key của passkey vào một thuộc tính AD rồi gửi chữ ký thay mật khẩu trong LDAP simple bind", "Chuyển app sang OIDC, để IdP (Keycloak/Entra ID) cho đăng nhập bằng passkey", "App tự làm Relying Party WebAuthn (lưu public key trong DB của app), vẫn có thể dùng LDAP chỉ để tra nhóm/email", "Bật LDAPS là trình duyệt tự hiện lựa chọn passkey"],
+    answer: [1, 2],
+    why: ["Simple bind chỉ nhận DN + mật khẩu; LDAP không có cơ chế challenge/origin của WebAuthn nên không “nhét” passkey vào bind được.", "Cách phổ biến nhất: IdP lo passkey, app chỉ nhận ID token qua OIDC — app không bao giờ thấy mật khẩu.", "Cũng khả thi: WebAuthn chạy giữa trình duyệt và app; LDAP vẫn dùng được cho việc tra cứu (search), chỉ không dùng bind để kiểm mật khẩu nữa.", "LDAPS chỉ mã hóa kết nối app ⇄ DC; trình duyệt không biết gì về LDAP."],
+    explain: "LDAP là giao thức directory, không phải cơ chế xác thực web; passkey cần WebAuthn ở phía web. Xem <a href='m05-1-ldap-ad.html#bind-vs-search'>bind vs search</a> và <a href='m05-4-passkey.html#windows-hello'>WebAuthn vs OIDC</a>." }
+];
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="assets/pages.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

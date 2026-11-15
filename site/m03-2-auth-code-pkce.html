@@ -1,0 +1,561 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M03 · Bài 3.2 · Authorization Code + PKCE</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<main class="content">
+
+<div class="page-head">
+  <div class="breadcrumb"><a href="index.html">Lộ trình</a> / <a href="m03-oauth-oidc.html">Module 03</a> / Bài 3.2</div>
+  <h1>Bài 3.2 — Authorization Code + PKCE</h1>
+  <p class="lead">Đây là flow bạn sẽ dùng cho <b>hầu hết</b> ứng dụng có người dùng đăng nhập (web, SPA, desktop, mobile). Bài đi chậm từng bước: trình duyệt được chuyển đi đâu, mang theo gì, client đổi code lấy token ra sao — và vì sao phải thêm <b>PKCE</b> để kẻ trộm được code cũng không dùng được.</p>
+  <div class="meta-row">
+    <span class="chip">⏱ ~30 phút</span>
+    <span class="chip">📘 <a href="m03-oauth-oidc.html">Module 03 · OAuth 2.0 / 2.1 &amp; OpenID Connect</a></span>
+  </div>
+</div>
+
+<p>Bài này dùng lại các khái niệm ở <a href="m03-1-oauth-basics.html#nen-tang-flow">Bài 3.1 — Năm ý nền tảng</a> (redirect, consent, scope, authorization code, front/back-channel). Nếu chưa chắc, đọc lại đoạn đó trước.</p>
+
+<div class="terms"><span class="terms-title">📖 Thuật ngữ trong bài</span><dl>
+<dt>Grant / flow</dt><dd>“Cách” để client lấy được access token. Mỗi tình huống (có người dùng, không có, TV…) có một grant phù hợp.</dd>
+<dt>Authorization Code flow</dt><dd>Trình duyệt mang về một mã ngắn (code), client đổi mã đó lấy token ở hậu trường.</dd>
+<dt>Authorization request</dt><dd>URL client đưa trình duyệt tới AS, chứa client_id, scope, redirect_uri…</dd>
+<dt>Callback / authorization response</dt><dd>AS redirect trình duyệt về <code>redirect_uri</code> của client, kèm <code>code</code> và <code>state</code>.</dd>
+<dt>Token request</dt><dd>Client POST code tới token endpoint (back-channel) để nhận token.</dd>
+<dt>PKCE</dt><dd>Cơ chế “xé đôi vé”: chỉ client đã khởi tạo đăng nhập mới đổi được code.</dd>
+<dt><code>code_verifier</code></dt><dd>Chuỗi bí mật ngẫu nhiên client giữ lại, chỉ gửi ở bước đổi code.</dd>
+<dt><code>code_challenge</code></dt><dd>Bản băm SHA-256 của verifier, gửi trước ở bước xin code.</dd>
+<dt>Bearer token</dt><dd>Token “ai cầm cũng dùng được” — gửi qua header <code>Authorization: Bearer …</code>.</dd>
+</dl></div>
+
+<!-- ===================================================== -->
+<h2 id="flows">D. Các flow / grant quan trọng</h2>
+<p>Trước khi đi sâu một flow, hãy nhìn toàn cảnh: OAuth có nhiều “grant” (cách lấy token) cho các tình huống khác nhau. Bảng và cây quyết định dưới đây giúp bạn biết <b>khi nào dùng cái nào</b>; bài này tập trung vào dòng đầu tiên.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Flow</th><th>Có người dùng?</th><th>Client điển hình</th><th>Trạng thái</th><th>Nhãn</th></tr></thead>
+<tbody>
+<tr><td>Authorization Code + PKCE</td><td>Có</td><td>Mọi loại: web server, SPA, desktop, mobile</td><td>✅ Mặc định cho mọi thiết kế mới</td><td><span class="badge must">Must</span></td></tr>
+<tr><td>Client Credentials</td><td>Không</td><td>Service, daemon, job</td><td>✅ Machine-to-machine</td><td><span class="badge must">Must</span></td></tr>
+<tr><td>Device Authorization Grant</td><td>Có (trên thiết bị khác)</td><td>TV, CLI, IoT</td><td>✅ Use case riêng</td><td><span class="badge should">Should</span></td></tr>
+<tr><td>Refresh Token</td><td>Không tương tác</td><td>Client đã có refresh token</td><td>✅ Gia hạn phiên</td><td>—</td></tr>
+<tr><td>Implicit</td><td>Có</td><td>SPA đời cũ</td><td>❌ Không dùng</td><td><span class="badge nice">Nice</span></td></tr>
+<tr><td>Resource Owner Password Credentials</td><td>Có (nhập mật khẩu vào client)</td><td>App “first-party” đời cũ</td><td>❌ Không dùng</td><td><span class="badge nice">Nice</span></td></tr>
+</tbody></table></div>
+
+<div class="diagram">
+<pre class="mermaid">
+flowchart TD
+  S["Cần access token"] --> Q1{"Có người dùng<br/>tham gia không?"}
+  Q1 -- "Không: service gọi API" --> CC["Client Credentials"]
+  Q1 -- "Có" --> Q2{"Thiết bị có<br/>trình duyệt tốt không?"}
+  Q2 -- "Không: TV, CLI, IoT" --> DF["Device Authorization Grant"]
+  Q2 -- "Có" --> AC["Authorization Code + PKCE<br/>(web, SPA, desktop, mobile)"]
+  AC --> Q3{"Client có backend<br/>giữ được secret?"}
+  Q3 -- "Có" --> CONF["Confidential client:<br/>PKCE + client authentication"]
+  Q3 -- "Không" --> PUB["Public client:<br/>PKCE, không secret"]
+</pre>
+<div class="caption">Cây quyết định chọn grant. ROPC/Implicit không nằm trên bất kỳ nhánh nào của thiết kế mới.</div>
+</div>
+
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Mỗi loại app có flow riêng: SPA dùng Implicit, app desktop “first-party” dùng ROPC cho tiện.</span><span class="f-label">Thực tế</span><span>Có người dùng thì <b>mọi</b> loại app (web, SPA, desktop, mobile) đều dùng <b>Authorization Code + PKCE</b>. Khác nhau chỉ ở chỗ có client secret hay không và redirect URI dạng gì. Implicit/ROPC đã bị loại bỏ (<a href="m03-3-other-grants.html#ropc-implicit">Bài 3.3</a>).</span></div>
+
+<!-- ======== Authorization Code ======== -->
+<h3 id="auth-code">1. Authorization Code Flow <span class="badge must">Must</span></h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>Giống gửi đồ ở siêu thị: quầy đưa bạn một <b>phiếu số</b> (authorization code). Phiếu tự nó không phải đồ; nhân viên cửa hàng (backend) phải mang phiếu ra <b>quầy riêng phía sau</b> (token endpoint) và trình thẻ nhân viên (client_secret) mới nhận được đồ (token). Phiếu chỉ dùng một lần và hết hạn nhanh.</div>
+<p>Đây là flow nền tảng. Ý tưởng chính gói trong hai câu:</p>
+<ul>
+<li>Trình duyệt chỉ mang về một <b>authorization code</b> (ngắn hạn, dùng một lần) — không bao giờ mang token.</li>
+<li>Client đổi code lấy token qua <b>back-channel</b> (gọi thẳng AS); confidential client còn kèm xác thực client (secret).</li>
+</ul>
+<p>Ví dụ dưới là PrintNow — confidential web app có backend. Tóm tắt bằng lời trước khi xem sơ đồ:</p>
+<ol>
+<li><b>Đi (front-channel):</b> An bấm “Kết nối PhotoCloud” → PrintNow redirect trình duyệt sang trang đăng nhập của PhotoCloud, kèm “đơn xin” (ai xin, xin quyền gì, trả kết quả về đâu).</li>
+<li><b>Đăng nhập + consent:</b> An đăng nhập trên trang PhotoCloud và bấm “Cho phép”.</li>
+<li><b>Về (front-channel):</b> PhotoCloud redirect trình duyệt về PrintNow kèm <code>code</code>.</li>
+<li><b>Đổi code (back-channel):</b> backend PrintNow gọi thẳng PhotoCloud, nộp code + secret, nhận access token.</li>
+<li><b>Dùng token:</b> PrintNow gọi Photos API kèm access token.</li>
+</ol>
+
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant U as 👤 An
+  participant B as Browser
+  participant C as PrintNow (backend)
+  participant AZ as PhotoCloud AS
+  participant RS as PhotoCloud API
+  U->>B: Bấm Kết nối PhotoCloud
+  B->>C: GET /connect/photocloud
+  C->>C: Sinh state, lưu vào session
+  C-->>B: 302 tới authorization endpoint (client_id, redirect_uri, scope, state)
+  B->>AZ: GET /authorize?response_type=code&amp;...
+  AZ->>U: Trang đăng nhập + màn hình consent
+  U->>AZ: Đăng nhập, đồng ý cho đọc ảnh
+  AZ-->>B: 302 tới redirect_uri?code=...&amp;state=...
+  B->>C: GET /callback?code=...&amp;state=...
+  C->>C: So state với session
+  C->>AZ: POST /token (code, redirect_uri, client_id + client_secret)
+  AZ-->>C: access_token, refresh_token
+  C->>RS: GET /photos (Authorization Bearer access_token)
+  RS-->>C: Danh sách ảnh
+</pre>
+<div class="caption">Authorization Code Flow (RFC 6749 §4.1). Token không bao giờ đi qua trình duyệt.</div>
+</div>
+
+<p><b>Bước 4–5: Authorization request</b> (browser bị redirect tới AS; xuống dòng chỉ để dễ đọc):</p>
+<pre data-title="Authorization request"><code class="language-plaintext">GET https://auth.photocloud.example/authorize
+    ?response_type=code
+    &amp;client_id=printnow-web
+    &amp;redirect_uri=https%3A%2F%2Fprintnow.example%2Fcallback
+    &amp;scope=photos.read
+    &amp;state=xyzABC123</code></pre>
+<ul class="small">
+<li><code>response_type=code</code> — “tôi muốn nhận về một authorization code”.</li>
+<li><code>client_id=printnow-web</code> — ai đang xin (định danh công khai, không bí mật).</li>
+<li><code>redirect_uri</code> — trả kết quả về đâu; phải khớp chính xác URI đã đăng ký (được URL-encode nên trông rối).</li>
+<li><code>scope=photos.read</code> — xin quyền gì; AS hiện quyền này trên màn hình consent.</li>
+<li><code>state</code> — giá trị ngẫu nhiên PrintNow lưu trong session, sẽ so lại ở bước 10 (<a href="m03-4-state-nonce-redirect.html#state-nonce">Bài 3.4</a>).</li>
+</ul>
+
+<p><b>Bước 8: Authorization response</b> — AS redirect về client:</p>
+<pre data-title="Callback"><code class="language-plaintext">HTTP/1.1 302 Found
+Location: https://printnow.example/callback?code=SplxlOBeZQQYbYS6WxSbIA&amp;state=xyzABC123</code></pre>
+<ul class="small">
+<li><code>code</code> — authorization code: dùng một lần, sống ngắn, <b>chưa</b> gọi API được.</li>
+<li><code>state</code> — phải giống hệt giá trị đã gửi đi; khác → client từ chối.</li>
+</ul>
+
+<p><b>Bước 11: Token request</b> — backend gọi thẳng token endpoint, xác thực client bằng HTTP Basic (<code>client_id:client_secret</code> base64):</p>
+<pre data-title="Token request"><code class="language-plaintext">POST /token HTTP/1.1
+Host: auth.photocloud.example
+Authorization: Basic cHJpbnRub3ctd2ViOnMzY3IzdA==
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=authorization_code&amp;code=SplxlOBeZQQYbYS6WxSbIA&amp;redirect_uri=https%3A%2F%2Fprintnow.example%2Fcallback</code></pre>
+<ul class="small">
+<li><code>Authorization: Basic …</code> — base64 của <code>printnow-web:s3cr3t</code>; đây là bước <b>xác thực client</b> (chỉ confidential client làm được). Base64 không phải mã hóa — chỉ an toàn vì đi trên HTTPS.</li>
+<li><code>grant_type=authorization_code</code> — “tôi đổi một code”.</li>
+<li><code>code</code> — code vừa nhận ở bước 8.</li>
+<li><code>redirect_uri</code> — gửi lại đúng giá trị đã dùng ở bước 4; AS kiểm tra khớp (yêu cầu của OAuth 2.0).</li>
+</ul>
+
+<p><b>Bước 12: Token response</b>:</p>
+<pre data-title="Token response"><code class="language-json">HTTP/1.1 200 OK
+Content-Type: application/json
+Cache-Control: no-store
+
+{
+  "access_token": "2YotnFZFEjr1zCsicMWpAA",
+  "token_type": "Bearer",
+  "expires_in": 3600,
+  "refresh_token": "tGzv3JOkF0XG5Qx2TlKWIA",
+  "scope": "photos.read"
+}</code></pre>
+<ul class="small">
+<li><code>access_token</code> — vé gọi API. <code>token_type: Bearer</code> — gửi bằng header <code>Authorization: Bearer …</code>.</li>
+<li><code>expires_in: 3600</code> — vé hết hạn sau 3600 giây (1 giờ).</li>
+<li><code>refresh_token</code> — dùng để xin access token mới khi hết hạn (<a href="m03-3-other-grants.html#refresh-token">Bài 3.3</a>); chỉ gửi tới AS.</li>
+<li><code>scope</code> — quyền <b>thực sự được cấp</b> (có thể ít hơn đã xin). <code>Cache-Control: no-store</code> — cấm cache vì response chứa token.</li>
+</ul>
+<p><b>Bước 13: Gọi API</b>: <code>GET /photos</code> với header <code>Authorization: Bearer 2YotnFZFEjr1zCsicMWpAA</code> (RFC 6750).</p>
+
+<div class="callout warn"><span class="callout-title">⚠️ Authorization Code “trần” (không PKCE) ngày nay chưa đủ</span>
+Nếu code bị lộ (log, Referer, app độc chiếm custom URI scheme) thì với <b>public client</b> kẻ tấn công đổi code lấy token ngay vì không cần secret; với confidential client vẫn còn nguy cơ <b>code injection</b>. Vì vậy RFC 9700 yêu cầu public client <b>phải</b> dùng PKCE và khuyến nghị cả confidential client cũng dùng; OAuth 2.1 đưa PKCE vào mặc định. → Phần tiếp theo.</div>
+
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Code chỉ sống vài phút và dùng một lần, nên lộ code cũng chẳng sao.</span><span class="f-label">Thực tế</span><span>Kẻ tấn công chỉ cần vài giây để đổi code <b>trước</b> app thật. Với public client không PKCE, code lộ = token lộ. “Dùng một lần” chỉ có nghĩa là ai đổi trước người đó thắng.</span></div>
+
+<!-- ======== Authorization Code + PKCE ======== -->
+<h3 id="auth-code-pkce">2. Authorization Code + PKCE <span class="badge must">Must</span></h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>Như <b>xé đôi tấm vé</b>: lúc xin code, app gửi trước cho AS “dấu vân” của nửa vé (code_challenge); nửa vé thật (code_verifier) app giữ trong túi. Lúc đổi code, ai trình được nửa vé khớp dấu vân mới nhận token. Kẻ nhặt được phiếu code nhưng không có nửa vé thì bị từ chối. <i>Giới hạn:</i> “dấu vân” là bản băm SHA-256 — không thể từ nó dựng lại nửa vé.</div>
+<p><b>PKCE</b> (Proof Key for Code Exchange — “bằng chứng khóa khi đổi code”, RFC 7636, đọc là “pixy”) thêm một <b>bí mật dùng-một-lần do chính client instance tạo ra</b> cho mỗi lần đăng nhập (client instance = đúng bản app đang chạy trên máy An lúc đó).</p>
+<ul>
+<li>Lúc <b>xin code</b>: client gửi <i>bản băm</i> của bí mật.</li>
+<li>Lúc <b>đổi code</b>: client phải trình <i>bí mật gốc</i>.</li>
+</ul>
+<p>Ai trộm được code nhưng không có bí mật gốc thì đổi code thất bại.</p>
+
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: code_verifier vs code_challenge</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th><code>code_verifier</code></th><th><code>code_challenge</code></th></tr></thead>
+<tbody>
+<tr><td>Là gì</td><td>Chuỗi ngẫu nhiên gốc (bí mật)</td><td><code>BASE64URL(SHA256(verifier))</code> — bản băm</td></tr>
+<tr><td>Gửi ở bước nào</td><td>Token request (bước đổi code)</td><td>Authorization request (bước xin code)</td></tr>
+<tr><td>Đi qua kênh</td><td>Back-channel — trình duyệt không thấy</td><td>Front-channel — nằm trên URL, ai thấy cũng không sao</td></tr>
+<tr><td>Ai giữ / ai kiểm tra</td><td>Client giữ trong RAM</td><td>AS lưu lại, rồi so với <code>SHA256(verifier)</code></td></tr>
+<tr><td>Lộ thì sao</td><td>Nguy hiểm nếu kẻ tấn công có cả code</td><td>Vô hại: SHA-256 một chiều, không suy ngược ra verifier</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ (vector RFC 7636):</b> verifier <code>dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk</code> → challenge <code>E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM</code>. Bạn thử lại ngay trong widget bên dưới.</p>
+<span class="rule">Challenge đi trước, công khai (ổ khóa). Verifier đi sau, bí mật (chìa khóa).</span>
+</div>
+
+<div class="flow">
+  <div class="step"><b>1. Tạo verifier</b>Chuỗi ngẫu nhiên 43–128 ký tự</div><span class="arrow">→</span>
+  <div class="step"><b>2. Tạo challenge</b>BASE64URL(SHA256(verifier))</div><span class="arrow">→</span>
+  <div class="step"><b>3. Authorization request</b>gửi <code>code_challenge</code> + <code>S256</code></div><span class="arrow">→</span>
+  <div class="step"><b>4. Token request</b>gửi <code>code_verifier</code></div><span class="arrow">→</span>
+  <div class="step"><b>5. AS kiểm tra</b>băm verifier = challenge đã lưu?</div>
+</div>
+
+<p>Sơ đồ đầy đủ với <b>Client, Browser, Authorization Server và Resource Server</b> (đây là <b>Deliverable 1</b>) cho app WPF <code>demo-client</code> dùng system browser + loopback redirect:</p>
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant U as 👤 An
+  participant C as Client WPF (demo-client)
+  participant B as System Browser
+  participant AZ as Authorization Server (Keycloak)
+  participant RS as Resource Server (demo-api)
+  U->>C: Bấm Đăng nhập
+  C->>C: Sinh code_verifier, state, nonce
+  C->>C: code_challenge = BASE64URL(SHA256(code_verifier))
+  C->>C: Mở listener http://127.0.0.1:7890/
+  C->>B: Mở URL authorization (code_challenge, method S256, state, nonce)
+  B->>AZ: GET /auth?response_type=code&amp;client_id=demo-client&amp;...
+  AZ->>AZ: Lưu code_challenge gắn với phiên authorization
+  AZ->>U: Trang đăng nhập (+ MFA, consent)
+  U->>AZ: Nhập credential
+  AZ-->>B: 302 http://127.0.0.1:7890/?code=...&amp;state=...
+  B->>C: Listener nhận code + state
+  C->>C: Kiểm tra state khớp
+  C->>AZ: POST /token (code, redirect_uri, client_id, code_verifier)
+  AZ->>AZ: SHA256(code_verifier) khớp code_challenge? Code chưa dùng?
+  AZ-->>C: access_token, id_token, refresh_token
+  C->>C: Validate ID token (nếu dùng OIDC)
+  C->>RS: GET /orders (Bearer access_token)
+  RS->>RS: Kiểm tra chữ ký, iss, aud=demo-api, exp, scope
+  RS-->>C: 200 OK dữ liệu
+</pre>
+<div class="caption">Authorization Code + PKCE cho public client (desktop). Không có client_secret. Đây cũng là nội dung <a href="lab-3-pkce-client.html#lab3">Lab 3</a>.</div>
+</div>
+
+<p><b>Authorization request thật</b> (gửi tới Keycloak, có cả tham số OIDC <code>nonce</code> vì scope có <code>openid</code>):</p>
+<pre data-title="Authorization request + PKCE"><code class="language-plaintext">GET http://localhost:8080/realms/demo/protocol/openid-connect/auth
+    ?response_type=code
+    &amp;client_id=demo-client
+    &amp;redirect_uri=http%3A%2F%2F127.0.0.1%3A7890%2F
+    &amp;scope=openid%20profile%20email%20orders.read
+    &amp;state=af0ifjsldkj
+    &amp;nonce=n-0S6_WzA2Mj
+    &amp;code_challenge=E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM
+    &amp;code_challenge_method=S256</code></pre>
+<p class="small">So với request của PrintNow ở trên, phần <b>mới</b> là:</p>
+<ul class="small">
+<li><code>scope=openid profile email orders.read</code> — <code>openid</code> bật OIDC (sẽ có ID token); <code>orders.read</code> là quyền gọi <code>demo-api</code>. <code>%20</code> là dấu cách đã URL-encode.</li>
+<li><code>nonce</code> — (OIDC) giá trị ngẫu nhiên, sẽ được chép vào ID token để client kiểm tra.</li>
+<li><code>code_challenge</code> — bản băm của verifier (verifier vẫn nằm trong RAM của app).</li>
+<li><code>code_challenge_method=S256</code> — cách băm là SHA-256. Luôn gửi tường minh.</li>
+<li><code>redirect_uri=http://127.0.0.1:7890/</code> — địa chỉ loopback: app WPF tự mở một listener HTTP nhỏ trên máy An để “hứng” callback.</li>
+</ul>
+
+<p><b>Callback</b> (AS → browser → listener loopback của app). Một số AS (gồm Keycloak bản mới) gửi thêm <code>iss</code> theo RFC 9207 để chống mix-up attack:</p>
+<pre data-title="Authorization response"><code class="language-plaintext">HTTP/1.1 302 Found
+Location: http://127.0.0.1:7890/?state=af0ifjsldkj&amp;iss=http%3A%2F%2Flocalhost%3A8080%2Frealms%2Fdemo&amp;code=3f1c2a0e-7d.b41e...</code></pre>
+
+<p><b>Token request</b> — public client: <b>không</b> có <code>client_secret</code>, thay vào đó là <code>code_verifier</code>:</p>
+<pre data-title="POST token endpoint"><code class="language-plaintext">POST /realms/demo/protocol/openid-connect/token HTTP/1.1
+Host: localhost:8080
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=authorization_code
+&amp;code=3f1c2a0e-7d.b41e...
+&amp;redirect_uri=http%3A%2F%2F127.0.0.1%3A7890%2F
+&amp;client_id=demo-client
+&amp;code_verifier=dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk</code></pre>
+<p class="small muted">(Body thật nằm trên một dòng; tách dòng ở đây cho dễ đọc.)</p>
+<ul class="small">
+<li>Không có header <code>Authorization: Basic</code> — public client không có secret, chỉ gửi <code>client_id</code> trong body.</li>
+<li><code>code_verifier</code> — bí mật gốc. AS tính <code>SHA256</code> của nó, so với <code>code_challenge</code> đã lưu ở bước xin code; khác → <code>invalid_grant</code>.</li>
+<li>Callback ở trên có thêm <code>iss</code> — client kiểm tra nó bằng đúng địa chỉ Keycloak mình đã gọi.</li>
+</ul>
+
+<pre data-title="Token response (rút gọn)"><code class="language-json">{
+  "access_token": "eyJhbGciOiJSUzI1NiIsInR5cCI...",
+  "expires_in": 300,
+  "refresh_expires_in": 1800,
+  "refresh_token": "eyJhbGciOiJIUzUxMiIsInR5cCI...",
+  "token_type": "Bearer",
+  "id_token": "eyJhbGciOiJSUzI1NiIsInR5cCI...",
+  "scope": "openid profile email orders.read"
+}</code></pre>
+<p class="small muted"><code>refresh_expires_in</code> là trường riêng của Keycloak; các trường chuẩn là <code>access_token</code>, <code>token_type</code>, <code>expires_in</code>, <code>refresh_token</code>, <code>scope</code> (RFC 6749 §5.1) và <code>id_token</code> (OIDC).</p>
+
+<div class="callout tip"><span class="callout-title">✅ Trong .NET bạn hiếm khi tự viết các request này</span>
+Web app: <code>AddOpenIdConnect</code> (PKCE bật mặc định qua <code>UsePkce = true</code>). Desktop: <code>Duende.IdentityModel.OidcClient</code> hoặc MSAL.NET (Entra ID) tự sinh verifier/state/nonce và validate ID token. Nhưng bạn <b>phải đọc hiểu</b> chúng để debug bằng DevTools/Fiddler.</div>
+
+<pre data-title="WPF / console — Duende.IdentityModel.OidcClient (rút gọn)"><code class="language-csharp">var options = new OidcClientOptions
+{
+    Authority   = "http://localhost:8080/realms/demo",
+    ClientId    = "demo-client",                 // public client: KHÔNG có ClientSecret
+    RedirectUri = "http://127.0.0.1:7890/",
+    Scope       = "openid profile email orders.read",
+    Browser     = new SystemBrowser(7890)          // mở system browser + listener loopback
+};
+var client = new OidcClient(options);
+LoginResult result = await client.LoginAsync(); // tự tạo state, nonce, code_verifier (S256)
+if (result.IsError) throw new Exception(result.Error);
+var accessToken = result.AccessToken;              // gửi tới demo-api
+var user        = result.User;                     // ClaimsPrincipal dựng từ ID token đã validate</code></pre>
+<p class="small muted"><code>SystemBrowser</code> là lớp mẫu trong các sample của IdentityModel.OidcClient (bạn tự thêm vào project), không phải API có sẵn trong package.</p>
+
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>PKCE chỉ dành cho mobile/SPA.</span><span class="f-label">Thực tế</span><span>RFC 9700 khuyến nghị cả confidential client dùng PKCE (chống code injection); OAuth 2.1 đưa PKCE vào mặc định cho mọi Authorization Code. ASP.NET Core <code>AddOpenIdConnect</code> bật sẵn PKCE dù web có client secret.</span></div>
+
+<!-- ======== PKCE detail ======== -->
+<h3 id="pkce">PKCE chi tiết (RFC 7636) <span class="badge must">Must</span></h3>
+<div class="table-wrap"><table>
+<thead><tr><th>Thành phần</th><th>Quy định (RFC 7636)</th></tr></thead>
+<tbody>
+<tr><td><code>code_verifier</code></td><td>Chuỗi ngẫu nhiên mật mã, độ dài <b>43–128 ký tự</b>, chỉ gồm ký tự “unreserved”: <code>A-Z a-z 0-9 - . _ ~</code>. Khuyến nghị: sinh 32 byte ngẫu nhiên rồi base64url → đúng 43 ký tự.</td></tr>
+<tr><td><code>code_challenge</code> (S256)</td><td><code>BASE64URL-ENCODE(SHA256(ASCII(code_verifier)))</code> — base64url <b>không padding</b> <code>=</code>.</td></tr>
+<tr><td><code>code_challenge</code> (plain)</td><td><code>code_challenge = code_verifier</code>. Chỉ được dùng khi client <b>không thể</b> hỗ trợ S256 vì lý do kỹ thuật. OAuth 2.1 (draft) <b>bỏ</b> <code>plain</code>.</td></tr>
+<tr><td><code>code_challenge_method</code></td><td><code>S256</code> hoặc <code>plain</code> (mặc định <code>plain</code> nếu không gửi — nên luôn gửi <code>S256</code> tường minh).</td></tr>
+<tr><td>Khi verifier sai</td><td>Token endpoint trả lỗi <code>invalid_grant</code>.</td></tr>
+<tr><td>Vector kiểm thử (Appendix B)</td><td>verifier <code>dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk</code> → challenge <code>E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM</code></td></tr>
+</tbody></table></div>
+
+<div class="grid cols-2">
+  <div class="card ok"><h4>Vì sao S256 tốt hơn plain?</h4><p>Với <code>plain</code>, giá trị đi trên front-channel <b>chính là</b> verifier — ai đọc được authorization request (log, proxy, malware) cũng có luôn verifier. Với <code>S256</code>, front-channel chỉ chứa <b>bản băm</b>; SHA-256 một chiều nên không suy ngược ra verifier.</p></div>
+  <div class="card acc"><h4>PKCE khác client_secret thế nào?</h4><p><code>client_secret</code> là bí mật <b>tĩnh, dùng chung</b> cho mọi bản cài → không giấu được trong public client. PKCE verifier là bí mật <b>động</b>, sinh mới cho <b>mỗi lần đăng nhập</b>, chỉ nằm trong RAM của đúng instance đó → không cần “giấu” trong binary.</p></div>
+</div>
+
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Đã có PKCE thì web có backend bỏ luôn client_secret cho gọn.</span><span class="f-label">Thực tế</span><span>Hai thứ không thay nhau: secret xác thực <b>client</b> (“tôi là PrintNow”), PKCE ràng buộc <b>code</b> với đúng lần đăng nhập. Confidential client nên dùng <b>cả hai</b>.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Dùng method <code>plain</code> cho đơn giản, đằng nào cũng chạy HTTPS.</span><span class="f-label">Thực tế</span><span>HTTPS chỉ chống nghe lén trên đường truyền. URL authorization request vẫn nằm trong history, log proxy/server, có thể bị malware đọc. Với <code>plain</code> thứ nằm trên URL <b>chính là verifier</b>. Luôn dùng <code>S256</code>; OAuth 2.1 bỏ <code>plain</code>.</span></div>
+
+<div class="widget" id="pkce-widget">
+  <div class="w-title">🧪 PKCE generator (chạy 100% trong trình duyệt của bạn)</div>
+  <p class="small">Sinh <code>code_verifier</code> bằng <code>crypto.getRandomValues</code>, tính <code>code_challenge</code> S256 bằng <code>crypto.subtle.digest("SHA-256")</code>, rồi ghép thành authorization URL mẫu cho Keycloak realm <code>demo</code>. Không có request mạng nào được gửi.</p>
+  <label class="small" for="pk-bytes">Số byte ngẫu nhiên (32 byte → 43 ký tự; 96 byte → 128 ký tự):</label>
+  <select id="pk-bytes">
+    <option value="32" selected>32 byte → verifier 43 ký tự</option>
+    <option value="48">48 byte → verifier 64 ký tự</option>
+    <option value="64">64 byte → verifier 86 ký tự</option>
+    <option value="96">96 byte → verifier 128 ký tự</option>
+  </select>
+  <label class="small" for="pk-verifier">code_verifier (có thể sửa tay để thử):</label>
+  <input type="text" id="pk-verifier" spellcheck="false" autocomplete="off">
+  <div class="btn-row">
+    <button class="btn" id="pk-gen">1. Sinh verifier + state + nonce</button>
+    <button class="btn" id="pk-calc">2. Tính challenge &amp; URL</button>
+    <button class="btn ghost" id="pk-rfc">Dùng vector RFC 7636</button>
+  </div>
+  <div class="out" id="pk-out">Bấm “1. Sinh verifier…” để bắt đầu.</div>
+  <p class="small" style="margin-top:12px"><b>Mô phỏng AS kiểm tra ở token endpoint:</b> dán một <code>code_verifier</code> (vd. verifier của “kẻ tấn công”) để xem AS so khớp với challenge đã lưu ra sao.</p>
+  <input type="text" id="pk-try" spellcheck="false" autocomplete="off" placeholder="code_verifier gửi kèm khi đổi code">
+  <div class="btn-row"><button class="btn" id="pk-verify">3. AS xác minh</button></div>
+  <div class="out" id="pk-verify-out">—</div>
+</div>
+
+<h4 id="pkce-attack">Tấn công authorization code interception mà PKCE chặn</h4>
+<p>Kịch bản kinh điển trên desktop/mobile: app độc cài trên cùng máy đăng ký <b>cùng custom URI scheme</b> (vd. <code>com.demo.app:/callback</code>) hoặc đọc được URL callback (log, Referer, extension). Nó lấy được <code>code</code> — nhưng không có <code>code_verifier</code> nằm trong RAM của app thật.</p>
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant C as App thật (demo-client)
+  participant B as Browser
+  participant AZ as Authorization Server
+  participant M as 😈 App độc / kẻ nghe lén
+  C->>C: verifier V (chỉ ở RAM), challenge = SHA256(V)
+  C->>B: Authorization request + code_challenge
+  B->>AZ: Đăng nhập thành công
+  AZ-->>B: Redirect kèm code
+  B-->>M: Code bị chặn (custom scheme trùng, log, Referer)
+  M->>AZ: POST /token (code, client_id=demo-client, KHÔNG có V)
+  alt Không dùng PKCE
+    AZ-->>M: ❌ Cấp token cho kẻ tấn công (public client không có secret)
+  else Có PKCE
+    AZ-->>M: ✅ 400 invalid_grant - thiếu hoặc sai code_verifier
+  end
+</pre>
+<div class="caption">PKCE ràng buộc code với đúng client instance đã tạo request. Biến thể “code injection” (kẻ tấn công nhét code trộm được vào phiên của chính nó) cũng thất bại vì verifier trong phiên của kẻ tấn công không khớp challenge.</div>
+</div>
+
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: Authorization Code vs Authorization Code + PKCE</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Authorization Code (không PKCE)</th><th>Authorization Code + PKCE</th></tr></thead>
+<tbody>
+<tr><td>Tham số thêm</td><td>—</td><td><code>code_challenge</code> + <code>code_challenge_method</code> (xin code), <code>code_verifier</code> (đổi code)</td></tr>
+<tr><td>Ai đổi được code</td><td>Ai có code (+ secret nếu là confidential client)</td><td>Chỉ instance đang giữ verifier (+ secret nếu có)</td></tr>
+<tr><td>Public client</td><td>❌ Không an toàn: lộ code = lộ token</td><td>✅ Cách đúng duy nhất</td></tr>
+<tr><td>Confidential client</td><td>Vẫn còn nguy cơ code injection</td><td>✅ Khuyến nghị (RFC 9700), mặc định trong OAuth 2.1</td></tr>
+<tr><td>Chi phí</td><td colspan="2">Gần như bằng 0: thư viện tự sinh verifier/challenge.</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> app độc trên máy An chiếm được callback <code>?code=3f1c2a0e…</code>. Không PKCE → nó POST code này với <code>client_id=demo-client</code> và nhận token. Có PKCE → nó không có <code>code_verifier</code> → <code>400 invalid_grant</code>.</p>
+<span class="rule">PKCE không phải flow mới — chỉ là 3 tham số thêm vào Authorization Code. Luôn bật.</span>
+</div>
+
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Có PKCE thì access token bị trộm cũng không dùng được.</span><span class="f-label">Thực tế</span><span>PKCE chỉ bảo vệ <b>bước đổi code</b>. Token đã cấp mà bị lộ (XSS, log, malware) thì vẫn là bearer token — ai cầm cũng dùng được tới khi hết hạn. Chống việc đó cần token sống ngắn, lưu trữ an toàn hoặc sender-constrained token (DPoP/mTLS).</span></div>
+
+<div class="callout tip"><span class="callout-title">✅ Tự kiểm tra nhanh</span><ul>
+<li>Trong flow Authorization Code, access token có bao giờ xuất hiện trên URL của trình duyệt không?</li>
+<li><code>code_challenge</code> bị lộ trên URL có nguy hiểm không? Còn <code>code_verifier</code>?</li>
+<li>Token request của <code>demo-client</code> khác token request của PrintNow ở điểm nào? Vì sao?</li>
+</ul></div>
+
+<h2 id="quiz-bai">Quiz nhanh — Bài 3.2</h2>
+<div id="quiz"></div>
+
+</main>
+<script>
+(function () {
+  var AUTH_EP = "http://localhost:8080/realms/demo/protocol/openid-connect/auth";
+  var CLIENT_ID = "demo-client";
+  var REDIRECT = "http://127.0.0.1:7890/";
+  var SCOPE = "openid profile email orders.read";
+  var RFC_VERIFIER = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
+  var RFC_CHALLENGE = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM";
+  var state = "", nonce = "", storedChallenge = "";
+
+  function $(id) { return document.getElementById(id); }
+  function b64url(bytes) {
+    var s = "";
+    for (var i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+    return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  }
+  function randomB64url(n) {
+    var a = new Uint8Array(n);
+    crypto.getRandomValues(a);
+    return b64url(a);
+  }
+  function hasSubtle() { return !!(window.crypto && crypto.subtle && crypto.subtle.digest); }
+  function sha256b64url(text) {
+    return crypto.subtle.digest("SHA-256", new TextEncoder().encode(text))
+      .then(function (buf) { return b64url(new Uint8Array(buf)); });
+  }
+  function validVerifier(v) { return /^[A-Za-z0-9\-._~]{43,128}$/.test(v); }
+
+  function gen() {
+    var n = parseInt($("pk-bytes").value, 10);
+    $("pk-verifier").value = randomB64url(n);
+    state = randomB64url(16);
+    nonce = randomB64url(16);
+    $("pk-out").textContent =
+      "Bước 1 — đã sinh bằng crypto.getRandomValues:\n" +
+      "  code_verifier (" + $("pk-verifier").value.length + " ký tự) = " + $("pk-verifier").value + "\n" +
+      "  state = " + state + "\n" +
+      "  nonce = " + nonce + "\n\n" +
+      "Client giữ 3 giá trị này trong bộ nhớ/session. Verifier KHÔNG BAO GIỜ đi qua trình duyệt.\n" +
+      "→ Bấm \"2. Tính challenge & URL\".";
+  }
+
+  function calc() {
+    var v = $("pk-verifier").value.trim();
+    if (!v) { gen(); v = $("pk-verifier").value; }
+    if (!state) state = randomB64url(16);
+    if (!nonce) nonce = randomB64url(16);
+    if (!hasSubtle()) {
+      $("pk-out").textContent = "Trình duyệt không cung cấp crypto.subtle (cần HTTPS, localhost hoặc file:// trên trình duyệt hiện đại).";
+      return;
+    }
+    var check = validVerifier(v)
+      ? "✅ Hợp lệ: " + v.length + " ký tự, chỉ gồm A-Z a-z 0-9 - . _ ~"
+      : "❌ KHÔNG hợp lệ theo RFC 7636 (cần 43–128 ký tự thuộc A-Z a-z 0-9 - . _ ~). Hiện có " + v.length + " ký tự.";
+    sha256b64url(v).then(function (ch) {
+      storedChallenge = ch;
+      var url = AUTH_EP +
+        "?response_type=code" +
+        "&client_id=" + encodeURIComponent(CLIENT_ID) +
+        "&redirect_uri=" + encodeURIComponent(REDIRECT) +
+        "&scope=" + encodeURIComponent(SCOPE) +
+        "&state=" + encodeURIComponent(state) +
+        "&nonce=" + encodeURIComponent(nonce) +
+        "&code_challenge=" + ch +
+        "&code_challenge_method=S256";
+      var rfc = (v === RFC_VERIFIER)
+        ? "\n  So với RFC 7636 Appendix B: " + (ch === RFC_CHALLENGE ? "✅ KHỚP " : "❌ KHÁC ") + RFC_CHALLENGE
+        : "";
+      $("pk-out").textContent =
+        "Kiểm tra verifier: " + check + "\n\n" +
+        "Bước 2 — code_challenge = BASE64URL(SHA256(ASCII(code_verifier))):\n" +
+        "  SHA-256 cho ra 32 byte → base64url bỏ dấu = → luôn 43 ký tự\n" +
+        "  code_challenge = " + ch + rfc + "\n\n" +
+        "Bước 3 — authorization URL (đi qua trình duyệt, chỉ chứa challenge):\n" + url + "\n\n" +
+        "Bước 4 — khi đổi code, client gửi tới token endpoint (back-channel):\n" +
+        "  grant_type=authorization_code&code=...&redirect_uri=" + encodeURIComponent(REDIRECT) +
+        "&client_id=" + CLIENT_ID + "&code_verifier=" + v + "\n\n" +
+        "Bước 5 — AS tính lại SHA256(code_verifier), so với challenge đã lưu. Thử ở ô bên dưới.";
+      $("pk-try").value = v;
+    });
+  }
+
+  function rfcVector() {
+    $("pk-verifier").value = RFC_VERIFIER;
+    calc();
+  }
+
+  function verify() {
+    var out = $("pk-verify-out");
+    if (!storedChallenge) { out.textContent = "Chưa có challenge nào được \"lưu\" ở AS — hãy làm bước 2 trước."; return; }
+    if (!hasSubtle()) { out.textContent = "Trình duyệt không hỗ trợ crypto.subtle."; return; }
+    var v = $("pk-try").value.trim();
+    if (!v) { out.textContent = "AS: thiếu code_verifier → 400 {\"error\":\"invalid_grant\"} (đã có challenge thì verifier là bắt buộc)."; return; }
+    sha256b64url(v).then(function (ch) {
+      if (ch === storedChallenge) {
+        out.textContent = "SHA256(verifier) = " + ch + "\nChallenge đã lưu = " + storedChallenge +
+          "\n✅ KHỚP → AS cấp token (200 OK, access_token, id_token...).";
+      } else {
+        out.textContent = "SHA256(verifier) = " + ch + "\nChallenge đã lưu = " + storedChallenge +
+          "\n❌ KHÔNG KHỚP → 400 {\"error\":\"invalid_grant\"}. Kẻ trộm code mà không có verifier gốc sẽ thất bại ở đây.";
+      }
+    });
+  }
+
+  function init() {
+    if (!$("pk-gen")) return;
+    $("pk-gen").addEventListener("click", gen);
+    $("pk-calc").addEventListener("click", calc);
+    $("pk-rfc").addEventListener("click", rfcVector);
+    $("pk-verify").addEventListener("click", verify);
+    $("pk-bytes").addEventListener("change", gen);
+  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init); else init();
+})();
+</script>
+<script>
+window.QUIZ = [
+  { q: "PrintNow là web có backend, đã xác thực với token endpoint bằng <code>client_secret</code>. Dev hỏi: “Có secret rồi thì còn cần PKCE không?” Câu trả lời đúng nhất?", tricky: true,
+    options: ["Không cần — PKCE chỉ dành cho public client không có secret", "Nên dùng cả hai: secret xác thực client, PKCE ràng buộc code với đúng lần đăng nhập (chống code injection)", "Chuyển sang PKCE và bỏ secret, vì PKCE mạnh hơn", "Chỉ cần PKCE khi server chạy trên cloud công cộng"],
+    answer: 1,
+    why: ["Đây là hiểu lầm phổ biến: RFC 9700 khuyến nghị cả confidential client dùng PKCE, OAuth 2.1 đưa nó vào mặc định.", "Secret trả lời “client nào đang gọi”, PKCE trả lời “code này có thuộc phiên đăng nhập của tôi không” — hai câu hỏi khác nhau.", "Bỏ secret thì AS mất khả năng xác thực client; với confidential client, PKCE là lớp thêm vào chứ không thay thế.", "Nơi đặt server không liên quan; code injection xảy ra qua trình duyệt của người dùng."],
+    explain: "Bẫy: “có secret là đủ”. Secret ≠ PKCE; confidential client nên dùng cả hai. Xem <a href='m03-2-auth-code-pkce.html#auth-code-pkce'>Code + PKCE</a>." },
+  { q: "Soi tab Network khi một app đăng nhập, bạn thấy URL authorization request có tham số <code>code_verifier=dBjftJeZ4CVP-...</code>. Điều này nói lên gì?",
+    options: ["Bình thường: verifier luôn đi cùng authorization request", "App cài đặt sai: verifier là bí mật, chỉ được gửi ở token request (back-channel); trên URL phải là <code>code_challenge</code>", "Đó là method <code>plain</code> đúng chuẩn", "Không sao, AS sẽ tự băm verifier trên URL"],
+    answer: 1,
+    why: ["Authorization request chỉ mang <code>code_challenge</code> + <code>code_challenge_method</code>; verifier giữ lại trong RAM.", "Verifier lộ trên front-channel thì kẻ có được code cũng có luôn verifier — PKCE mất tác dụng.", "Kể cả với <code>plain</code>, tham số trên URL vẫn tên là <code>code_challenge</code>; và <code>plain</code> đã bị OAuth 2.1 bỏ.", "AS không đọc tham số <code>code_verifier</code> ở authorization endpoint; vấn đề là bí mật đã bị lộ."],
+    explain: "Challenge đi trước, công khai; verifier đi sau, bí mật. Xem <a href='m03-2-auth-code-pkce.html#pkce'>PKCE chi tiết</a>." },
+  { q: "Token request của <code>demo-client</code> (app WPF, public client) chứa những gì?",
+    options: ["<code>grant_type=authorization_code</code>", "<code>code_verifier</code>", "Header <code>Authorization: Basic</code> chứa client_secret", "<code>redirect_uri</code> giống giá trị đã gửi lúc xin code", "<code>code_challenge</code>"],
+    answer: [0, 1, 3],
+    why: ["Đây là cách nói “tôi đang đổi một authorization code”.", "Bí mật gốc để AS băm và so với challenge đã lưu.", "Public client không có secret; nó chỉ gửi <code>client_id</code> trong body.", "OAuth 2.0 yêu cầu gửi lại đúng <code>redirect_uri</code> đã dùng để AS so khớp.", "Challenge đã gửi ở authorization request; ở token request gửi verifier."],
+    explain: "So với PrintNow: không có Basic auth, thay bằng <code>code_verifier</code>. Xem <a href='m03-2-auth-code-pkce.html#auth-code-pkce'>request mẫu</a>." },
+  { q: "Kẻ tấn công đọc được log proxy có cả URL authorization request (chứa <code>code_challenge</code>, method <code>S256</code>) và URL callback (chứa <code>code</code>). Hắn đổi được code lấy token không?",
+    options: ["Được, vì có cả code và challenge", "Không: token endpoint đòi <code>code_verifier</code>, mà SHA-256 một chiều nên không suy ra verifier từ challenge", "Được, vì S256 có thể giải mã ngược", "Không, vì code chỉ đổi được từ đúng địa chỉ IP đã xin"],
+    answer: 1,
+    why: ["Challenge không phải thứ token endpoint cần; nó cần verifier.", "Đúng: challenge là bản băm, lộ ra vô hại; verifier nằm trong RAM app thật.", "SHA-256 là hàm băm, không phải mã hóa — không có “giải mã ngược”.", "AS không ràng buộc code theo IP; thứ ràng buộc là verifier."],
+    explain: "Nếu app dùng <code>plain</code>, challenge chính là verifier và kẻ tấn công thắng — lý do luôn dùng S256. Xem <a href='m03-2-auth-code-pkce.html#pkce-attack'>tấn công interception</a>." },
+  { q: "Do bug retry, app gửi lại <b>cùng</b> code và <b>đúng</b> <code>code_verifier</code> lần thứ hai sau khi đã đổi thành công. AS xử lý thế nào?", tricky: true,
+    options: ["Cấp token mới vì verifier vẫn đúng", "Trả lại đúng token đã cấp lần trước", "Từ chối (<code>invalid_grant</code>) vì code chỉ dùng một lần; AS còn nên thu hồi các token đã cấp từ code đó", "Cấp access token nhưng không cấp refresh token"],
+    answer: 2,
+    why: ["Verifier đúng không cứu được: code đã bị tiêu thụ.", "AS không lưu lại để “trả lại” token cũ; code dùng lại bị coi là dấu hiệu bất thường.", "RFC 6749 §4.1.2: code dùng quá một lần thì AS phải từ chối và nên thu hồi token đã phát từ code đó (vì có thể code đã bị trộm).", "Không có cơ chế cấp “một nửa”; request bị từ chối hoàn toàn."],
+    explain: "Bẫy: “verifier đúng thì được”. PKCE chỉ là một điều kiện; code vẫn dùng một lần. Bug retry kiểu này có thể làm mất luôn token vừa nhận. Xem <a href='m03-2-auth-code-pkce.html#auth-code'>Authorization Code</a>." }
+];
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="assets/pages.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

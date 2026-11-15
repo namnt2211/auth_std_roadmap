@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M03 · Ôn tập &amp; Quiz</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<main class="content">
+
+<div class="page-head">
+  <div class="breadcrumb"><a href="index.html">Lộ trình</a> / <a href="m03-oauth-oidc.html">Module 03</a> / Ôn tập</div>
+  <h1>Module 03 — Ôn tập &amp; Quiz</h1>
+  <p class="lead">Trang tổng hợp cuối Module 03. Đọc lần lượt: hiểu lầm hay gặp → bảng phân biệt các khái niệm dễ nhầm → tóm tắt → câu hỏi tự luận → quiz trắc nghiệm. Làm sau khi học xong các bài; đạt ≥ 80% quiz để đánh dấu hoàn thành module.</p>
+  <div class="meta-row">
+    <span class="chip">⏱ ~20 phút</span>
+    <span class="chip">📘 <a href="m03-oauth-oidc.html">Module 03 · OAuth 2.0 / 2.1 &amp; OpenID Connect</a></span>
+  </div>
+</div>
+
+<!-- ===================================================== -->
+<h2 id="hieu-lam">Các hiểu lầm cần tránh</h2>
+<p>Bản tóm tắt để ôn nhanh. Chi tiết và ví dụ nằm ngay dưới từng phần trong bài — bấm “xem bài” để đọc. Thử che vế “Thực tế” và tự giải thích vì sao vế “Hiểu lầm” sai.</p>
+<ul>
+<li><b>Hiểu lầm:</b> Có access token nghĩa là người dùng đã đăng nhập vào app. → <b>Thực tế:</b> Access token để gọi API; đăng nhập cần ID token đã validate (<a href="m03-5-oidc.html#oidc-la-gi">xem bài</a>).</li>
+<li><b>Hiểu lầm:</b> OAuth đã đủ để làm đăng nhập. → <b>Thực tế:</b> OAuth là ủy quyền; xác thực chuẩn hóa nằm ở OIDC (<a href="m03-1-oauth-basics.html#authz-vs-authn">xem bài</a>).</li>
+<li><b>Hiểu lầm:</b> Obfuscate thì giấu được client_secret trong WPF/SPA. → <b>Thực tế:</b> Public client không giữ được bí mật; dùng PKCE, không secret (<a href="m03-1-oauth-basics.html#client-types">xem bài</a>).</li>
+<li><b>Hiểu lầm:</b> PKCE chỉ dành cho mobile/SPA. → <b>Thực tế:</b> RFC 9700 khuyến nghị cả confidential client; OAuth 2.1 đưa PKCE vào mặc định (<a href="m03-2-auth-code-pkce.html#auth-code-pkce">xem bài</a>).</li>
+<li><b>Hiểu lầm:</b> OAuth 2.1 là chuẩn mới với nhiều cơ chế mới. → <b>Thực tế:</b> Là bản hợp nhất best practice đã có, tại 11/2026 vẫn là Internet-Draft (<a href="m03-3-other-grants.html#oauth21">xem bài</a>).</li>
+<li><b>Hiểu lầm:</b> state và nonce là một, dùng cái nào cũng được. → <b>Thực tế:</b> state bảo vệ authorization response (CSRF), nonce bảo vệ ID token (replay) (<a href="m03-4-state-nonce-redirect.html#state-nonce">xem bài</a>).</li>
+<li><b>Hiểu lầm:</b> Gửi ID token lên API cho tiện, vì nó cũng là JWT có chữ ký. → <b>Thực tế:</b> <code>aud</code> = client, không có scope; API đúng sẽ trả 401 (<a href="m03-5-oidc.html#id-vs-access">xem bài</a>).</li>
+<li><b>Hiểu lầm:</b> Web gửi kèm ID token ở mỗi request để “giữ đăng nhập”. → <b>Thực tế:</b> Validate xong thì tạo session cookie riêng (<a href="m03-5-oidc.html#oidc-flow">xem bài</a>).</li>
+<li><b>Hiểu lầm:</b> Chữ ký ID token hợp lệ là đủ. → <b>Thực tế:</b> Còn phải kiểm tra <code>iss</code>, <code>aud</code>, <code>exp</code>, <code>nonce</code> (<a href="m03-5-oidc.html#id-token-validation">xem bài</a>).</li>
+<li><b>Hiểu lầm:</b> Copy public key vào config là xong, khỏi cần JWKS. → <b>Thực tế:</b> Ngày xoay khóa, toàn hệ thống 401; để thư viện đọc Discovery/JWKS (<a href="m03-6-discovery-logout.html#key-rotation">xem bài</a>).</li>
+<li><b>Hiểu lầm:</b> Gặp <code>kid</code> lạ thì tải lại JWKS mỗi lần. → <b>Thực tế:</b> Refresh có giới hạn tần suất, nếu không sẽ bị spam (<a href="m03-6-discovery-logout.html#key-rotation">xem bài</a>).</li>
+<li><b>Hiểu lầm:</b> Bấm Logout trong app là đã đăng xuất khỏi mọi nơi. → <b>Thực tế:</b> Local session, OP session, token là ba thứ khác nhau; chỉ local logout thì SSO cho vào lại ngay (<a href="m03-6-discovery-logout.html#logout">xem bài</a>).</li>
+<li><b>Hiểu lầm:</b> Đăng xuất ở OP thì access token JWT hết hiệu lực ngay. → <b>Thực tế:</b> API validate cục bộ vẫn nhận tới <code>exp</code> (<a href="m03-6-discovery-logout.html#front-back-channel">xem bài</a>).</li>
+<li><b>Hiểu lầm:</b> <code>sub</code> không bao giờ cấp lại nên chỉ cần lưu <code>sub</code>. → <b>Thực tế:</b> Chỉ duy nhất trong phạm vi <code>iss</code>; khóa là (<code>iss</code>, <code>sub</code>) (<a href="m03-7-user-identity.html#iss-sub">xem bài</a>).</li>
+<li><b>Hiểu lầm:</b> Email trùng (kể cả <code>email_verified = true</code>) thì cứ tự gộp tài khoản. → <b>Thực tế:</b> Cần provider có thẩm quyền với domain; an toàn nhất là người dùng đang đăng nhập chủ động liên kết (<a href="m03-7-user-identity.html#account-linking">xem bài</a>).</li>
+<li><b>Hiểu lầm:</b> Dùng <code>/organizations</code> thì Microsoft đã lọc tenant giúp. → <b>Thực tế:</b> App phải tự kiểm tra <code>tid</code> theo danh sách cho phép (<a href="m03-7-user-identity.html#multi-tenant">xem bài</a>).</li>
+</ul>
+
+<!-- ===================================================== -->
+<h2 id="so-sanh">So sánh cần nắm vững</h2>
+<p>Các cặp dưới đây là nơi người mới hay nhầm nhất. Với mỗi dòng, hãy che cột “Câu chốt” và thử tự nói ra trong một câu. Link dẫn về bài có bảng so sánh chi tiết và ví dụ.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>#</th><th>Cặp so sánh</th><th>Điểm khác cốt lõi</th><th>Câu “chốt”</th></tr></thead>
+<tbody>
+<tr><td>1</td><td><b>OAuth 2.0 vs OIDC</b></td><td>OAuth: ủy quyền, sản phẩm là access token cho API. OIDC: xác thực trên nền OAuth, thêm scope <code>openid</code>, ID token, UserInfo, Discovery.</td><td>OAuth = “được làm gì”, OIDC = “là ai”.</td></tr>
+<tr><td>2</td><td><b>Authentication vs delegated authorization</b></td><td>AuthN xác minh danh tính người đang dùng app. Delegated authorization: người dùng cho phép app truy cập tài nguyên của mình ở nơi khác.</td><td>Đăng nhập ≠ cấp quyền cho app.</td></tr>
+<tr><td>3</td><td><b>Authorization Code vs Client Credentials</b></td><td>Code: có người dùng, qua browser, token đại diện người dùng. Client Credentials: không có người dùng, token đại diện service.</td><td>Có user → Code + PKCE. Không user → Client Credentials.</td></tr>
+<tr><td>4</td><td><b>Public vs Confidential client</b></td><td>Confidential chạy trên server, giữ được secret/key. Public chạy trên thiết bị người dùng, không giữ được.</td><td>Code trên máy người dùng = public.</td></tr>
+<tr><td>5</td><td><b>Access vs ID vs Refresh token</b></td><td>Access → API. ID → client (kết quả đăng nhập). Refresh → AS (xin token mới).</td><td>Mỗi token một người nhận (<a href="m03-5-oidc.html#id-vs-access">bảng</a>).</td></tr>
+<tr><td>6</td><td><b>JWT vs opaque token</b></td><td>JWT tự chứa claims, API validate cục bộ bằng JWKS, khó thu hồi tức thì. Opaque là chuỗi tham chiếu, API phải introspect, thu hồi tức thì được.</td><td>JWT: nhanh, độc lập. Opaque: kiểm soát tập trung (<a href="m02-3-token-jwt.html#tokens">M02</a>).</td></tr>
+<tr><td>7</td><td><b>PKCE vs client_secret</b></td><td>Secret: tĩnh, xác thực <b>client</b>, chỉ confidential client giữ được. PKCE: động mỗi lần đăng nhập, ràng buộc <b>code</b> với client instance, dùng được cho public client.</td><td>Không thay nhau — confidential client nên dùng cả hai.</td></tr>
+<tr><td>8</td><td><b><code>state</code> vs <code>nonce</code></b></td><td>state: client kiểm tra ở callback, chống CSRF/response injection. nonce: nằm trong ID token, chống replay ID token.</td><td>state bảo vệ redirect, nonce bảo vệ ID token.</td></tr>
+<tr><td>9</td><td><b>Local logout vs federated logout</b></td><td>Local: xóa session của app. Federated: kết thúc phiên ở OP và (tùy) thông báo các RP khác.</td><td>Chỉ local logout → SSO đăng nhập lại ngay.</td></tr>
+<tr><td>10</td><td><b>OAuth 2.0 vs OAuth 2.1</b></td><td>2.1 hợp nhất 2.0 + PKCE + RFC 9700: PKCE bắt buộc, bỏ Implicit/ROPC/plain, exact redirect URI, không token trong query, ràng buộc refresh token public client.</td><td>2.1 = 2.0 “đã dọn dẹp”, vẫn là draft.</td></tr>
+<tr><td>11</td><td><b><code>iss</code>+<code>sub</code> vs <code>email</code></b></td><td>(iss, sub) ổn định, duy nhất, không cấp lại. Email đổi được, tái sử dụng được, có thể chưa xác minh.</td><td>Khóa = (iss, sub). Email = thuộc tính.</td></tr>
+<tr><td>12</td><td><b>Scope vs claim</b></td><td>Scope: client <b>xin</b> trong request (<code>openid profile email</code>). Claim: giá trị OP <b>trả</b> trong token/UserInfo (<code>"email": "an.nv@example.com"</code>).</td><td>Scope = “tôi xin”, claim = “bạn nhận” (<a href="m03-5-oidc.html#scopes-userinfo">Bài 3.5</a>).</td></tr>
+<tr><td>13</td><td><b>ID token vs UserInfo</b></td><td>ID token: JWT có chữ ký, nhận ở token endpoint, kể về sự kiện đăng nhập. UserInfo: gọi thêm bằng access token để lấy hồ sơ; <code>sub</code> phải trùng ID token.</td><td>ID token = biên bản đăng nhập; UserInfo = hỏi thêm hồ sơ.</td></tr>
+<tr><td>14</td><td><b>Discovery vs JWKS</b></td><td>Discovery (<code>/.well-known/openid-configuration</code>): danh sách endpoint, tính năng. JWKS (<code>jwks_uri</code>): public key để kiểm tra chữ ký, đổi khi xoay khóa.</td><td>Discovery là danh bạ, JWKS là bảng mẫu con dấu (<a href="m03-6-discovery-logout.html#discovery-jwks">Bài 3.6</a>).</td></tr>
+<tr><td>15</td><td><b><code>kid</code> vs <code>alg</code></b></td><td><code>kid</code>: ký bằng key nào → chọn JWK. <code>alg</code>: ký bằng thuật toán nào → chỉ chấp nhận thuật toán trong danh sách cho phép.</td><td><code>kid</code> = dấu nào, <code>alg</code> = cách đóng dấu.</td></tr>
+<tr><td>16</td><td><b>RP-initiated vs front-channel vs back-channel logout</b></td><td>RP-initiated: app báo OP kết thúc phiên OP (qua trình duyệt). Front-channel: OP báo các app khác qua iframe trong trình duyệt. Back-channel: OP POST logout token thẳng tới server từng app.</td><td>App báo OP; OP báo các app còn lại (<a href="m03-6-discovery-logout.html#front-back-channel">Bài 3.6</a>).</td></tr>
+<tr><td>17</td><td><b>Social login vs account linking vs federation</b></td><td>Social login: đăng nhập bằng Google/GitHub. Account linking: gắn nhiều external login vào một user nội bộ. Federation: một IdP (vd. Keycloak) tin kết quả đăng nhập của IdP khác.</td><td>Cửa vào / nhiều chìa một nhà / hai tổ chức tin nhau (<a href="m03-7-user-identity.html#social-login">Bài 3.7</a>).</td></tr>
+<tr><td>18</td><td><b>Single-tenant vs multi-tenant</b></td><td>Single: chỉ người dùng một tổ chức, <code>iss</code> cố định. Multi: nhiều tổ chức, mỗi tenant một <code>iss</code>/<code>tid</code> → app tự kiểm tra danh sách tenant cho phép.</td><td>Multi-tenant = phải tự giữ danh sách “ai được vào”.</td></tr>
+<tr><td>19</td><td><b>On-Behalf-Of vs Client Credentials vs chuyển tiếp token</b></td><td>OBO: đổi token của user lấy token mới đúng <code>aud</code>, vẫn là user. Client Credentials: token của chính service, mất danh tính user. Chuyển tiếp nguyên xi: sai <code>aud</code>, quyền quá rộng.</td><td>Có user → OBO; không user → Client Credentials (<a href="m03-7-user-identity.html#obo">Bài 3.7</a>).</td></tr>
+</tbody></table></div>
+<div class="callout example"><span class="callout-title">🧪 Ví dụ ghép nhiều cặp trong một lần đăng nhập</span>
+Web đặt hàng gửi <code>scope=openid profile orders.read</code> (#12) tới Keycloak realm <code>demo</code>, kèm <code>state</code> và <code>nonce</code> (#8). Nhận về ID token có <code>aud = demo-client</code> và access token có <code>aud = demo-api</code> (#5). Web kiểm tra chữ ký ID token bằng key trong JWKS chọn theo <code>kid</code> (#14, #15), map (<code>iss</code>, <code>sub</code>) sang user nội bộ (#11), tạo session cookie riêng. Khi An đăng xuất, web xóa cookie và làm RP-initiated logout (#9, #16).</div>
+
+<!-- ===================================================== -->
+<h2 id="tom-tat">Tóm tắt nhanh</h2>
+<ul>
+<li><b>OAuth 2.0</b> là khung <b>ủy quyền</b>: cấp access token có scope, có hạn, thu hồi được — thay cho việc đưa mật khẩu cho app khác.</li>
+<li>4 vai trò: <b>Resource Owner</b> (người dùng), <b>Client</b> (app), <b>Authorization Server</b> (cấp token), <b>Resource Server</b> (API kiểm tra token).</li>
+<li>Có người dùng → <b>Authorization Code + PKCE</b> (mọi loại client). Không có người dùng → <b>Client Credentials</b>. Thiết bị không có trình duyệt → <b>Device flow</b>.</li>
+<li><b>ROPC</b> và <b>Implicit</b> đã bị loại bỏ: không dùng cho thiết kế mới.</li>
+<li><b>PKCE</b>: verifier ngẫu nhiên 43–128 ký tự, challenge = BASE64URL(SHA256(verifier)), method <code>S256</code> → kẻ trộm code không đổi được token.</li>
+<li><b>state</b> chống CSRF ở callback, <b>nonce</b> chống replay ID token, <b>redirect URI chính xác</b> chống trộm code qua URI giả — không cái nào thay cái nào.</li>
+<li><b>OIDC</b> = OAuth + scope <code>openid</code> + <b>ID token</b> (JWT, <code>aud</code> = client_id) + UserInfo + Discovery/JWKS.</li>
+<li><b>ID token cho client, access token cho API</b> — không bao giờ dùng thay nhau.</li>
+<li><b>Discovery</b> cho biết endpoint; <b>JWKS</b> cho public key, chọn theo <code>kid</code>. Cache có thời hạn và tải lại khi gặp <code>kid</code> lạ — đừng hardcode key.</li>
+<li>Logout có 3 lớp: session của app, session ở OP, token. Single Logout không bao giờ hoàn hảo.</li>
+<li>Định danh người dùng bằng <b>(<code>iss</code>, <code>sub</code>)</b>, không bằng email; chỉ liên kết tài khoản khi người dùng chủ động hoặc email đã xác minh bởi provider có thẩm quyền.</li>
+<li>API gọi tiếp API khác <b>thay mặt người dùng</b> → Token Exchange / On-Behalf-Of, không chuyển tiếp nguyên token và không dùng Client Credentials.</li>
+</ul>
+
+<!-- ===================================================== -->
+<h2 id="output">Output / Deliverables</h2>
+<ul class="checklist">
+<li><span><b>Sơ đồ sequence Authorization Code + PKCE</b> có đủ Client, Browser, Authorization Server và Resource Server (tham khảo <a href="m03-2-auth-code-pkce.html#auth-code-pkce">sơ đồ mẫu</a>). <span class="badge core">Core</span></span></li>
+<li><span><b>Sơ đồ Client Credentials</b> cho service-to-service (<a href="m03-3-other-grants.html#client-credentials">mẫu</a>). <span class="badge core">Core</span></span></li>
+<li><span><b>Bảng so sánh OAuth 2.0 và OIDC</b>, kèm một đoạn ngắn: OAuth 2.1 bắt buộc/loại bỏ gì và vì sao không dùng ROPC/Implicit cho thiết kế mới (<a href="m03-3-other-grants.html#oauth21">OAuth 2.1</a>, <a href="m03-3-other-grants.html#ropc-implicit">ROPC/Implicit</a>). <span class="badge core">Core</span></span></li>
+<li><span><b>Bổ sung bảng token và checklist validation từ Module 02</b> với phần ID token: <code>nonce</code>, <code>aud</code> = <code>client_id</code>, <code>azp</code>, issuer, thời hạn (<a href="m03-5-oidc.html#id-vs-access">bảng</a>, <a href="m03-5-oidc.html#id-token-validation">checklist</a>). <span class="badge core">Core</span></span></li>
+<li><span><b>Bảng giải thích <code>state</code>, <code>nonce</code>, PKCE và redirect URI validation</b>: mỗi cơ chế chống lại tấn công nào (<a href="m03-4-state-nonce-redirect.html#state-nonce">mẫu</a>). <span class="badge core">Core</span></span></li>
+<li><span><b>Thiết kế bảng lưu user/external login</b> dựa trên <code>iss</code> + <code>sub</code>, kèm quy tắc account linking (<a href="m03-7-user-identity.html#external-login">schema</a>, <a href="m03-7-user-identity.html#account-linking">quy tắc</a>).</span></li>
+</ul>
+
+<h2 id="knowledge-check">Knowledge Check (tự luận)</h2>
+<p>Tự trả lời trước, sau đó mở đáp án gợi ý để so sánh.</p>
+<details><summary>OAuth có xác thực người dùng không?</summary>
+<p>Bản thân OAuth 2.0 là authorization framework: Authorization Server <i>có</i> xác thực người dùng (để hỏi consent), nhưng OAuth <b>không chuẩn hóa</b> cách truyền kết quả xác thực cho client. Access token dành cho API, có thể không chứa thông tin người dùng, và client không có cách chuẩn để chắc token được cấp cho chính mình. Muốn “đăng nhập” chuẩn → dùng <b>OIDC</b> (ID token).</p></details>
+<details><summary>OIDC thêm những gì vào OAuth?</summary>
+<p>Scope <code>openid</code>; <b>ID token</b> (JWT có chữ ký với <code>iss</code>, <code>sub</code>, <code>aud</code>, <code>exp</code>, <code>iat</code>, <code>nonce</code>, <code>auth_time</code>, <code>acr</code>, <code>amr</code>…); tham số <code>nonce</code>; <b>UserInfo endpoint</b>; bộ claim và scope chuẩn (<code>profile</code>, <code>email</code>…); <b>Discovery</b> và <b>JWKS</b>; các đặc tả <b>logout</b> (RP-initiated, front/back-channel).</p></details>
+<details><summary>Vì sao SPA/native app cần PKCE?</summary>
+<p>Chúng là <b>public client</b>: không có client_secret để chứng minh với token endpoint “tôi là client thật”. Nếu authorization code bị chặn (app độc trùng custom scheme, log, Referer, extension), kẻ tấn công đổi code lấy token ngay. PKCE gắn code với một bí mật động chỉ instance thật biết (<code>code_verifier</code>), nên code bị trộm là vô dụng.</p></details>
+<details><summary><code>client_secret</code> có thể giữ bí mật trong desktop app không?</summary>
+<p><b>Không.</b> Mọi người dùng đều có file thực thi; secret nhúng trong đó (kể cả obfuscate, mã hóa với key cũng nằm trong app) có thể bị trích xuất bằng decompiler hoặc đọc bộ nhớ. Desktop app là public client → dùng Authorization Code + PKCE với system browser và loopback redirect, <b>không</b> có secret (<a href="m07-2-native-s2s.html#desktop">M07 — Desktop</a>).</p></details>
+<details><summary>API cần nhận ID token hay access token?</summary>
+<p><b>Access token.</b> ID token có <code>aud</code> = client_id của RP, mô tả sự kiện đăng nhập cho client, không mang scope/quyền cho API. API phải validate access token: chữ ký, <code>iss</code>, <code>aud</code> = chính API, <code>exp</code>, scope/role.</p></details>
+<details><summary><code>aud</code> của ID token và access token có thể khác nhau không?</summary>
+<p><b>Có, và thường là khác.</b> ID token: <code>aud</code> = <code>client_id</code> của RP (vd. <code>demo-client</code>). Access token: <code>aud</code> = API đích (vd. <code>demo-api</code>). Cùng một lần đăng nhập sinh ra hai token với hai “người nhận” khác nhau; <code>azp</code> cho biết client nào đã xin token.</p></details>
+<details><summary>Client Credentials có đại diện cho user đang đăng nhập không?</summary>
+<p><b>Không.</b> Token Client Credentials đại diện cho <b>chính ứng dụng/service</b> (<code>sub</code> là service account). Nếu cần gọi API downstream thay mặt user → Token Exchange/On-Behalf-Of, không phải Client Credentials.</p></details>
+<details><summary>Nếu chữ ký JWT hợp lệ nhưng <code>aud</code> sai, API có nên chấp nhận không?</summary>
+<p><b>Không.</b> Chữ ký hợp lệ chỉ chứng minh token do AS phát hành và không bị sửa. <code>aud</code> sai nghĩa là token được cấp cho <b>người nhận khác</b> (API khác, hoặc là ID token cho client). Chấp nhận nó cho phép “token substitution”: token lấy ở dịch vụ kém quan trọng được dùng để vào dịch vụ quan trọng. Trả <code>401</code>.</p></details>
+<details><summary>Vì sao không dùng email làm khóa định danh người dùng?</summary>
+<p>Email có thể <b>thay đổi</b>, <b>được cấp lại</b> cho người khác, <b>chưa được xác minh</b> (<code>email_verified = false</code>), và ở một số provider người dùng tự đặt được. Dùng email làm khóa (hoặc tự liên kết theo email) có thể dẫn đến chiếm tài khoản. Khóa đúng: cặp <b>(<code>iss</code>, <code>sub</code>)</b>; email chỉ là thuộc tính liên lạc.</p></details>
+<details><summary>Khi người dùng bấm “Đăng xuất”, một web dùng OIDC nên làm những gì?</summary>
+<p>(1) Xóa session cookie của chính app (local logout). (2) Revoke refresh token nếu có. (3) Chuyển trình duyệt tới <code>end_session_endpoint</code> kèm <code>id_token_hint</code> và <code>post_logout_redirect_uri</code> đã đăng ký (RP-initiated logout) để kết thúc phiên OP. Các app khác chỉ bị đăng xuất nếu OP gửi front-channel/back-channel logout cho chúng. Access token JWT đã phát vẫn dùng được tới <code>exp</code> → giữ thời hạn ngắn (<a href="m03-6-discovery-logout.html#logout">Bài 3.6</a>).</p></details>
+<details><summary>App nhận JWT có <code>kid</code> chưa từng thấy. Xử lý thế nào?</summary>
+<p>Tải lại Discovery/JWKS từ <code>jwks_uri</code> đã cấu hình (có giới hạn tần suất để không bị spam). Nếu có key với <code>kid</code> đó → kiểm tra chữ ký bình thường; nếu vẫn không có → 401. <b>Không</b> tải key từ URL do chính token khai (<code>jku</code>/<code>x5u</code>) và không bỏ qua kiểm tra chữ ký (<a href="m03-6-discovery-logout.html#key-rotation">key rotation</a>).</p></details>
+<details><summary>OAuth 2.1 bắt buộc và loại bỏ những gì?</summary>
+<p><b>Bắt buộc:</b> PKCE cho mọi Authorization Code (chỉ <code>S256</code>; ngoại lệ hẹp cho confidential client dùng OIDC <code>nonce</code>), redirect URI so khớp chính xác (trừ port loopback), refresh token của public client phải sender-constrained hoặc dùng một lần. <b>Loại bỏ:</b> Implicit grant, ROPC, PKCE <code>plain</code>, bearer token trong query string. Tại 11/2026 OAuth 2.1 vẫn là Internet-Draft (-17); các yêu cầu tương ứng đã có hiệu lực qua RFC 9700 (BCP).</p></details>
+
+<div class="callout tip"><span class="callout-title">✅ Tiêu chí hoàn thành</span>
+Có thể <b>vẽ và giải thích</b> Authorization Code + PKCE và Client Credentials, và mô tả cách <b>client</b> xác minh ID token và <b>API</b> xác minh access token mà không nhầm vai trò của từng token. Kiểm chứng bằng tay ở <a href="lab-1-keycloak.html#lab1">Lab 1</a>–<a href="lab-3-pkce-client.html#lab3">Lab 3</a>.</div>
+
+<h2 id="quiz">Quiz trắc nghiệm</h2>
+<div id="quiz"></div>
+
+</main>
+<script>
+window.QUIZ = [
+  { q: "App in ảnh muốn đọc album của người dùng trên một dịch vụ lưu ảnh. Cách nào đúng tinh thần OAuth?",
+    options: ["Yêu cầu người dùng nhập mật khẩu dịch vụ lưu ảnh vào app in ảnh rồi lưu lại", "Chuyển người dùng tới Authorization Server của dịch vụ lưu ảnh để đăng nhập + đồng ý, app nhận access token có scope chỉ đọc ảnh", "Dịch vụ lưu ảnh gửi file ảnh qua email cho app in ảnh", "App in ảnh dùng API key chung của dịch vụ lưu ảnh cho mọi người dùng"],
+    answer: 1,
+    why: ["Đây chính là password anti-pattern: app in ảnh giữ mật khẩu, có toàn quyền và không thu hồi riêng được.", "Người dùng chỉ nhập mật khẩu ở AS và đồng ý; app nhận access token có scope hẹp, có hạn, thu hồi được.", "Không phải ủy quyền truy cập API; người dùng không kiểm soát được phạm vi và thời hạn.", "API key chung không gắn với người dùng nào và không có sự đồng ý của từng người."],
+    explain: "OAuth thay <b>password anti-pattern</b> bằng access token có phạm vi, có hạn, thu hồi được; app không bao giờ thấy mật khẩu. Xem <a href='m03-1-oauth-basics.html#oauth-van-de'>mục A</a>." },
+  { q: "Trong OAuth, thành phần nào <b>kiểm tra access token</b> trên mỗi request?",
+    options: ["Authorization Server", "Client", "Resource Owner", "Resource Server"],
+    answer: 3,
+    why: ["Authorization Server <b>phát hành</b> token, không đứng trước API để kiểm tra từng request.", "Client chỉ mang token đi gửi; nó không phải bên quyết định cho truy cập.", "Resource Owner là người dùng — người cấp quyền, không kiểm tra token.", "Resource Server (API) nhận request và phải validate access token trước khi trả dữ liệu."],
+    explain: "Resource Server (API) kiểm tra access token. Authorization Server là bên <b>phát hành</b> token." },
+  { q: "Một ứng dụng WPF cài trên máy nhân viên. Phân loại client nào đúng?",
+    options: ["Public client — không giữ được client_secret, dùng Authorization Code + PKCE", "Confidential client vì chạy trong mạng nội bộ", "Confidential client nếu secret được obfuscate", "Không phải client OAuth"],
+    answer: 0,
+    why: ["Code chạy trên máy người dùng nên ai cũng trích xuất được secret; dùng Authorization Code + PKCE không secret.", "Mạng nội bộ không làm file thực thi trên máy nhân viên trở nên bí mật.", "Obfuscate chỉ làm chậm việc trích xuất, không biến secret thành bí mật.", "App WPF xin token để gọi API thay người dùng — đúng là một OAuth client."],
+    explain: "Code chạy trên thiết bị người dùng ⇒ <b>public client</b>. Obfuscate không biến secret thành bí mật. Xem <a href='m03-1-oauth-basics.html#client-types'>Public vs Confidential</a>." },
+  { q: "Với PKCE method <code>S256</code>, <code>code_challenge</code> được tính thế nào (RFC 7636)?",
+    options: ["BASE64(SHA1(code_verifier))", "HMAC-SHA256(client_secret, code_verifier)", "BASE64URL-ENCODE(SHA256(ASCII(code_verifier))) không padding", "code_challenge = code_verifier"],
+    answer: 2,
+    why: ["Sai cả hàm băm (SHA1) lẫn kiểu mã hóa (BASE64 thường thay vì BASE64URL).", "PKCE không dùng client_secret; public client không có secret để làm HMAC.", "Đúng định nghĩa S256 trong RFC 7636: SHA-256 của verifier, mã hóa base64url không padding.", "Đây là method <code>plain</code>: challenge lộ ở front-channel chính là verifier, nên bị OAuth 2.1 loại bỏ."],
+    explain: "S256: <code>BASE64URL(SHA256(ASCII(code_verifier)))</code>. Phương án cuối là method <code>plain</code> — bị OAuth 2.1 loại bỏ." },
+  { q: "Giá trị nào là <code>code_verifier</code> <b>hợp lệ</b> theo RFC 7636?",
+    options: ["<code>abc123</code>", "Chuỗi 43 ký tự base64url sinh từ 32 byte ngẫu nhiên", "Chuỗi 200 ký tự ngẫu nhiên", "Một GUID có dấu ngoặc nhọn <code>{...}</code>"],
+    answer: 1,
+    why: ["Quá ngắn (tối thiểu 43 ký tự) và không đủ ngẫu nhiên.", "32 byte ngẫu nhiên mã hóa base64url ra đúng 43 ký tự trong bộ ký tự cho phép.", "Vượt độ dài tối đa 128 ký tự.", "Dấu <code>{</code> <code>}</code> không nằm trong bộ ký tự cho phép, và GUID có độ ngẫu nhiên thấp hơn yêu cầu."],
+    explain: "Verifier dài <b>43–128</b> ký tự, chỉ gồm <code>A-Z a-z 0-9 - . _ ~</code>. 32 byte ngẫu nhiên → base64url → đúng 43 ký tự. Thử ở <a href='m03-2-auth-code-pkce.html#pkce-widget'>PKCE generator</a>." },
+  { q: "Kẻ tấn công chặn được authorization code của một public client có dùng PKCE và gửi code tới token endpoint. Điều gì xảy ra?",
+    options: ["AS cấp token vì code hợp lệ", "AS trả lỗi <code>invalid_grant</code> vì thiếu/sai <code>code_verifier</code>", "AS yêu cầu người dùng đăng nhập lại", "AS trả về ID token nhưng không trả access token"],
+    answer: 1,
+    why: ["Code đi kèm code_challenge; không có verifier khớp thì AS không cấp token dù code còn hạn.", "AS băm verifier gửi lên và so với challenge đã lưu; kẻ tấn công không có verifier nên bị <code>invalid_grant</code>.", "Token endpoint là back-channel, không có giao diện để hỏi người dùng; nó chỉ trả lỗi.", "PKCE thất bại thì không có token nào được cấp, kể cả ID token."],
+    explain: "Kẻ tấn công không có verifier (chỉ nằm trong RAM của app thật) ⇒ AS từ chối với <code>invalid_grant</code>. Xem <a href='m03-2-auth-code-pkce.html#pkce-attack'>sơ đồ tấn công</a>." },
+  { q: "Một job đồng bộ dữ liệu chạy lúc 2 giờ sáng cần gọi API kho hàng. Không có người dùng. Grant nào phù hợp?",
+    options: ["Authorization Code + PKCE", "Device Authorization Grant", "Implicit", "Client Credentials"],
+    answer: 3,
+    why: ["Authorization Code cần người dùng đăng nhập qua trình duyệt; lúc 2 giờ sáng không có ai.", "Device flow vẫn cần người dùng nhập mã trên thiết bị khác.", "Implicit đã bị loại bỏ và cũng cần người dùng.", "Machine-to-machine: service tự xác thực bằng credential của nó."],
+    explain: "Machine-to-machine, không có người dùng ⇒ <b>Client Credentials</b> với confidential client." },
+  { q: "Token lấy bằng Client Credentials có <code>sub</code> là gì?",
+    options: ["ID của service account / client, không phải người dùng thật", "ID của người dùng đăng nhập gần nhất", "Email của quản trị viên", "Luôn rỗng"],
+    answer: 0,
+    why: ["Token đại diện chính ứng dụng, nên <code>sub</code> là service account (Keycloak: <code>service-account-…</code>).", "Không có người dùng nào tham gia Client Credentials.", "Token không gắn với quản trị viên nào.", "OP vẫn điền <code>sub</code> — là định danh của service account."],
+    explain: "Client Credentials đại diện cho <b>chính ứng dụng</b>. Keycloak dùng service account (<code>service-account-worker</code>)." },
+  { q: "Trong Device Authorization Grant, thiết bị nhận lỗi <code>slow_down</code> khi polling. Nó phải làm gì?",
+    options: ["Dừng hẳn và báo lỗi cho người dùng", "Poll ngay lập tức lần nữa", "Tăng khoảng cách polling thêm 5 giây cho lần này và mọi lần sau", "Xin device_code mới"],
+    answer: 2,
+    why: ["<code>slow_down</code> không phải lỗi kết thúc; chỉ <code>access_denied</code>/<code>expired_token</code> mới dừng.", "Poll ngay là làm ngược yêu cầu của AS.", "RFC 8628: tăng interval thêm 5 giây cho lần này và các lần sau.", "device_code vẫn còn hiệu lực; xin mới làm người dùng phải nhập mã khác."],
+    explain: "RFC 8628: <code>slow_down</code> ⇒ interval <b>tăng thêm 5 giây</b>. <code>authorization_pending</code> ⇒ tiếp tục poll theo interval hiện tại." },
+  { q: "Những lý do nào khiến Implicit grant không được dùng cho ứng dụng mới?",
+    options: ["Access token nằm trong URL fragment, có thể lộ qua history, extension, script bên thứ ba", "Không có bước đổi code ở back-channel nên không có client binding/PKCE", "Implicit bắt buộc client phải có client_secret", "Không có refresh token an toàn cho SPA"],
+    answer: [0, 1, 3],
+    why: ["Đúng: token trong fragment dễ lộ qua history, extension, script bên thứ ba.", "Đúng: không có bước đổi code ở back-channel nên không ràng buộc được client, không có PKCE.", "Sai: Implicit thiết kế cho public client và không dùng client_secret.", "Đúng: Implicit không cấp refresh token, SPA phải đăng nhập lại hoặc dùng iframe ẩn."],
+    explain: "Implicit trả token trực tiếp qua front-channel và không xác thực/ràng buộc client. Nó <b>không</b> dùng client_secret. Xem <a href='m03-3-other-grants.html#ropc-implicit'>ROPC &amp; Implicit</a>." },
+  { q: "Vì sao ROPC (<code>grant_type=password</code>) không được dùng cho thiết kế mới?",
+    options: ["Vì nó chậm hơn Authorization Code", "Vì client trực tiếp xử lý mật khẩu người dùng, không hỗ trợ MFA/federation, và RFC 9700 nói MUST NOT", "Vì nó chỉ dùng được với SAML", "Vì nó không trả về access token"],
+    answer: 1,
+    why: ["Tốc độ không phải vấn đề; ROPC còn ít bước hơn.", "Client cầm mật khẩu người dùng, không làm được MFA/federation, và RFC 9700 cấm (MUST NOT).", "ROPC là grant của OAuth, không liên quan SAML.", "ROPC vẫn trả access token; vấn đề là cách nó lấy token."],
+    explain: "ROPC đưa mật khẩu vào tay client — đúng password anti-pattern. RFC 9700: MUST NOT; OAuth 2.1 loại bỏ." },
+  { q: "Tại 11/2026, phát biểu nào về OAuth 2.1 là đúng?",
+    options: ["Là RFC chính thức thay thế RFC 6749", "Đã bị IETF hủy bỏ", "Là bản viết lại hoàn toàn với cơ chế mới", "Vẫn là Internet-Draft (draft-ietf-oauth-v2-1); các yêu cầu bảo mật tương ứng đã có trong RFC 9700"],
+    answer: 3,
+    why: ["Chưa có số RFC; RFC 6749 vẫn là văn bản chính thức.", "Draft vẫn đang được IETF phát triển.", "OAuth 2.1 hợp nhất các best practice đã có, không phát minh cơ chế mới.", "Datatracker vẫn ghi Internet-Draft; các yêu cầu bảo mật đã có hiệu lực qua RFC 9700 (BCP)."],
+    explain: "Datatracker: <code>draft-ietf-oauth-v2-1-17</code>, chưa có số RFC. RFC 9700 (BCP 240, 1/2025) là văn bản chính thức có thể trích dẫn." },
+  { q: "Những thay đổi nào thuộc OAuth 2.1 so với OAuth 2.0?",
+    options: ["PKCE bắt buộc cho Authorization Code", "Loại bỏ Client Credentials grant", "Redirect URI phải so khớp chính xác", "Không gửi bearer token trong query string"],
+    answer: [0, 2, 3],
+    why: ["Đúng: PKCE bắt buộc cho mọi Authorization Code.", "Sai: Client Credentials vẫn giữ; bị loại là Implicit, ROPC, PKCE <code>plain</code>.", "Đúng: redirect URI so khớp chuỗi chính xác (trừ port loopback).", "Đúng: bearer token không được gửi trong query string."],
+    explain: "Client Credentials <b>vẫn giữ</b>. Bị loại bỏ là Implicit, ROPC và PKCE <code>plain</code>." },
+  { q: "Client <b>không</b> kiểm tra <code>state</code> ở callback. Tấn công nào trở nên khả thi?",
+    options: ["Login CSRF / authorization response injection: nạn nhân bị gắn vào tài khoản của kẻ tấn công", "Algorithm confusion trên JWT", "Brute force mật khẩu", "SQL injection"],
+    answer: 0,
+    why: ["Đúng: không có state, response chứa code của kẻ tấn công vẫn được chấp nhận, nạn nhân bị gắn vào tài khoản kẻ tấn công.", "Algorithm confusion là lỗi validate chữ ký JWT, không liên quan state.", "state không liên quan việc đoán mật khẩu.", "SQL injection là lỗi xử lý input ở database, không liên quan OAuth callback."],
+    explain: "state ràng buộc response với phiên trình duyệt đã khởi tạo request. Thiếu nó, kẻ tấn công ép trình duyệt nạn nhân mang code của <i>kẻ tấn công</i> vào callback. Xem <a href='m03-4-state-nonce-redirect.html#login-csrf'>ví dụ</a>." },
+  { q: "<code>nonce</code> trong OIDC nằm ở đâu và chủ yếu chống gì?",
+    options: ["Trong access token, chống token bị dùng ở API khác", "Trong URL callback, chống CSRF", "Trong ID token, liên kết ID token với authentication request — chống replay/injection ID token", "Trong refresh token, chống reuse"],
+    answer: 2,
+    why: ["nonce không nằm trong access token; chống dùng ở API khác là việc của <code>aud</code>.", "Đó là state — tham số trong URL callback chống CSRF.", "Client gửi nonce, OP chép vào ID token, client so khớp — ID token cũ bị chèn lại sẽ không khớp.", "Refresh token không chứa nonce; chống reuse là việc của refresh token rotation."],
+    explain: "Client gửi nonce, OP chép vào ID token, client so khớp khi validate ID token." },
+  { q: "Authorization Server cho phép <code>redirect_uri</code> dạng <code>https://*.printnow.example/*</code>. Rủi ro chính là gì?",
+    options: ["Token hết hạn sớm", "Kẻ tấn công chiếm một subdomain hoặc dùng open redirect để nhận authorization code", "Người dùng phải đăng nhập lại nhiều lần", "Không có rủi ro vì vẫn cùng domain"],
+    answer: 1,
+    why: ["Wildcard không ảnh hưởng thời hạn token.", "Subdomain bị chiếm hoặc open redirect khớp wildcard sẽ nhận được code — đó là lý do phải so khớp chính xác.", "Wildcard không gây đăng nhập lại.", "Cùng domain không đồng nghĩa cùng chủ hay cùng mức an toàn; một subdomain bị bỏ quên là đủ."],
+    explain: "Wildcard/so khớp lỏng là nguồn gốc nhiều vụ trộm code. RFC 9700 &amp; OAuth 2.1: so khớp chuỗi <b>chính xác</b>." },
+  { q: "API nhận một JWT có chữ ký hợp lệ do đúng issuer phát hành, nhưng <code>aud</code> = <code>demo-client</code> (không phải <code>demo-api</code>). API nên làm gì?",
+    options: ["Chấp nhận vì chữ ký hợp lệ", "Chấp nhận nếu token còn hạn", "Từ chối với 401 — token dành cho người nhận khác (có thể là ID token)", "Trả 403 nhưng vẫn ghi nhận người dùng đã đăng nhập"],
+    answer: 2,
+    why: ["Chữ ký chỉ chứng minh nguồn gốc và toàn vẹn, không nói token dành cho ai.", "Còn hạn không sửa được việc token gửi nhầm người nhận.", "<code>aud</code> = <code>demo-client</code> là token cho client (thường là ID token) → API trả 401 <code>invalid_token</code>.", "403 dành cho token hợp lệ nhưng thiếu quyền; ở đây token không hợp lệ với API này nên phải là 401."],
+    explain: "Chữ ký chỉ chứng minh nguồn gốc và tính toàn vẹn; <code>aud</code> sai ⇒ token không dành cho API này ⇒ 401." },
+  { q: "Những claim nào là <b>REQUIRED</b> trong mọi ID token theo OIDC Core?",
+    options: ["<code>iss</code>, <code>sub</code>, <code>aud</code>", "<code>exp</code>, <code>iat</code>", "<code>email</code>, <code>name</code>", "<code>amr</code>, <code>acr</code>"],
+    answer: [0, 1],
+    why: ["Đúng: <code>iss</code>, <code>sub</code>, <code>aud</code> là REQUIRED.", "Đúng: <code>exp</code>, <code>iat</code> là REQUIRED.", "Sai: <code>email</code>, <code>name</code> là claim chuẩn tùy chọn, chỉ có khi xin scope tương ứng.", "Sai: <code>amr</code>, <code>acr</code> là OPTIONAL."],
+    explain: "Bắt buộc: <code>iss</code>, <code>sub</code>, <code>aud</code>, <code>exp</code>, <code>iat</code>. <code>acr</code>, <code>amr</code>, <code>azp</code> là OPTIONAL; <code>auth_time</code>, <code>nonce</code> bắt buộc theo điều kiện." },
+  { q: "Trong ID token, <code>aud</code> phải chứa giá trị nào?",
+    options: ["URL của Resource Server", "<code>client_id</code> của Relying Party", "Issuer URL", "<code>sub</code> của người dùng"],
+    answer: 1,
+    why: ["URL Resource Server là audience của access token, không phải ID token.", "ID token dành cho RP nên <code>aud</code> chứa client_id của RP.", "Issuer nằm trong <code>iss</code>, không phải <code>aud</code>.", "<code>sub</code> là định danh người dùng, không phải người nhận token."],
+    explain: "ID token dành cho client ⇒ <code>aud</code> chứa <code>client_id</code>. <code>azp</code> (nếu có) cũng nên bằng client_id." },
+  { q: "Ứng dụng nhận JWT có header <code>kid</code> không có trong JWKS đã cache. Cách xử lý tốt nhất?",
+    options: ["Từ chối vĩnh viễn mọi token có kid mới", "Bỏ qua kiểm tra chữ ký cho token này", "Tải JWKS từ URL ghi trong header <code>jku</code> của token", "Tải lại Discovery/JWKS (có giới hạn tần suất), nếu vẫn không có kid thì từ chối"],
+    answer: 3,
+    why: ["Từ chối vĩnh viễn làm cả hệ thống 401 khi OP xoay khóa.", "Bỏ qua chữ ký là chấp nhận token giả.", "<code>jku</code> do token tự khai — kẻ tấn công trỏ tới key của chính họ.", "Refresh có giới hạn tần suất xử lý được key rotation mà không bị spam; vẫn không có kid thì 401."],
+    explain: "Key rotation: OP công bố key mới trong JWKS. Không tin URL key do token tự khai báo. Xem <a href='m03-6-discovery-logout.html#key-rotation'>key rotation</a>." },
+  { q: "Người dùng bấm Logout trong app; app chỉ xóa cookie session của mình. Ngay sau đó bấm Đăng nhập — chuyện gì thường xảy ra?",
+    options: ["Phải nhập lại mật khẩu", "Vào lại ngay không hỏi mật khẩu vì phiên ở OP vẫn còn (SSO)", "Tài khoản bị khóa", "Refresh token bị thu hồi tự động"],
+    answer: 1,
+    why: ["Phiên ở OP còn, nên OP không cần hỏi lại mật khẩu.", "Local logout chỉ xóa cookie của app; OP thấy phiên còn và cấp code ngay (SSO).", "Logout không liên quan việc khóa tài khoản.", "Xóa cookie không tự revoke refresh token; app phải gọi revocation riêng."],
+    explain: "Local logout ≠ OP logout. Cần RP-initiated logout tới <code>end_session_endpoint</code> (kèm <code>id_token_hint</code>) để kết thúc phiên OP." },
+  { q: "Khi thiết kế bảng external login, khóa duy nhất nên là gì?",
+    options: ["<code>email</code>", "<code>preferred_username</code>", "Cặp (<code>iss</code>, <code>sub</code>)", "<code>name</code> + <code>email</code>"],
+    answer: 2,
+    why: ["Email đổi được, cấp lại được, có thể chưa xác minh.", "<code>preferred_username</code> theo OIDC Core không được coi là duy nhất và có thể đổi.", "<code>sub</code> chỉ duy nhất trong phạm vi issuer, nên cặp (<code>iss</code>, <code>sub</code>) là khóa ổn định.", "Ghép hai thuộc tính đổi được vẫn ra một khóa đổi được."],
+    explain: "<code>sub</code> chỉ duy nhất trong phạm vi issuer. Email/username đổi được, tái sử dụng được." },
+  { q: "Người dùng chưa đăng nhập, đăng nhập bằng một provider trả <code>email = an.nv@company.com</code>, <code>email_verified = false</code>. Hệ thống đã có user với email đó. Nên làm gì?",
+    options: ["Không tự liên kết; yêu cầu người dùng đăng nhập bằng phương thức cũ rồi chủ động liên kết", "Tự liên kết vì email trùng", "Xóa user cũ và tạo user mới", "Ghi đè email của user cũ"],
+    answer: 0,
+    why: ["Người dùng chứng minh sở hữu tài khoản cũ trước khi gộp, không phụ thuộc email chưa xác minh.", "Email chưa xác minh trùng → kẻ tấn công chiếm tài khoản An.", "Xóa user cũ làm mất dữ liệu của An và còn trao chỗ cho kẻ tấn công.", "Ghi đè email dựa trên dữ liệu chưa xác minh làm hỏng dữ liệu của user thật."],
+    explain: "Tự liên kết theo email chưa xác minh ⇒ account takeover. Xem <a href='m03-7-user-identity.html#account-linking'>flowchart account linking</a>." },
+  { q: "API A nhận access token của An và cần gọi API B <b>thay mặt An</b>. Cách nào đúng?",
+    options: ["Chuyển tiếp nguyên token của An (aud = API A) sang API B", "Dùng Client Credentials của API A và gửi userId của An trong body", "Gửi ID token của An cho API B", "Dùng Token Exchange (RFC 8693) / On-Behalf-Of để lấy token mới có aud = API B và vẫn đại diện An"],
+    answer: 3,
+    why: ["Token có <code>aud</code> = API A; API B đúng ra phải từ chối, và nới lỏng thì token cấp cho A mở được B.", "API B mất danh tính An và phải tin userId do API A tự khai.", "ID token dành cho client, không dùng làm Bearer cho API.", "Token Exchange/OBO tạo token mới đúng <code>aud</code> = API B mà vẫn đại diện An."],
+    explain: "Token Exchange/OBO giữ danh tính người dùng và tạo token đúng audience cho API downstream. Xem <a href='m03-7-user-identity.html#obo'>OBO</a>." },
+  { q: "Quy tắc “ID token không gửi cho API, mỗi token một người nhận”. Những request nào sau đây là <b>hợp lệ</b> (chọn tất cả)?",
+    tricky: true,
+    options: ["Web gửi ID token tới <code>end_session_endpoint</code> trong tham số <code>id_token_hint</code>", "Web gửi ID token tới <code>demo-api</code> trong header <code>Authorization: Bearer</code>", "Web gửi access token tới UserInfo endpoint của OP", "Web gửi refresh token tới <code>demo-api</code> khi access token hết hạn"],
+    answer: [0, 2],
+    why: ["Hợp lệ — ngoại lệ có chủ đích: ID token được gửi lại cho chính OP đã phát nó để OP biết phiên/client nào cần đăng xuất. Bẫy là nghĩ “ID token không bao giờ rời khỏi RP”.", "Không hợp lệ — <code>aud</code> là client, không có scope; API đúng sẽ trả 401.", "Hợp lệ — UserInfo là một API của OP và nhận access token; đây là chỗ client dùng access token cho chính OP.", "Không hợp lệ — refresh token chỉ gửi tới token endpoint của AS, không bao giờ tới API."],
+    explain: "Quy tắc thật là “mỗi token gửi đúng người nhận của nó”: ID token về OP (logout) hoặc ở lại RP, access token tới API/UserInfo, refresh token tới token endpoint. Xem <a href='m03-5-oidc.html#id-vs-access'>bảng token</a> và <a href='m03-6-discovery-logout.html#rp-initiated-logout'>RP-initiated logout</a>." },
+  { q: "Web cấu hình <code>Authority = http://localhost:8080/realms/demo</code>. Một dev mở Keycloak qua <code>http://127.0.0.1:8080</code> để đăng nhập, và ID token nhận về có <code>iss = http://127.0.0.1:8080/realms/demo</code>. Cùng server, cùng realm, chữ ký kiểm tra đúng bằng JWKS của realm <code>demo</code>. Web xử lý thế nào?",
+    tricky: true,
+    options: ["Chấp nhận — cùng server, cùng realm, cùng key thì là cùng issuer", "Từ chối — <code>iss</code> phải khớp <b>chính xác từng ký tự</b> với issuer trong Discovery mà web đã cấu hình", "Chấp nhận vì <code>localhost</code> và <code>127.0.0.1</code> là một địa chỉ", "Chấp nhận nếu <code>aud</code> và <code>nonce</code> đúng, vì <code>iss</code> chỉ để tham khảo"],
+    answer: 1,
+    why: ["Bẫy “cùng máy là cùng issuer”: validate <code>iss</code> là so chuỗi, không phải so máy chủ hay key.", "Đúng — Keycloak ghi <code>iss</code> theo hostname dùng khi truy cập (nếu không cấu hình hostname cố định), nên chuỗi khác → từ chối. Cách sửa: dùng thống nhất một hostname.", "Với con người thì là một, nhưng với validation thì là hai chuỗi khác nhau; thư viện không “hiểu” mạng.", "<code>iss</code> là bước bắt buộc trong checklist; bỏ qua nó thì token từ OP/realm khác cũng có thể lọt."],
+    explain: "Issuer là một chuỗi định danh, phải khớp chính xác. Xem <a href='m03-5-oidc.html#id-token-validation'>checklist ID token</a> và <a href='m03-6-discovery-logout.html#discovery-jwks'>Discovery</a>." },
+  { q: "An bấm Đăng xuất; web làm local logout + revoke refresh token + RP-initiated logout thành công. Access token JWT (còn 3 phút) của An đang nằm trong một script tự động. <code>demo-api</code> validate JWT cục bộ. Những phát biểu nào đúng (chọn tất cả)?",
+    tricky: true,
+    options: ["<code>demo-api</code> vẫn chấp nhận access token đó tới khi hết <code>exp</code>", "Revoke refresh token ngăn việc lấy access token <b>mới</b>", "Kết thúc phiên OP làm chữ ký của access token cũ trở nên không hợp lệ", "Back-channel logout tự động xóa access token khỏi <code>demo-api</code>"],
+    answer: [0, 1],
+    why: ["Đúng — API chỉ kiểm tra chữ ký, <code>iss</code>, <code>aud</code>, <code>exp</code>; không hỏi OP nên không biết An đã logout.", "Đúng — refresh token đã bị thu hồi thì token endpoint từ chối cấp access token mới.", "Sai — chữ ký phụ thuộc private key của OP, không phụ thuộc phiên; key vẫn còn thì chữ ký vẫn đúng.", "Sai — back-channel logout gửi tới RP (app có session), không tới API, và API không “giữ” token nào để xóa."],
+    explain: "Logout không thu hồi được JWT đã phát; vì vậy access token phải ngắn hạn (hoặc dùng opaque + introspection). Xem <a href='m03-6-discovery-logout.html#logout'>ba lớp của logout</a> và <a href='m02-4-token-lifecycle.html#introspection-revocation'>M02 — revocation</a>." }
+];
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="assets/pages.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

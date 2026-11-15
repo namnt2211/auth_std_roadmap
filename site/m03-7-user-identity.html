@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M03 · Bài 3.7 · Định danh user, social login &amp; nâng cao</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<main class="content">
+
+<div class="page-head">
+  <div class="breadcrumb"><a href="index.html">Lộ trình</a> / <a href="m03-oauth-oidc.html">Module 03</a> / Bài 3.7</div>
+  <h1>Bài 3.7 — Định danh user, social login &amp; nâng cao</h1>
+  <p class="lead">Sau khi đăng nhập bằng OIDC, app phải “nhớ” người dùng trong database. Bài này trả lời: lưu bằng khóa nào (<code>iss</code> + <code>sub</code>, không phải email), thiết kế bảng external login, gộp tài khoản an toàn, làm việc với nhiều tenant, và gọi API tiếp theo thay mặt người dùng (On-Behalf-Of).</p>
+  <div class="meta-row">
+    <span class="chip">⏱ ~15 phút</span>
+    <span class="chip">📘 <a href="m03-oauth-oidc.html">Module 03 · OAuth 2.0 / 2.1 &amp; OpenID Connect</a></span>
+  </div>
+</div>
+
+<!-- ===================================================== -->
+<h2 id="iss-sub">G. Định danh người dùng: <code>iss</code> + <code>sub</code> <span class="badge must">Must</span></h2>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span><code>sub</code> giống <b>số CCCD</b>, còn <code>iss</code> là <b>quốc gia cấp</b>. Số 012345 ở Việt Nam và số 012345 ở Nhật là hai người khác nhau — nên phải lưu cả cặp. Email giống <b>số điện thoại</b>: đổi được, bị thu hồi cấp cho người khác được, và có nơi cho bạn tự điền mà không kiểm tra.</div>
+
+<div class="terms"><span class="terms-title">📖 Thuật ngữ trong bài</span><dl>
+<dt><code>iss</code> (issuer)</dt><dd>Địa chỉ của OP đã phát token, vd. <code>http://localhost:8080/realms/demo</code>.</dd>
+<dt><code>sub</code> (subject)</dt><dd>Mã định danh người dùng do OP đặt — không đổi, không cấp lại cho người khác.</dd>
+<dt>External login</dt><dd>Một “cách vào” tài khoản từ nhà cung cấp bên ngoài (Google, Entra ID, Keycloak…).</dd>
+<dt>Account linking</dt><dd>Gắn thêm một external login vào một tài khoản nội bộ đã có.</dd>
+<dt>Pairwise subject</dt><dd>Kiểu <code>sub</code> mà mỗi app nhận một giá trị khác nhau cho cùng một người.</dd>
+<dt>Tenant</dt><dd>Một tổ chức riêng biệt trong một hệ thống dùng chung, vd. mỗi công ty là một tenant trên Entra ID.</dd>
+<dt>On-Behalf-Of (OBO)</dt><dd>API đổi token của người dùng lấy token mới để gọi API khác, vẫn “thay mặt” người dùng đó.</dd>
+</dl></div>
+
+<p>OIDC Core nói rõ: <code>sub</code> và <code>iss</code>, <b>dùng cùng nhau</b>, là những claim duy nhất RP có thể dựa vào làm <b>định danh ổn định</b> cho người dùng.</p>
+<p>Vì sao cần cả <code>iss</code>? Vì <code>sub</code> chỉ duy nhất <b>trong phạm vi một issuer</b>. Google và Keycloak hoàn toàn có thể phát cùng một chuỗi <code>sub</code> cho hai người khác nhau.</p>
+<div class="grid cols-2">
+  <div class="card ok"><h4>✅ Khóa định danh: (<code>iss</code>, <code>sub</code>)</h4><p>Ổn định, không bị cấp lại, không đổi khi người dùng đổi email/tên. Ví dụ: (<code>http://localhost:8080/realms/demo</code>, <code>f3b2c1d0-…</code>).</p></div>
+  <div class="card bad"><h4>❌ Không dùng <code>email</code> làm khóa chính</h4><p>Email <b>đổi được</b> (đổi tên, đổi công ty), có thể <b>bị tái sử dụng</b> (người nghỉ việc, email cấp cho người mới), có thể <b>chưa xác minh</b> (<code>email_verified = false</code>), và ở một số provider/cấu hình người dùng <b>tự đặt</b> được giá trị email.</p></div>
+</div>
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: <code>sub</code> vs <code>email</code> vs <code>preferred_username</code> làm khóa định danh</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th><code>sub</code> (kèm <code>iss</code>)</th><th><code>email</code></th><th><code>preferred_username</code></th></tr></thead>
+<tbody>
+<tr><td>Ví dụ (Keycloak realm <code>demo</code>)</td><td><code>f3b2c1d0-7a6e-…</code></td><td><code>an.nv@example.com</code></td><td><code>an.nv</code></td></tr>
+<tr><td>Có đổi được không?</td><td>Không</td><td>Có (đổi công ty, đổi tên miền…)</td><td>Có thể (OIDC Core ghi rõ không được coi là duy nhất; Keycloak cho đổi nếu realm bật “Edit username”)</td></tr>
+<tr><td>Có bị cấp lại cho người khác?</td><td>Không bao giờ</td><td>Có thể (hộp thư của người nghỉ việc)</td><td>Có thể</td></tr>
+<tr><td>Dùng để</td><td><b>Khóa</b> liên kết với user nội bộ</td><td>Liên lạc, hiển thị</td><td>Hiển thị (“Xin chào an.nv”)</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> App lưu user theo email. Công ty đổi tên miền từ <code>example.com</code> sang <code>example.vn</code> → lần đăng nhập sau, email trong ID token là <code>an.nv@example.vn</code> → app không tìm thấy, tạo một tài khoản mới trống trơn, An mất hết lịch sử đơn hàng. Nếu lưu theo (<code>iss</code>, <code>sub</code>) thì chẳng có gì thay đổi.</p>
+<span class="rule">Khóa = (<code>iss</code>, <code>sub</code>). Email và username chỉ là thuộc tính, cập nhật mỗi lần đăng nhập.</span>
+</div>
+<div class="callout warn"><span class="callout-title">⚠️ <code>sub</code> có thể khác nhau theo app</span>
+Một số OP phát <b>pairwise</b> subject: cùng một người nhưng mỗi client (hoặc mỗi nhóm client) nhận một <code>sub</code> khác — để chống theo dõi chéo. Ví dụ Microsoft Entra ID: <code>sub</code> là pairwise theo ứng dụng, còn <code>oid</code> là ID ổn định của user trong tenant. Đừng đem <code>sub</code> của app A so với <code>sub</code> của app B.</div>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span><code>sub</code> không bao giờ cấp lại cho người khác, nên chỉ cần lưu <code>sub</code> làm khóa là đủ.</span><span class="f-label">Thực tế</span><span>“Không cấp lại” chỉ đúng <b>trong phạm vi một issuer</b>. Hai OP khác nhau hoàn toàn có thể có cùng chuỗi <code>sub</code> (vd. hai hệ thống cũ cùng dùng mã nhân viên <code>1001</code>). Khóa phải là cặp (<code>iss</code>, <code>sub</code>).</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span><code>preferred_username</code> là “username” nên duy nhất và ổn định, dùng làm khóa được.</span><span class="f-label">Thực tế</span><span>OIDC Core ghi rõ RP không được coi nó là duy nhất; nó có thể đổi (vd. realm bật “Edit username”). Chỉ dùng để hiển thị.</span></div>
+
+<h3 id="social-login">Social / external login <span class="badge should">Should</span></h3>
+<p>“Đăng nhập bằng Google / Microsoft / GitHub” nghĩa là: ứng dụng của bạn là <b>RP</b>, nhà cung cấp là <b>OP</b>. (Riêng GitHub là OAuth 2.0 thuần, không phải OIDC đầy đủ — bạn lấy id người dùng qua API của GitHub.)</p>
+<p>Ứng dụng vẫn có <b>user nội bộ</b> của riêng mình; external login chỉ là “cách để vào” user đó. Một user nội bộ có thể liên kết <b>nhiều</b> external login — giống một căn nhà có nhiều chìa khóa.</p>
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: Social login vs Account linking vs Federation</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Social login</th><th>Account linking</th><th>Federation (identity brokering)</th></tr></thead>
+<tbody>
+<tr><td>Là gì</td><td>Cho người dùng đăng nhập bằng tài khoản của nhà cung cấp công cộng (Google, GitHub…)</td><td>Gắn <b>nhiều</b> external login vào <b>cùng một</b> user nội bộ</td><td>Hai tổ chức/hệ thống tin nhau: một IdP chấp nhận kết quả đăng nhập của IdP khác (<a href="m01-2-sso-federation-mfa.html#federation">M01</a>)</td></tr>
+<tr><td>Ai nối với OP bên ngoài</td><td>Thường là chính app</td><td>Chính app (quyết định gộp hay không)</td><td>Thường là IdP trung gian (vd. Keycloak), app chỉ nói chuyện với Keycloak</td></tr>
+<tr><td>Rủi ro chính</td><td>Tin email chưa xác minh</td><td>Gộp nhầm → chiếm tài khoản</td><td>Tin nhầm IdP / tenant ngoài danh sách</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> Web đặt hàng có nút “Đăng nhập bằng Google” → <b>social login</b>. An đã có tài khoản Keycloak, vào trang “Cài đặt → Liên kết Google” → <b>account linking</b>. Realm <code>demo</code> cấu hình Entra ID của công ty đối tác làm Identity Provider, nhân viên đối tác bấm “Đăng nhập bằng tài khoản công ty” ở Keycloak → <b>federation</b>; web đặt hàng vẫn chỉ thấy ID token do Keycloak phát.</p>
+<span class="rule">Social login = cửa vào. Account linking = gắn nhiều chìa vào một nhà. Federation = hai tổ chức tin nhau.</span>
+</div>
+
+<h3 id="external-login">Thiết kế bảng user / external login</h3>
+<p>Đây là <b>Deliverable 6</b>. Ý tưởng: tách “người dùng” (<code>users</code>) khỏi “cách đăng nhập” (<code>external_logins</code>). Ràng buộc quan trọng nhất là dòng <code>UNIQUE (issuer, subject)</code> ở cuối.</p>
+<pre data-title="schema.sql (SQL Server)"><code class="language-sql">CREATE TABLE users (
+    id              UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+    display_name    NVARCHAR(200)  NOT NULL,
+    contact_email   NVARCHAR(320)  NULL,      -- chỉ để liên lạc/hiển thị, KHÔNG phải khóa
+    status          VARCHAR(20)    NOT NULL DEFAULT 'active',
+    created_at      DATETIME2      NOT NULL DEFAULT SYSUTCDATETIME()
+);
+
+CREATE TABLE external_logins (
+    id              BIGINT IDENTITY PRIMARY KEY,
+    user_id         UNIQUEIDENTIFIER NOT NULL REFERENCES users(id),
+    issuer          NVARCHAR(512)  NOT NULL,  -- iss, vd https://accounts.google.com
+    subject         NVARCHAR(255)  NOT NULL,  -- sub (tối đa 255 ký tự ASCII theo OIDC Core)
+    provider_name   NVARCHAR(50)   NOT NULL,  -- 'google', 'entra', 'keycloak' (để hiển thị)
+    tenant_id       NVARCHAR(64)   NULL,      -- tid nếu là Entra multi-tenant
+    email_at_link   NVARCHAR(320)  NULL,      -- email lúc liên kết, chỉ để tham khảo/audit
+    linked_at       DATETIME2      NOT NULL DEFAULT SYSUTCDATETIME(),
+    last_login_at   DATETIME2      NULL,
+    CONSTRAINT uq_external_login UNIQUE (issuer, subject)  -- MỘT (iss, sub) chỉ thuộc MỘT user
+);
+CREATE INDEX ix_external_logins_user ON external_logins(user_id);</code></pre>
+<div class="callout example"><span class="callout-title">🧪 Ví dụ: dữ liệu của An sau khi liên kết Google</span>
+<pre><code class="language-plaintext">users
+ id = 7c1e…   display_name = Nguyen Van An   contact_email = an.nv@example.com
+
+external_logins
+ user_id = 7c1e…  issuer = http://localhost:8080/realms/demo  subject = f3b2c1d0-7a6e-…   provider_name = keycloak
+ user_id = 7c1e…  issuer = https://accounts.google.com         subject = 1098765432101234 provider_name = google</code></pre>
+Khi callback trả về (<code>iss</code>, <code>sub</code>), app tra bảng <code>external_logins</code> → ra <code>user_id</code> → đăng nhập vào user đó. Đổi email ở Google không ảnh hưởng gì.</div>
+<div class="callout info"><span class="callout-title">ℹ️ So với ASP.NET Core Identity</span>
+Bảng <code>AspNetUserLogins</code> có khóa (<code>LoginProvider</code>, <code>ProviderKey</code>) và cột <code>UserId</code>. <code>ProviderKey</code> thường là <code>sub</code>; <code>LoginProvider</code> là <b>tên scheme</b> bạn đặt (vd. “Google”), không phải <code>iss</code>. Ổn khi mỗi scheme ứng với đúng một issuer; với provider đa tenant hãy cân nhắc lưu thêm <code>iss</code>/<code>tid</code>.</div>
+
+<h3 id="account-linking">Account linking an toàn <span class="badge should">Should</span></h3>
+<p>Tình huống: An đã có tài khoản (đăng ký bằng Keycloak), hôm nay bấm “Đăng nhập bằng Google” lần đầu với cùng email. Có nên tự gộp không?</p>
+<p>Câu trả lời ngắn: <b>chỉ khi chắc chắn đó là cùng một người</b>. Sơ đồ dưới là các câu hỏi app nên đặt ra theo thứ tự, từ an toàn nhất (đã liên kết sẵn) tới rủi ro nhất (gộp theo email).</p>
+<div class="diagram">
+<pre class="mermaid">
+flowchart TD
+  S["Callback OIDC thành công:<br/>có iss, sub, email, email_verified"] --> A{"Đã có external_login<br/>với (iss, sub)?"}
+  A -- "Có" --> L["Đăng nhập vào user_id đã liên kết"]
+  A -- "Chưa" --> B{"Người dùng ĐANG đăng nhập<br/>và chủ động bấm Liên kết?"}
+  B -- "Có" --> R["Yêu cầu xác thực lại user hiện tại<br/>rồi thêm external_login"]
+  B -- "Không" --> C{"Có user nội bộ<br/>trùng email?"}
+  C -- "Không" --> N["Tạo user mới + external_login<br/>(nếu cho phép tự đăng ký)"]
+  C -- "Có" --> D{"email_verified = true VÀ<br/>provider đáng tin cho domain đó?"}
+  D -- "Không" --> X["KHÔNG tự liên kết.<br/>Yêu cầu đăng nhập bằng cách cũ để liên kết"]
+  D -- "Có" --> P{"Chính sách cho phép<br/>tự liên kết?"}
+  P -- "Có" --> M["Liên kết + gửi email thông báo<br/>+ ghi audit log"]
+  P -- "Không" --> X
+</pre>
+<div class="caption">Cách an toàn nhất: người dùng <b>đang đăng nhập</b> chủ động liên kết thêm provider. Tự liên kết theo email chỉ khi email đã xác minh và provider có thẩm quyền với domain đó (vd. Entra ID của chính công ty cho <code>@company.com</code>).</div>
+</div>
+<div class="callout danger"><span class="callout-title">🚫 Account takeover qua tự liên kết bằng email chưa xác minh</span>
+Kẻ tấn công tạo tài khoản ở một provider cho phép đặt email tùy ý (hoặc chưa xác minh), đặt email = <code>an.nv@company.com</code>, rồi “Đăng nhập bằng provider đó” vào app của bạn. Nếu app tự gộp theo email → kẻ tấn công vào thẳng tài khoản của An. Đây là lỗi thật đã xảy ra với nhiều hệ thống.</div>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Email trùng nhau thì chắc chắn là cùng một người, cứ tự gộp tài khoản.</span><span class="f-label">Thực tế</span><span>Email có thể chưa xác minh hoặc do người dùng tự đặt → kẻ tấn công chiếm tài khoản (khung đỏ ở trên). Khóa là (<code>iss</code>, <code>sub</code>); an toàn nhất là để người dùng đang đăng nhập chủ động liên kết.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Có <code>email_verified = true</code> thì tự gộp theo email là an toàn tuyệt đối.</span><span class="f-label">Thực tế</span><span><code>email_verified</code> chỉ nói provider <b>đã từng</b> xác nhận người dùng nhận được thư ở địa chỉ đó. Nó không nói provider có <b>thẩm quyền</b> với domain (vd. một social provider xác minh <code>an.nv@company.com</code> cho bất kỳ ai đang đọc được hộp thư đó lúc ấy), và không chống được email bị cấp lại cho người mới. Vì thế sơ đồ trên còn hỏi thêm “provider đáng tin cho domain đó?” và “chính sách cho phép?”.</span></div>
+
+<h3 id="multi-tenant">Multi-tenant (Microsoft Entra ID) <span class="badge nice">Nice</span></h3>
+<p>Trong Microsoft Entra ID, mỗi tổ chức (công ty) là một <b>tenant</b> — một “khu” riêng với danh sách người dùng riêng.</p>
+<p>App đăng ký “multi-tenant” cho phép người dùng từ <b>mọi</b> tenant Entra ID đăng nhập qua endpoint <code>/common</code> hoặc <code>/organizations</code>. Mỗi tenant có <b>issuer riêng</b> dạng <code>https://login.microsoftonline.com/{tenant-id}/v2.0</code>, và ID token có claim <code>tid</code> (tenant ID).</p>
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: Single-tenant vs Multi-tenant</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Single-tenant</th><th>Multi-tenant</th></tr></thead>
+<tbody>
+<tr><td>Ai đăng nhập được</td><td>Chỉ người dùng trong <b>một</b> tenant (công ty mình)</td><td>Người dùng từ <b>nhiều</b> tenant (nhiều công ty khách hàng)</td></tr>
+<tr><td>Authority</td><td><code>https://login.microsoftonline.com/{tenant-id}/v2.0</code></td><td><code>…/common/v2.0</code> hoặc <code>…/organizations/v2.0</code></td></tr>
+<tr><td><code>iss</code> nhận được</td><td>Một giá trị cố định, kiểm tra như thường</td><td>Mỗi tenant một giá trị → phải tự kiểm tra theo danh sách cho phép</td></tr>
+<tr><td>Dùng khi</td><td>App nội bộ công ty</td><td>Sản phẩm SaaS bán cho nhiều doanh nghiệp</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> Một phần mềm HR SaaS bán cho công ty A và công ty B → đăng ký multi-tenant, lưu bảng “tenant được phép” = {<code>tid</code> của A, <code>tid</code> của B}. Một người tự tạo tenant miễn phí rồi đăng nhập → <code>tid</code> không có trong bảng → từ chối.</p>
+<span class="rule">Multi-tenant = mở cửa cho nhiều công ty, nên app phải tự giữ danh sách “công ty nào được vào”.</span>
+</div>
+<ul>
+<li>Kiểm tra <code>iss</code>/<code>tid</code> thuộc <b>danh sách tenant được phép</b> (khách hàng đã đăng ký), không mặc định chấp nhận mọi tenant.</li>
+<li>Khóa định danh nên gồm tenant: (<code>tid</code>, <code>oid</code>) hoặc (<code>iss</code>, <code>sub</code>).</li>
+<li>“Ai cũng có thể tạo một tenant Entra miễn phí” → nếu bỏ qua kiểm tra tenant, người lạ vẫn đăng nhập được.</li>
+</ul>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Dùng endpoint <code>/organizations</code> thì Microsoft đã lọc giúp, chỉ nhân viên doanh nghiệp “thật” vào được.</span><span class="f-label">Thực tế</span><span><code>/organizations</code> chỉ loại tài khoản Microsoft cá nhân; mọi tenant Entra (kể cả tenant ai đó vừa tạo miễn phí) vẫn đăng nhập được, token vẫn có chữ ký hợp lệ. Việc chọn tenant nào được vào là của <b>app</b>.</span></div>
+
+<h3 id="obo">On-Behalf-Of / Token Exchange (RFC 8693) <span class="badge nice">Nice</span></h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>Bạn ủy quyền cho luật sư (API A). Luật sư cần vào ngân hàng (API B) thay bạn. Luật sư không đưa nguyên giấy ủy quyền của bạn (token có <code>aud</code> = API A), mà mang nó tới phòng công chứng (AS) đổi lấy <b>giấy ủy quyền mới</b> ghi rõ “cho ngân hàng B, thay mặt An”.</div>
+<p>Tình huống: API A nhận access token của người dùng và cần gọi API B <b>thay mặt chính người dùng đó</b>. API A có ba lựa chọn — chỉ một cái đúng:</p>
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: On-Behalf-Of vs Client Credentials vs chuyển tiếp token nguyên xi</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Chuyển tiếp nguyên token</th><th>Client Credentials</th><th>On-Behalf-Of / Token Exchange</th></tr></thead>
+<tbody>
+<tr><td>Token gửi cho API B</td><td>Token của An, <code>aud</code> = API A</td><td>Token của chính API A, <code>sub</code> = service account</td><td>Token mới, <code>aud</code> = API B, <code>sub</code> = An</td></tr>
+<tr><td>API B biết người dùng là ai?</td><td>Có, nhưng…</td><td><b>Không</b> — chỉ thấy “API A”</td><td>Có</td></tr>
+<tr><td>Vấn đề</td><td><code>aud</code> sai → API B đúng ra phải từ chối; nếu API B nới lỏng để nhận thì token cấp cho A cũng mở được B, và mang theo mọi scope của A</td><td>Mất danh tính An; API A thường có quyền rộng hơn An → dễ vượt quyền</td><td>Cần AS hỗ trợ và cấu hình chính sách</td></tr>
+<tr><td>Dùng khi</td><td>Không nên</td><td>Không có người dùng (job, batch)</td><td>Có người dùng, gọi tiếp API phía sau</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> An xem đơn hàng trên web. API <code>orders</code> (API A) cần gọi API <code>billing</code> (API B) để lấy hóa đơn <b>của An</b>. Dùng Client Credentials thì billing chỉ thấy “API A hỏi” và trả được hóa đơn của bất kỳ ai → nếu API A có bug truyền sai userId, An xem được hóa đơn người khác. Dùng OBO thì billing thấy <code>sub = An</code> và tự lọc theo An.</p>
+<span class="rule">Có người dùng → đổi token (OBO). Không có người dùng → Client Credentials. Chuyển tiếp nguyên xi → tránh.</span>
+</div>
+<p>Luồng đổi token trông như sau:</p>
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant C as Client
+  participant A as API A (orders)
+  participant AZ as Authorization Server
+  participant B as API B (billing)
+  C->>A: Bearer token1 (aud=API A, sub=An)
+  A->>AZ: Token exchange: subject_token=token1, audience=API B
+  AZ->>AZ: Kiểm tra token1, chính sách cho phép A gọi B thay An
+  AZ-->>A: token2 (aud=API B, sub=An, có thể kèm act=API A)
+  A->>B: Bearer token2
+  B-->>A: 200 OK
+</pre>
+<div class="caption">Token Exchange (RFC 8693) / On-Behalf-Of (Entra ID). Chỉ cần biết tên và use case — xem thêm <a href="appendix-2-resources.html#advanced">Appendix — nâng cao</a>.</div>
+</div>
+<pre data-title="RFC 8693 vs Entra OBO (tham số chính)"><code class="language-plaintext"># RFC 8693 Token Exchange
+grant_type=urn:ietf:params:oauth:grant-type:token-exchange
+&amp;subject_token=eyJ...token1
+&amp;subject_token_type=urn:ietf:params:oauth:token-type:access_token
+&amp;audience=billing-api
+
+# Microsoft Entra ID On-Behalf-Of (biến thể riêng, dùng jwt-bearer)
+grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer
+&amp;assertion=eyJ...token1
+&amp;requested_token_use=on_behalf_of
+&amp;scope=api://billing-api/.default
+&amp;client_id=...&amp;client_secret=...</code></pre>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>API A cứ dùng Client Credentials gọi API B và gửi kèm <code>userId</code> của An trong body là được.</span><span class="f-label">Thực tế</span><span>API B khi đó chỉ tin “API A nói thế”; nó không tự kiểm chứng được An, và quyền của API A thường rộng hơn của An. Một bug truyền sai <code>userId</code> là lộ dữ liệu người khác. Có người dùng thì dùng OBO/Token Exchange.</span></div>
+
+<h3 id="nang-cao">Nội dung nâng cao (chỉ cần biết tên)</h3>
+<p>Bạn chưa cần học sâu các mục dưới. Chỉ cần nhớ tên và một dòng mô tả, để khi gặp trong tài liệu hoặc cấu hình thì biết nó giải quyết vấn đề gì.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Chủ đề</th><th>Một dòng giải thích</th></tr></thead>
+<tbody>
+<tr><td>DPoP (RFC 9449), mTLS-bound tokens (RFC 8705)</td><td><b>Sender-constrained token</b>: token gắn với khóa của client, bị trộm cũng không dùng được nếu thiếu khóa.</td></tr>
+<tr><td>PAR (RFC 9126)</td><td>Pushed Authorization Requests: client POST tham số authorization lên AS trước, front-channel chỉ mang <code>request_uri</code>.</td></tr>
+<tr><td>JAR (RFC 9101), JARM</td><td>Authorization request / response được đóng gói thành JWT có chữ ký.</td></tr>
+<tr><td>RAR (RFC 9396)</td><td>Rich Authorization Requests: xin quyền chi tiết bằng JSON (<code>authorization_details</code>) thay vì chuỗi scope.</td></tr>
+<tr><td>Resource Indicators (RFC 8707)</td><td>Tham số <code>resource</code> chỉ rõ token dành cho API nào → audience hẹp.</td></tr>
+<tr><td>RFC 9207</td><td>Tham số <code>iss</code> trong authorization response chống mix-up.</td></tr>
+<tr><td>RFC 8252, RFC 10017</td><td>Best practice cho native app và browser-based app (SPA).</td></tr>
+<tr><td>FAPI 2.0, OpenID Federation</td><td>Profile bảo mật cao cho tài chính; liên kết tin cậy giữa nhiều OP/RP quy mô lớn.</td></tr>
+</tbody></table></div>
+
+<div class="callout tip"><span class="callout-title">✅ Tự kiểm tra nhanh</span><ul>
+<li>Vì sao phải lưu cả <code>iss</code> chứ không chỉ <code>sub</code>?</li>
+<li>Người dùng chưa đăng nhập, đến từ provider trả <code>email_verified = false</code> trùng email một user có sẵn. App nên làm gì?</li>
+<li>Job đêm không có người dùng cần gọi API: dùng OBO hay Client Credentials?</li>
+</ul></div>
+
+<h2 id="quiz-bai">Quiz nhanh — Bài 3.7</h2>
+<div id="quiz"></div>
+
+</main>
+<script>
+window.QUIZ = [
+  { q: "App nội bộ lưu user theo cột <code>subject</code> duy nhất (chỉ <code>sub</code>). Ban đầu chỉ có OP A, mọi thứ ổn. Sau đó công ty thêm OP B — một hệ thống cũ cũng dùng mã nhân viên tự tăng (<code>1001</code>, <code>1002</code>…) làm <code>sub</code>. Người có <code>sub = 1001</code> ở OP B đăng nhập lần đầu. Chuyện gì xảy ra?",
+    tricky: true,
+    options: ["Không sao — OIDC đảm bảo <code>sub</code> không bao giờ cấp lại cho người khác", "App tìm thấy dòng <code>sub = 1001</code> của OP A và cho người này vào tài khoản của người khác", "App tự phân biệt vì chữ ký của hai OP khác nhau", "OP B từ chối phát token vì <code>sub</code> trùng OP A"],
+    answer: 1,
+    why: ["Bẫy ở đây: “không cấp lại” chỉ đúng trong phạm vi <b>một</b> issuer. OIDC không hứa gì về <code>sub</code> giữa hai OP.", "Đúng — vì khóa thiếu <code>iss</code>, hai người khác nhau ở hai OP bị coi là một. Sửa: khóa (<code>iss</code>, <code>sub</code>).", "Chữ ký chỉ được kiểm tra lúc validate token; sau đó app tra database theo <code>sub</code> và không dùng gì để phân biệt OP.", "Mỗi OP không biết gì về OP kia hay database của app bạn."],
+    explain: "<code>sub</code> chỉ duy nhất trong phạm vi <code>iss</code>. Xem <a href='m03-7-user-identity.html#iss-sub'>iss + sub</a>." },
+  { q: "An đổi email trong tài khoản Google từ <code>an.nv@example.com</code> sang <code>an.nguyen@example.com</code>. App lưu external login theo (<code>iss</code>, <code>sub</code>). Lần đăng nhập Google tiếp theo, app nên làm gì?",
+    options: ["Tạo user mới vì email khác", "Vào đúng user cũ qua (<code>iss</code>, <code>sub</code>); có thể cập nhật email liên lạc", "Từ chối đăng nhập vì email không khớp dữ liệu", "Bắt An liên kết lại tài khoản Google"],
+    answer: 1,
+    why: ["Đó là hậu quả của việc dùng email làm khóa — đúng thứ mà thiết kế (<code>iss</code>, <code>sub</code>) tránh được.", "Đúng — <code>sub</code> của Google không đổi khi đổi email; email chỉ là thuộc tính, cập nhật mỗi lần đăng nhập.", "Email không tham gia vào việc tìm user, nên không có gì để “không khớp”.", "Liên kết vẫn còn nguyên trong <code>external_logins</code>; không có lý do làm lại."],
+    explain: "Xem <a href='m03-7-user-identity.html#external-login'>bảng external login</a>." },
+  { q: "An <b>chưa đăng nhập</b>. Một người đăng nhập bằng social provider X, nhận được <code>email = an.nv@company.com</code>, <code>email_verified = true</code>. Hệ thống đã có user An với email đó (đăng ký bằng Keycloak). X không phải IdP của công ty. Phát biểu nào đúng (chọn tất cả)?",
+    tricky: true,
+    options: ["<code>email_verified = true</code> chứng minh đây chính là An trong hệ thống, gộp ngay", "<code>email_verified</code> chỉ nói X từng xác nhận người này nhận được thư ở địa chỉ đó; X không có thẩm quyền với domain <code>company.com</code>", "Cách an toàn nhất: yêu cầu đăng nhập bằng cách cũ (Keycloak) rồi chủ động liên kết X", "Nên đổi khóa của <code>external_logins</code> sang email vì email đã được xác minh"],
+    answer: [1, 2],
+    why: ["Bẫy “verified = an toàn”: xác minh hộp thư ở một thời điểm không chứng minh người này là chủ tài khoản nội bộ (hộp thư có thể bị cấp lại, X có thể xác minh lỏng).", "Đúng — vì vậy flowchart còn hỏi “provider có đáng tin cho domain đó không”; chỉ IdP của chính công ty mới có thẩm quyền với <code>@company.com</code>.", "Đúng — người dùng chứng minh sở hữu cả hai tài khoản trước khi gộp, không phụ thuộc email.", "Email vẫn đổi được và cấp lại được; xác minh không biến nó thành định danh ổn định. Khóa vẫn là (<code>iss</code>, <code>sub</code>)."],
+    explain: "email_verified = true là điều kiện <b>cần</b>, không phải <b>đủ</b>. Xem <a href='m03-7-user-identity.html#account-linking'>account linking an toàn</a>." },
+  { q: "SaaS HR multi-tenant (Entra ID, <code>/organizations</code>) nhận ID token chữ ký hợp lệ, <code>iss = https://login.microsoftonline.com/{tid-lạ}/v2.0</code>, <code>tid</code> không có trong bảng khách hàng. App nên làm gì?",
+    options: ["Chấp nhận vì chữ ký do Microsoft ký", "Từ chối đăng nhập vì tenant không nằm trong danh sách được phép", "Chấp nhận nhưng chỉ cho quyền đọc", "Tự tạo tenant mới cho người dùng đó"],
+    answer: 1,
+    why: ["Mọi tenant Entra đều có token do Microsoft ký; chữ ký không nói gì về việc tenant đó có phải khách hàng của bạn.", "Đúng — multi-tenant nghĩa là app phải tự kiểm tra <code>iss</code>/<code>tid</code> theo danh sách tenant đã đăng ký.", "Người lạ vẫn đọc được dữ liệu — vẫn là lỗ hổng.", "Tự mở cửa cho mọi tenant chính là lỗi cần tránh (trừ khi sản phẩm cố tình cho tự đăng ký, có quy trình riêng)."],
+    explain: "Xem <a href='m03-7-user-identity.html#multi-tenant'>multi-tenant</a>." },
+  { q: "Job tổng hợp lương chạy lúc 1 giờ sáng, không có người dùng nào đăng nhập, cần gọi API <code>billing</code>. Cách lấy token đúng là gì?",
+    options: ["On-Behalf-Of với token của người dùng đăng nhập gần nhất", "Client Credentials — token đại diện chính job/service", "Lưu sẵn access token của admin để dùng mỗi đêm", "Token Exchange từ ID token của job"],
+    answer: 1,
+    why: ["OBO cần một token người dùng hiện tại; mượn token của người khác là mạo danh.", "Đúng — không có người dùng thì service tự xác thực bằng Client Credentials.", "Access token ngắn hạn và gắn với admin: vừa hết hạn, vừa ghi nhận sai người làm.", "Job không đăng nhập OIDC nên không có ID token; và ID token không dùng để đổi lấy quyền gọi API."],
+    explain: "Có người dùng → OBO; không có → Client Credentials. Xem <a href='m03-7-user-identity.html#obo'>so sánh OBO</a>." }
+];
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="assets/pages.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M02 · Bài 2.4 · Vòng đời token</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<main class="content">
+
+<div class="page-head">
+  <div class="breadcrumb"><a href="index.html">Lộ trình</a> / <a href="m02-crypto-session-token.html">Module 02</a> / Bài 2.4</div>
+  <h1>Bài 2.4 — Vòng đời token</h1>
+  <p class="lead">Token không sống mãi: nó được cấp, được dùng, hết hạn, được làm mới và có thể bị thu hồi. Bài này giải thích từng giai đoạn đó, cách phát hiện refresh token bị trộm, cách AS thay khóa ký (key rotation), và hai endpoint “hỏi trạng thái token” (introspection) và “hủy token” (revocation).</p>
+  <div class="meta-row">
+    <span class="chip">⏱ ~10 phút</span>
+    <span class="chip">📘 <a href="m02-crypto-session-token.html">Module 02 · Cryptography, Session, Token &amp; HTTP Auth</a></span>
+  </div>
+</div>
+
+<!-- ===================================================== -->
+<h2 id="token-lifecycle">F. Token lifecycle <span class="badge must">Must</span></h2>
+<div class="terms"><span class="terms-title">📖 Thuật ngữ trong bài</span><dl>
+<dt>Refresh token rotation</dt><dd>Mỗi lần dùng refresh token, AS đưa refresh token mới và vô hiệu cái cũ.</dd>
+<dt>Reuse detection</dt><dd>AS phát hiện một refresh token “đã dùng rồi” bị gửi lại → nghi bị trộm → hủy cả chuỗi.</dd>
+<dt>Grant</dt><dd>Một lần người dùng/ứng dụng được cấp quyền; các token sinh ra từ lần đó thuộc cùng một “họ”.</dd>
+<dt>Signing key / key rotation</dt><dd>Khóa riêng AS dùng để ký token / việc định kỳ thay khóa đó bằng khóa mới.</dd>
+<dt>Introspection</dt><dd>API hỏi AS: “token này còn hiệu lực không, của ai?”.</dd>
+<dt>Revocation</dt><dd>Client báo AS: “hủy token này giúp tôi”.</dd>
+</dl></div>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Thẻ ra vào (access token) hết hạn sau 5 phút → mang giấy hẹn (refresh token) ra lễ tân đổi thẻ mới. Mỗi lần đổi, lễ tân <b>thu giấy hẹn cũ, đưa giấy hẹn mới</b> (rotation). Nếu ai đó mang tới một giấy hẹn <b>đã bị thu</b>, lễ tân biết có kẻ sao chép → hủy luôn cả chuỗi giấy hẹn (reuse detection).</div>
+<p>Vòng đời: <b>cấp → sử dụng → hết hạn → refresh → revoke</b>.</p>
+<ul>
+<li>Access token có thời hạn <b>ngắn hơn</b> refresh token. Lý do: access token được gửi đi rất nhiều lần (mỗi request tới API) nên dễ lộ hơn; hạn ngắn giới hạn thiệt hại nếu lộ.</li>
+<li><b>Refresh token rotation</b>: mỗi lần dùng refresh token, AS cấp refresh token <b>mới</b> và vô hiệu cái cũ. Mỗi refresh token chỉ dùng được <b>một lần</b>.</li>
+<li><b>Reuse detection</b>: nếu refresh token cũ (đã dùng) bị gửi lại → dấu hiệu có hai bên cùng giữ nó, tức là bị đánh cắp → AS thu hồi <b>toàn bộ</b> refresh token thuộc cùng grant/phiên.</li>
+<li>RFC 9700 (OAuth 2.0 Security Best Current Practice — tài liệu “thực hành bảo mật tốt nhất” của OAuth) yêu cầu refresh token của <b>public client</b> (app không giữ được secret: SPA, mobile, desktop) phải được ràng buộc với bên gửi (sender-constrained) hoặc dùng rotation.</li>
+</ul>
+<p>Sơ đồ dưới kể một câu chuyện: hr-web dùng token bình thường, rồi một kẻ tấn công thử dùng refresh token đã trộm. Hãy để ý dòng “phát hiện REUSE”.</p>
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  participant C as hr-web (client)
+  participant AS as Keycloak (AS)
+  participant API as hr-api
+  participant X as Attacker
+  C->>AS: Đăng nhập thành công
+  AS-->>C: AT1 (5 phút) + RT1
+  C->>API: Bearer AT1
+  API-->>C: 200
+  Note over C,API: 5 phút sau, AT1 hết hạn
+  C->>API: Bearer AT1
+  API-->>C: 401 invalid_token (expired)
+  C->>AS: grant_type=refresh_token, RT1
+  AS-->>C: AT2 + RT2 (RT1 bị vô hiệu: rotation)
+  Note over X: Attacker đã đánh cắp RT1 từ trước
+  X->>AS: grant_type=refresh_token, RT1
+  AS->>AS: RT1 đã dùng rồi, phát hiện REUSE
+  AS-->>X: 400 invalid_grant
+  AS->>AS: Thu hồi cả họ token: RT2 và phiên liên quan
+  C->>AS: grant_type=refresh_token, RT2
+  AS-->>C: 400 invalid_grant, người dùng phải đăng nhập lại
+  Note over C,API: AT2 đã phát hành vẫn có thể dùng tới khi hết hạn, trừ khi API introspect
+</pre>
+<div class="caption">Rotation + reuse detection biến việc trộm refresh token thành sự kiện <b>phát hiện được</b>. Cái giá: người dùng thật cũng bị đăng xuất.</div>
+</div>
+<div class="callout info"><span class="callout-title">ℹ️ Trong Keycloak</span>
+Rotation được bật bằng tùy chọn <b>Revoke Refresh Token</b> trong cấu hình token của realm, kết hợp <b>Refresh Token Max Reuse</b> = 0 (mỗi refresh token chỉ dùng một lần). Hệ quả thực tế: nhiều tab/nhiều instance dùng chung một refresh token sẽ “giành” nhau — cần thiết kế để chỉ một nơi refresh. Vị trí menu có thể thay đổi theo phiên bản.</div>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Bật rotation rồi thì refresh token bị trộm trở nên vô dụng ngay.</span><span class="f-label">Thực tế</span><span>Nếu kẻ trộm dùng RT1 <b>trước</b> hr-web, hắn vẫn nhận được access token và RT2. Rotation + reuse detection chỉ giúp <b>phát hiện</b>: khi hr-web gửi lại RT1 (đã dùng), AS biết có hai bên cùng giữ và thu hồi cả họ token — kể cả RT2 của kẻ trộm. Access token hắn đã nhận vẫn dùng được tới <code>exp</code>.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Access token nên sống lâu (vài ngày) cho người dùng đỡ bị gián đoạn.</span><span class="f-label">Thực tế</span><span>Sự liền mạch đến từ refresh token (người dùng không phải đăng nhập lại). Access token đi qua mọi request nên dễ lộ nhất, và JWT khó thu hồi — hạn ngắn mới giới hạn được thiệt hại.</span></div>
+
+<h3 id="logout-token">Logout có vô hiệu hóa token ngay không?</h3>
+<p><b>Không mặc định.</b> Logout thường hủy phiên ở IdP và thu hồi refresh token. Nhưng một <b>JWT access token đã phát hành</b> vẫn verify được cho tới <code>exp</code>, vì API kiểm tra cục bộ và không hỏi ai.</p>
+<p>Nếu cần token “chết” ngay, có các lựa chọn (tùy kiến trúc mà chọn):</p>
+<ul>
+<li>Access token thật ngắn (vài phút) — chấp nhận độ trễ nhỏ.</li>
+<li>Introspection (hoặc opaque token) cho API nhạy cảm.</li>
+<li>Denylist (danh sách chặn) theo <code>jti</code> (mã token) hoặc <code>sid</code> (mã phiên).</li>
+<li>Cơ chế đặc thù của IdP.</li>
+</ul>
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: Token hết hạn vs Thu hồi (revocation) vs Logout</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Hết hạn (expiry)</th><th>Thu hồi (revocation)</th><th>Logout</th></tr></thead>
+<tbody>
+<tr><td>Ai gây ra</td><td>Thời gian — tự động khi qua <code>exp</code></td><td>Client (hoặc admin) chủ động báo AS</td><td>Người dùng bấm “Đăng xuất”</td></tr>
+<tr><td>Tác động lên gì</td><td>Đúng token đó</td><td>Token được gửi lên (thường là refresh token) và có thể cả họ token cùng grant</td><td>Phiên ở app + phiên SSO ở IdP; thường kéo theo thu hồi refresh token</td></tr>
+<tr><td>JWT access token đang nằm ở API</td><td>Bị từ chối ngay khi qua <code>exp</code></td><td>Vẫn dùng được tới <code>exp</code> nếu API không introspect</td><td>Vẫn dùng được tới <code>exp</code> nếu API không introspect</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> 09:00 An đăng nhập, nhận access token hạn 09:05. 09:02 An bấm Đăng xuất: hr-web xóa cookie, Keycloak hủy phiên SSO và refresh token. Nhưng nếu ai đó đã chép access token lúc 09:01, họ vẫn gọi hr-api được tới 09:05 — vì hr-api chỉ verify chữ ký và <code>exp</code>.</p>
+<span class="rule">Hết hạn là “tự chết theo giờ”; thu hồi là “bị hủy theo yêu cầu”; logout là “kết thúc phiên” — chỉ hết hạn là chắc chắn có hiệu lực với JWT ở mọi API.</span>
+</div>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Logout là mọi token hết hiệu lực ngay.</span><span class="f-label">Thực tế</span><span>Logout hủy phiên và thường thu hồi refresh token, nhưng JWT access token đã phát hành vẫn verify được tới <code>exp</code> nếu API không introspect/denylist. Ví dụ: An logout lúc 09:02, token đã bị chép vẫn gọi được hr-api tới 09:05. Đây là hành vi bình thường, không phải lỗi.</span></div>
+
+<h3 id="key-rotation">Key rotation (xoay vòng signing key) <span class="badge should">Should</span></h3>
+<ul>
+<li>Issuer định kỳ thay signing key (hoặc thay gấp khi lộ key). Public key được công bố ở <b>JWKS</b> (JSON Web Key Set) endpoint, mỗi key có <code>kid</code> — chi tiết ở <a href="m03-6-discovery-logout.html#discovery-jwks">M03 — Discovery/JWKS</a>.</li>
+<li>Quy trình an toàn (rollover — chuyển giao từ key cũ sang key mới):
+<ol>
+<li>Công bố key mới trong JWKS <b>trước</b>.</li>
+<li>Bắt đầu ký token bằng key mới.</li>
+<li>Giữ key cũ trong JWKS tới khi mọi token ký bằng key cũ đã hết hạn.</li>
+<li>Gỡ key cũ.</li>
+</ol></li>
+<li>API phải: cache JWKS, chọn key theo <code>kid</code>, và khi gặp <code>kid</code> lạ thì <b>làm mới JWKS</b> (có giới hạn tần suất) thay vì từ chối mãi. Không hard-code public key vào code. Middleware JwtBearer với <code>Authority</code> làm việc này tự động.</li>
+</ul>
+<p>Ví dụ JWKS của realm <code>kaopiz</code> trong giai đoạn chuyển giao: có <b>cả hai</b> key, nên token ký bằng key cũ (<code>hr-2026-08</code>) lẫn key mới (<code>hr-2026-11</code>) đều verify được.</p>
+<pre data-title="JWKS (rút gọn) trong giai đoạn rollover"><code class="language-json">{
+  "keys": [
+    { "kid": "hr-2026-11", "kty": "RSA", "alg": "RS256", "use": "sig", "n": "0vx7ag…", "e": "AQAB" },
+    { "kid": "hr-2026-08", "kty": "RSA", "alg": "RS256", "use": "sig", "n": "xjlCRB…", "e": "AQAB" }
+  ]
+}</code></pre>
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: Refresh token rotation vs Key rotation</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Refresh token rotation</th><th>Key rotation</th></tr></thead>
+<tbody>
+<tr><td>Thay cái gì</td><td><b>Refresh token</b> của một client/người dùng</td><td><b>Signing key</b> (cặp khóa AS dùng ký mọi token)</td></tr>
+<tr><td>Phạm vi ảnh hưởng</td><td>Một phiên / một grant</td><td>Mọi token AS phát ra, mọi API verify</td></tr>
+<tr><td>Mục đích</td><td>Phát hiện refresh token bị trộm (reuse detection)</td><td>Giới hạn thiệt hại nếu private key bị lộ; vệ sinh mật mã</td></tr>
+<tr><td>Ai phải thích nghi</td><td>Client: luôn lưu refresh token <b>mới nhất</b></td><td>API: lấy key theo <code>kid</code>, làm mới JWKS khi gặp <code>kid</code> lạ</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> hr-web refresh lúc 09:05 → nhận RT2 thay RT1 (refresh token rotation, chỉ ảnh hưởng phiên của An). Tháng 11, Keycloak chuyển từ key <code>hr-2026-08</code> sang <code>hr-2026-11</code> (key rotation) → hr-api và mọi API khác phải nhận ra <code>kid</code> mới.</p>
+<span class="rule">Refresh token rotation = đổi “giấy hẹn” của một người; key rotation = đổi “con dấu” của cả tòa nhà.</span>
+</div>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Key rotation và refresh token rotation là một.</span><span class="f-label">Thực tế</span><span>Refresh token rotation đổi refresh token của <b>một phiên</b> mỗi lần refresh; key rotation đổi <b>signing key</b> của AS, ảnh hưởng mọi token và mọi API verify.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Token có <code>kid</code> lạ (không có trong JWKS đang cache) chắc chắn là token giả → từ chối luôn.</span><span class="f-label">Thực tế</span><span>Rất có thể AS vừa xoay sang key mới. API nên tải lại JWKS (có giới hạn tần suất) rồi verify lại; chỉ khi vẫn không có key đó mới trả 401.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Key rotation làm mọi token cũ mất hiệu lực ngay.</span><span class="f-label">Thực tế</span><span>Trong rollover đúng cách, key cũ vẫn nằm trong JWKS tới khi token ký bằng nó hết hạn — token cũ vẫn verify được. Chỉ khi thay key gấp (lộ key) và gỡ key cũ ngay thì token cũ mới bị từ chối.</span></div>
+
+<h3 id="introspection-revocation">Token Introspection (RFC 7662) và Revocation (RFC 7009) <span class="badge should">Should</span></h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+<b>Introspection</b>: bảo vệ ở cửa <b>gọi điện hỏi lễ tân</b> “thẻ số này còn hiệu lực không, của ai?”. <b>Revocation</b>: khách (client) <b>báo lễ tân hủy thẻ</b> vì đã về hoặc làm mất.</div>
+<p><b>Introspection</b>: Resource Server (API) hỏi Authorization Server: token còn hiệu lực (<code>active</code>) không, và mang thông tin gì.</p>
+<ul>
+<li>Dùng khi: token là opaque (API không tự đọc được), hoặc API cần biết ngay token đã bị thu hồi chưa.</li>
+<li>Khi gọi, API phải <b>tự xác thực</b> với AS (vd. bằng <code>client_id</code>/<code>client_secret</code> của hr-api) — để người lạ không dùng endpoint này dò token.</li>
+</ul>
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  participant C as Client
+  participant API as hr-api (RS)
+  participant AS as Keycloak (AS)
+  C->>API: GET /payroll/57 + Bearer token
+  API->>AS: POST /introspect (token=..., xác thực bằng credential của hr-api)
+  alt Token còn hiệu lực
+    AS-->>API: 200 active=true, sub, scope, exp, aud...
+    API->>API: Kiểm tra aud, scope, quyền
+    API-->>C: 200 dữ liệu
+  else Hết hạn, bị thu hồi hoặc không tồn tại
+    AS-->>API: 200 active=false
+    API-->>C: 401 + WWW-Authenticate: Bearer error=invalid_token
+  end
+  Note over API,AS: Có thể cache kết quả ngắn hạn, đánh đổi giữa hiệu năng và độ trễ thu hồi
+</pre>
+<div class="caption">Introspection = độ chính xác tức thời đổi lấy một lần gọi mạng (và phụ thuộc AS còn sống).</div>
+</div>
+<p>Request thực tế dưới đây do hr-api gửi lên Keycloak. Để ý: hr-api đăng nhập bằng header <code>Basic</code> (credential của chính hr-api), còn token cần hỏi nằm ở body.</p>
+<pre data-title="Introspection request (RFC 7662, endpoint Keycloak)"><code class="language-plaintext">POST /realms/kaopiz/protocol/openid-connect/token/introspect HTTP/1.1
+Host: sso.kaopiz.local
+Content-Type: application/x-www-form-urlencoded
+Authorization: Basic aHItYXBpOnMzY3IzdC1JbnRyb3NwZWN0
+
+token=eyJhbGciOiJSUzI1NiIs...</code></pre>
+<div class="grid cols-2">
+<pre data-title="Response — token còn hiệu lực"><code class="language-json">{
+  "active": true,
+  "client_id": "hr-web",
+  "username": "an.nv",
+  "scope": "openid profile hr.read",
+  "sub": "8f2c1a7e-4b9d-4e15-9a3f-2d6c7b8e9f10",
+  "aud": "hr-api",
+  "iss": "https://sso.kaopiz.local/realms/kaopiz",
+  "exp": 1794276300,
+  "iat": 1794276000
+}</code></pre>
+<pre data-title="Response — không hiệu lực"><code class="language-json">{
+  "active": false
+}</code></pre>
+</div>
+<ul>
+<li><code>active</code> là trường <b>bắt buộc duy nhất</b>; các trường khác là tùy chọn (<code>scope</code>, <code>client_id</code>, <code>username</code>, <code>token_type</code>, <code>exp</code>, <code>iat</code>, <code>nbf</code>, <code>sub</code>, <code>aud</code>, <code>iss</code>, <code>jti</code>).</li>
+<li>Token hết hạn/bị thu hồi/không tồn tại → vẫn <b>HTTP 200</b> với <code>{"active": false}</code>, không kèm lý do (để không lộ trạng thái nội bộ).</li>
+</ul>
+
+<p><b>Revocation</b>: client báo AS thu hồi refresh token hoặc access token — ví dụ khi logout hoặc mất thiết bị. Request dưới do hr-web gửi khi An bấm Đăng xuất.</p>
+<pre data-title="Revocation request (RFC 7009, endpoint Keycloak)"><code class="language-plaintext">POST /realms/kaopiz/protocol/openid-connect/revoke HTTP/1.1
+Host: sso.kaopiz.local
+Content-Type: application/x-www-form-urlencoded
+Authorization: Basic &lt;base64(client_id:client_secret)&gt;
+
+token=&lt;refresh_token&gt;&amp;token_type_hint=refresh_token</code></pre>
+<ul>
+<li><code>token_type_hint</code> (tùy chọn): <code>access_token</code> hoặc <code>refresh_token</code>; AS có thể bỏ qua.</li>
+<li>Thành công → <b>HTTP 200</b>. Token không hợp lệ/không tồn tại cũng trả <b>200</b> (mục đích “token không còn dùng được” đã đạt).</li>
+<li>Thu hồi refresh token: nếu AS hỗ trợ thu hồi access token thì <i>nên</i> thu hồi luôn các access token cùng grant. Nhưng <b>JWT access token đã nằm ở API</b> vẫn verify được cục bộ cho tới khi hết hạn nếu API không introspect.</li>
+</ul>
+
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: Introspection vs Revocation</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Introspection (RFC 7662)</th><th>Revocation (RFC 7009)</th></tr></thead>
+<tbody>
+<tr><td>Câu hỏi / yêu cầu</td><td>“Token này còn hiệu lực không, của ai?” — <b>hỏi</b></td><td>“Hủy token này đi.” — <b>ra lệnh</b></td></tr>
+<tr><td>Ai gọi</td><td>Resource Server (hr-api)</td><td>Client (hr-web, app mobile…)</td></tr>
+<tr><td>Khi nào</td><td>Mỗi request (có thể cache ngắn)</td><td>Logout, mất thiết bị, gỡ cài đặt app</td></tr>
+<tr><td>Kết quả</td><td>200 + <code>{"active": true, …}</code> hoặc <code>{"active": false}</code></td><td>200 (kể cả khi token vốn đã không hợp lệ)</td></tr>
+<tr><td>Thay đổi trạng thái token?</td><td>❌ Không — chỉ đọc</td><td>✅ Có — token không dùng được nữa</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> An bấm Đăng xuất → hr-web gọi <b>revocation</b> cho refresh token. Một phút sau, kẻ gian dùng access token đã chép để gọi một API có bật introspection → API gọi <b>introspection</b>, nhận <code>active: false</code> (nếu AS thu hồi luôn access token cùng grant) → trả <code>401</code>. Hai cơ chế bổ sung cho nhau.</p>
+<span class="rule">Revocation = client “báo mất thẻ”; introspection = bảo vệ “gọi hỏi thẻ còn dùng được không”.</span>
+</div>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Token bị thu hồi thì introspection trả lỗi (404/401) kèm lý do.</span><span class="f-label">Thực tế</span><span>Vẫn là <b>HTTP 200</b> với <code>{"active": false}</code>, không nêu lý do. Lỗi 401 từ introspection endpoint nghĩa là chính <b>hr-api</b> xác thực sai với AS (sai credential), không phải token của người dùng có vấn đề.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Revocation trả 200 nghĩa là token đó có tồn tại và vừa bị hủy.</span><span class="f-label">Thực tế</span><span>RFC 7009 trả 200 cả khi token vốn đã không hợp lệ hay không tồn tại — mục tiêu “token không dùng được nữa” đã đạt. Đừng dùng response này để kiểm tra token.</span></div>
+
+<div class="callout tip"><span class="callout-title">✅ Tự kiểm tra nhanh</span><ul>
+<li>Vì sao khi một refresh token đã dùng bị gửi lại, AS hủy cả chuỗi chứ không chỉ từ chối request đó?</li>
+<li>An vừa logout, nhưng hr-api vẫn chấp nhận access token cũ thêm vài phút. Đó là lỗi hay hành vi bình thường? Muốn chặn ngay thì làm gì?</li>
+<li>Keycloak vừa đổi signing key. hr-api cần làm gì để không trả 401 hàng loạt?</li>
+</ul></div>
+
+<h2 id="quiz-bai">Quiz nhanh — Bài 2.4</h2>
+<div id="quiz"></div>
+
+</main>
+<script>
+window.QUIZ = [
+  { q: "09:00 An đăng nhập, nhận JWT access token hạn 09:05. 09:02 An bấm Đăng xuất: Keycloak hủy phiên SSO và thu hồi refresh token. 09:03 kẻ gian (đã chép access token lúc 09:01) gọi <code>GET /payroll/57</code>. hr-api chỉ verify JWT cục bộ, không introspect. Kết quả?",
+    tricky: true,
+    options: ["401, vì An đã logout", "200: token vẫn có chữ ký hợp lệ và chưa qua <code>exp</code>, hr-api không biết An đã logout", "403, vì phiên SSO không còn", "401, vì Keycloak tự báo cho hr-api khi user logout"],
+    answer: 1,
+    why: ["Trực giác nói vậy nhưng sai: logout diễn ra ở hr-web và Keycloak, còn hr-api verify cục bộ không hỏi ai.", "JWT tự mang claims; hr-api chỉ kiểm tra chữ ký, <code>iss</code>, <code>aud</code>, <code>exp</code> — tất cả vẫn đúng tới 09:05.", "403 nghĩa là token hợp lệ nhưng thiếu quyền; ở đây token hợp lệ và đủ quyền, hr-api không có thông tin gì về phiên SSO.", "Không có cơ chế mặc định nào để AS “đẩy” thông tin logout tới API verify JWT cục bộ; cần introspection, denylist hoặc token ngắn."],
+    explain: "Logout không tự làm JWT đang lưu hành hết hiệu lực. Xem <a href='m02-4-token-lifecycle.html#logout-token'>Logout có vô hiệu hóa token ngay không?</a>" },
+  { q: "Keycloak bật refresh token rotation + reuse detection. Kẻ gian trộm được RT1 và dùng nó <b>trước</b> hr-web, lúc 09:06. Lúc 09:07 hr-web mới gửi RT1 để refresh. Những phát biểu nào đúng?",
+    tricky: true,
+    options: ["Lúc 09:06 kẻ gian nhận được access token mới và RT2", "Lúc 09:07 AS thấy RT1 đã dùng → coi là reuse, thu hồi cả họ token của grant đó, gồm RT2 của kẻ gian", "Lúc 09:07 hr-web nhận token mới vì nó là chủ hợp pháp của RT1", "AS biết bên nào là kẻ gian nên chỉ khóa kẻ gian, An không bị ảnh hưởng"],
+    answer: [0, 1],
+    why: ["Lần dùng đầu tiên của RT1 là hợp lệ với AS, bất kể ai gửi — rotation không ngăn được lần đó.", "Reuse detection không cần biết ai dùng trước: cứ RT đã dùng bị gửi lại là thu hồi cả chuỗi, nên RT2 trong tay kẻ gian cũng chết.", "AS không phân biệt được “chủ hợp pháp”; với AS, RT1 đã dùng rồi nên lần gửi thứ hai là dấu hiệu bị trộm.", "AS không biết bên nào là kẻ gian, nên mới hủy cả họ token; An cũng phải đăng nhập lại."],
+    explain: "Rotation biến việc trộm refresh token thành sự kiện phát hiện được, nhưng access token kẻ gian đã nhận vẫn dùng được tới <code>exp</code>. Xem <a href='m02-4-token-lifecycle.html#token-lifecycle'>sơ đồ token lifecycle</a>." },
+  { q: "hr-api cache JWKS chỉ có key <code>hr-2026-08</code>. Một token tới với header <code>kid: hr-2026-11</code>. hr-api nên làm gì?",
+    options: ["Trả 401 ngay vì <code>kid</code> lạ chắc chắn là token giả", "Tải lại JWKS từ issuer đã cấu hình (có giới hạn tần suất), rồi verify bằng key mới nếu tìm thấy", "Bỏ qua kiểm tra chữ ký cho token có <code>kid</code> lạ", "Thử verify bằng key đầu tiên trong cache"],
+    answer: 1,
+    why: ["Nhiều khả năng Keycloak vừa xoay key; từ chối ngay sẽ gây 401 hàng loạt cho người dùng thật.", "Đúng quy trình: làm mới JWKS khi gặp <code>kid</code> lạ; giới hạn tần suất để kẻ gian không ép API tải JWKS liên tục.", "Bỏ kiểm tra chữ ký là mở cửa cho mọi token giả — chỉ cần ghi một <code>kid</code> lạ.", "Key <code>hr-2026-08</code> không phải key đã ký token này, verify chắc chắn thất bại; <code>kid</code> có để chọn đúng key."],
+    explain: "Middleware JwtBearer với <code>Authority</code> làm việc này tự động. Xem <a href='m02-4-token-lifecycle.html#key-rotation'>Key rotation</a>." },
+  { q: "Những phát biểu nào đúng về introspection (RFC 7662) và revocation (RFC 7009)?",
+    options: ["hr-api gọi introspection để hỏi AS token còn <code>active</code> không", "hr-web gọi revocation khi An đăng xuất để hủy refresh token", "Revocation trả 404 nếu token gửi lên không tồn tại", "Gọi introspection cho một token sẽ làm token đó bị hủy"],
+    answer: [0, 1],
+    why: ["Introspection là kênh Resource Server hỏi AS về trạng thái token.", "Revocation là client báo AS hủy token, điển hình khi logout.", "Revocation trả 200 cả khi token không hợp lệ hay không tồn tại, vì mục tiêu “token không dùng được” đã đạt.", "Nhầm hai endpoint: introspection chỉ đọc trạng thái, không thay đổi gì; hủy token là việc của revocation."],
+    explain: "Introspection = hỏi; revocation = ra lệnh hủy. Xem <a href='m02-4-token-lifecycle.html#introspection-revocation'>Introspection vs Revocation</a>." },
+  { q: "Realm bật <b>Revoke Refresh Token</b> với <b>Refresh Token Max Reuse</b> = 0. An mở hr-web ở 2 tab; khi access token hết hạn, cả 2 tab cùng lúc refresh bằng cùng một refresh token. Một tab bị lỗi <code>invalid_grant</code>. Nguyên nhân?",
+    options: ["Keycloak bị lỗi, nên tắt rotation", "Hệ quả của rotation: refresh token chỉ dùng được một lần, tab thứ hai gửi refresh token đã dùng nên bị từ chối", "Access token quá ngắn", "Keycloak vừa xoay signing key"],
+    answer: 1,
+    why: ["Đây là hành vi đúng thiết kế, không phải lỗi; tắt rotation là bỏ đi khả năng phát hiện refresh token bị trộm.", "Với Max Reuse = 0, lần gửi thứ hai của cùng refresh token bị coi là dùng lại → cần thiết kế để chỉ một nơi refresh (vd. dùng chung qua backend hoặc khóa giữa các tab).", "Hạn access token chỉ quyết định khi nào cần refresh, không gây <code>invalid_grant</code> ở token endpoint.", "Key rotation ảnh hưởng việc verify chữ ký ở API, không liên quan việc refresh token bị từ chối."],
+    explain: "Xem ghi chú “Trong Keycloak” ở <a href='m02-4-token-lifecycle.html#token-lifecycle'>mục F</a>." }
+];
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="assets/pages.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

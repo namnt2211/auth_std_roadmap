@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M01 · Bài 1.1 · Identity, AuthN/AuthZ &amp; các vai trò</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<main class="content">
+
+<div class="page-head">
+  <div class="breadcrumb"><a href="index.html">Lộ trình</a> / <a href="m01-fundamentals.html">Module 01</a> / Bài 1.1</div>
+  <h1>Bài 1.1 — Identity, AuthN/AuthZ &amp; các vai trò</h1>
+  <p class="lead">Bài này giúp bạn gọi đúng tên mọi thứ: “danh tính”, “tài khoản”, “tên đăng nhập” và “mật khẩu” khác nhau thế nào; bốn bước từ lúc khai tên đến lúc bị ghi log; và các vai trò IdP, RP, SP, AS, RS là ai trong một hệ thống thật.</p>
+  <div class="meta-row">
+    <span class="chip">⏱ ~25 phút</span>
+    <span class="chip">📘 <a href="m01-fundamentals.html">Module 01 · Identity &amp; Authentication Fundamentals</a></span>
+  </div>
+</div>
+
+<p>Hầu hết lỗi thiết kế đăng nhập bắt đầu từ việc <b>dùng sai từ</b>: coi email là bằng chứng, coi “đã đăng nhập” là “được làm mọi thứ”, hay không rõ app nào đang kiểm tra mật khẩu. Bài này đặt nền từ vựng cho cả lộ trình. Ví dụ xuyên suốt là hệ thống <b>Kaopiz HR</b>: nhân viên An dùng <b>hr-web</b> để xem bảng lương, dữ liệu nằm sau <b>hr-api</b>, còn việc đăng nhập do <b>Microsoft Entra ID</b> của công ty đảm nhiệm.</p>
+
+<div class="terms"><span class="terms-title">📖 Thuật ngữ trong bài</span><dl>
+<dt>Identity (danh tính)</dt><dd>“Bạn là ai” trong một bối cảnh — vd. “An, kỹ sư R&amp;D, mã NV 1024” trong công ty.</dd>
+<dt>Account (tài khoản)</dt><dd>Bản ghi về bạn ở <b>một</b> hệ thống cụ thể; mỗi hệ thống một tài khoản riêng.</dd>
+<dt>Identifier (định danh)</dt><dd>Tên/mã để <b>tra cứu</b> tài khoản (email, username, mã NV) — ai cũng gõ được, nên không chứng minh gì.</dd>
+<dt>Credential (bằng chứng xác thực)</dt><dd>Thứ <b>chứng minh</b> bạn là chủ tài khoản: mật khẩu, passkey, private key.</dd>
+<dt>Authentication (AuthN)</dt><dd>Xác thực — kiểm tra bằng chứng để biết “bạn đúng là người bạn khai”.</dd>
+<dt>Authorization (AuthZ)</dt><dd>Phân quyền — quyết định người đã xác thực được làm gì, trên dữ liệu nào.</dd>
+<dt>IdP (Identity Provider)</dt><dd>Hệ thống “lo việc đăng nhập” cho nhiều app — vd. Entra ID, Keycloak, Google.</dd>
+<dt>RP / SP</dt><dd>App <b>tin vào</b> kết quả đăng nhập do IdP gửi tới (RP: tên trong OIDC; SP: tên trong SAML).</dd>
+<dt>AS / RS</dt><dd>Trong OAuth: Authorization Server <b>cấp</b> access token; Resource Server (API) <b>kiểm tra</b> token đó.</dd>
+<dt>401 / 403</dt><dd>401: “chưa biết bạn là ai” (lỗi xác thực). 403: “biết bạn là ai nhưng bạn không được phép” (lỗi phân quyền).</dd>
+</dl></div>
+
+<!-- ===================================================== -->
+<h2 id="identity-account">A. Identity, Account, Identifier, Attribute, Credential <span class="badge must">Must</span></h2>
+
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+<b>Identity</b> là “con người bạn” trong một bối cảnh (nhân viên An của công ty).<br>
+<b>Account</b> giống <b>thẻ thành viên</b> bạn có ở từng cửa hàng — mỗi nơi một thẻ.<br>
+<b>Identifier</b> là <b>số in trên thẻ</b> (để tra cứu).<br>
+<b>Attribute</b> là thông tin ghi kèm (hạng thẻ, ngày sinh).<br>
+<b>Credential</b> là thứ <b>chứng minh</b> bạn là chủ thẻ (chữ ký, mã PIN).<br>
+Biết số thẻ của ai đó (identifier) không có nghĩa bạn là chủ thẻ.</div>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Khái niệm</th><th>Định nghĩa</th><th>Ví dụ với “An”</th></tr></thead>
+<tbody>
+<tr><td><b>Identity</b> (danh tính)</td><td>Tập thông tin/đặc tính dùng để biểu diễn một thực thể (người, dịch vụ, thiết bị) <i>trong một ngữ cảnh</i>.</td><td>“An — kỹ sư phòng R&amp;D, mã NV 1024” trong ngữ cảnh công ty.</td></tr>
+<tr><td><b>Account</b> (tài khoản)</td><td>Bản ghi/quan hệ của thực thể với <i>một hệ thống cụ thể</i>. Một người có thể có nhiều account ở nhiều hệ thống.</td><td>Account Entra ID <code>an.nv@company.com</code>, account GitHub <code>annv-dev</code>, account trong DB của app HR (<code>user_id = 57</code>).</td></tr>
+<tr><td><b>Identifier</b> (định danh)</td><td>Giá trị dùng để tham chiếu/nhận diện.</td><td>username, email, employee ID <code>1024</code>, subject identifier <code>sub</code> trong token.</td></tr>
+<tr><td><b>Attribute</b> (thuộc tính)</td><td>Thông tin mô tả thực thể.</td><td>Họ tên, phòng ban = R&amp;D, trạng thái = đang làm việc.</td></tr>
+<tr><td><b>Credential</b> (bằng chứng xác thực)</td><td>Bằng chứng được dùng trong quá trình xác thực.</td><td>Mật khẩu, private key, passkey, chứng thư số (certificate).</td></tr>
+</tbody></table></div>
+
+<p>Sơ đồ dưới cho thấy quan hệ “một – nhiều”: một người → (các) identity theo ngữ cảnh → nhiều account → mỗi account có credential riêng.</p>
+<div class="diagram">
+<pre class="mermaid">
+flowchart TD
+  P(("👤 Con người: An"))
+  P --> I["Identity trong công ty<br/>(tên, phòng ban, mã NV...)"]
+  I --> A1["Account Entra ID<br/>an.nv@company.com"]
+  I --> A2["Account app HR<br/>user_id = 57"]
+  P --> A3["Account GitHub cá nhân<br/>annv-dev"]
+  A1 --> C1["Credential:<br/>mật khẩu + passkey"]
+  A3 --> C3["Credential:<br/>mật khẩu + TOTP"]
+</pre>
+<div class="caption">Một người → có thể có nhiều identity theo ngữ cảnh → nhiều account → mỗi account có credential riêng.</div>
+</div>
+
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: Identity vs Account vs Identifier vs Credential</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Identity</th><th>Account</th><th>Identifier</th><th>Credential</th></tr></thead>
+<tbody>
+<tr><td>Trả lời câu hỏi</td><td>“Đây là ai / cái gì?”</td><td>“Người này có hồ sơ gì ở hệ thống X?”</td><td>“Tra hồ sơ nào?”</td><td>“Lấy gì chứng minh đúng là chủ hồ sơ?”</td></tr>
+<tr><td>Có phải bí mật?</td><td>Không</td><td>Không</td><td><b>Không</b> — thường công khai</td><td><b>Có</b> (mật khẩu, private key) — hoặc gắn với thứ chỉ chủ nhân giữ</td></tr>
+<tr><td>Đời thường</td><td>Bản thân bạn (công dân, nhân viên…)</td><td>Thẻ thành viên ở siêu thị A</td><td>Số in trên thẻ</td><td>Mã PIN / chữ ký của bạn</td></tr>
+<tr><td>Trong Kaopiz HR</td><td>An, R&amp;D, mã NV 1024</td><td>Account Entra ID của An; dòng <code>user_id = 57</code> trong DB của hr-web</td><td><code>an.nv@company.com</code>, <code>sub</code> trong token</td><td>Mật khẩu + passkey của An (chỉ Entra ID kiểm tra)</td></tr>
+<tr><td>Nhầm thì hỏng gì</td><td colspan="4">Coi identifier là credential → ai biết email của An là “đăng nhập” được thành An. Coi account là identity → khi An đổi email hoặc có 2 account, hệ thống tưởng là 2 người khác nhau.</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> Một API nội bộ nhận header <code>X-User-Email: an.nv@company.com</code> rồi trả bảng lương của An. Ở đây email (identifier) đang bị dùng như credential — bất kỳ ai gửi đúng header đó đều đọc được lương của An. Đúng ra API phải nhận một token do IdP ký và kiểm tra nó.</p>
+<span class="rule">Identifier để <b>tìm</b>, credential để <b>chứng minh</b>, account là <b>hồ sơ ở một nơi</b>, identity là <b>người đứng sau</b> các hồ sơ đó.</span>
+</div>
+
+<div class="callout warn"><span class="callout-title">⚠️ Lưu ý</span>
+Email hoặc username thường chỉ là <b>identifier</b> — tự nó <b>không chứng minh</b> người dùng là ai. Đừng đồng nhất identity với account hoặc credential. Ở <a href="m03-7-user-identity.html#iss-sub">Module 03</a> bạn sẽ thấy vì sao khóa định danh người dùng nên là cặp <code>iss</code> + <code>sub</code> (ai phát hành + mã người dùng do bên đó cấp) chứ không phải email.</div>
+
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Email/username đúng là đủ biết người dùng là ai.</span><span class="f-label">Thực tế</span><span>Email chỉ là <b>identifier</b> (để tra cứu) — ai cũng gõ được email của người khác. Phải có <b>credential</b> (mật khẩu, passkey) hoặc token do IdP ký mới chứng minh được. Ví dụ: API đọc header <code>X-User-Email</code> rồi trả lương → ai gửi đúng header là đọc được lương của An.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Email là khóa ổn định nhất để gắn dữ liệu của người dùng.</span><span class="f-label">Thực tế</span><span>Email có thể <b>đổi</b> (đổi tên, đổi domain công ty) hoặc được <b>cấp lại</b> cho người khác. Ví dụ: An nghỉ việc, sau này công ty cấp lại <code>an.nv@company.com</code> cho một nhân viên mới trùng tên — nếu hr-web gắn dữ liệu theo email, người mới sẽ thấy hồ sơ cũ của An. Nên dùng mã do IdP cấp (<code>iss</code> + <code>sub</code>).</span></div>
+
+<!-- ===================================================== -->
+<h2 id="iaaa">B. Identification, Authentication, Authorization, Accounting <span class="badge must">Must</span></h2>
+
+<p>Bốn bước này xảy ra <b>theo thứ tự</b> mỗi khi ai đó dùng hệ thống.</p>
+<p>Viết tắt hay gặp: <b>AuthN</b> = Authentication (xác thực), <b>AuthZ</b> = Authorization (phân quyền / cấp quyền). Hai từ viết gần giống nhau nên rất hay bị nhầm.</p>
+<p>Mẹo nhớ: Authenti<b>c</b>ation = <b>c</b>hứng minh, Authori<b>z</b>ation = <b>z</b>one (vùng được phép vào).</p>
+
+<div class="grid cols-2">
+  <div class="card acc"><span class="icon">🙋</span><h4>Identification — “Tôi là ai?”</h4><p>Người dùng <b>khai báo</b> mình là ai, ví dụ nhập username. Chưa có gì được chứng minh.</p></div>
+  <div class="card acc"><span class="icon">🔑</span><h4>Authentication (AuthN) — “Chứng minh đi”</h4><p>Hệ thống <b>kiểm tra bằng chứng</b> (credential) để xác minh danh tính đã khai báo.</p></div>
+  <div class="card acc"><span class="icon">🛂</span><h4>Authorization (AuthZ) — “Được phép làm gì?”</h4><p><b>Quyết định</b> chủ thể đã xác thực được thực hiện hành động nào trên tài nguyên nào.</p></div>
+  <div class="card acc"><span class="icon">📒</span><h4>Accounting / Auditing — “Đã xảy ra gì?”</h4><p><b>Ghi nhận</b> hoạt động để theo dõi, kiểm toán và điều tra.</p></div>
+</div>
+
+<h3 id="so-do-tu-duy">Sơ đồ tư duy</h3>
+<p>Đọc từ trên xuống: chỉ sau khi xác thực xong mới có một “chủ thể đã xác thực” (<i>authenticated subject / principal</i>) để đem đi xét quyền.</p>
+<div class="diagram">
+<pre class="mermaid">
+flowchart TD
+  A["🗂 Identity / Account"] --> B["🙋 Identification<br/>#quot;Tôi là ai?#quot;"]
+  B --> C["🔑 Authentication<br/>#quot;Chứng minh điều đó#quot;"]
+  C --> D["✅ Authenticated Subject / Principal"]
+  D --> E["🛂 Authorization<br/>#quot;Được phép làm gì?#quot;"]
+  E --> F["📄 Resource / Action"]
+  F --> G["📒 Accounting &amp; Audit<br/>#quot;Đã xảy ra điều gì?#quot;"]
+</pre>
+</div>
+
+<div class="callout example"><span class="callout-title">💡 Ví dụ: An xem bảng lương</span>
+<ol>
+<li><b>Identification:</b> An gõ <code>an.nv@company.com</code> trên trang đăng nhập Microsoft.</li>
+<li><b>Authentication:</b> An nhập mật khẩu và xác nhận bằng passkey trên điện thoại → Entra ID xác minh credential.</li>
+<li><b>Authorization:</b> App HR kiểm tra: An chỉ được xem bảng lương <i>của chính mình</i>; nếu An mở <code>/payroll/88</code> (của người khác) → bị từ chối (HTTP 403).</li>
+<li><b>Accounting:</b> App ghi log “user 57 xem payroll 57 lúc 09:12, IP 10.0.3.4”.</li>
+</ol></div>
+
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: Identification vs Authentication vs Authorization vs Accounting</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Identification</th><th>Authentication</th><th>Authorization</th><th>Accounting</th></tr></thead>
+<tbody>
+<tr><td>Đầu vào</td><td>Identifier người dùng khai (email, username)</td><td>Credential (mật khẩu, passkey…)</td><td>Chủ thể đã xác thực + hành động + tài nguyên</td><td>Sự kiện đã xảy ra</td></tr>
+<tr><td>Kết quả</td><td>“Người này <i>nói</i> mình là An”</td><td>“Đúng là An” (hoặc từ chối)</td><td>Cho phép / từ chối</td><td>Một dòng log</td></tr>
+<tr><td>Đời thường (tòa nhà)</td><td>Nói tên với bảo vệ</td><td>Đưa CCCD cho bảo vệ xem</td><td>Thẻ từ chỉ mở tầng 5</td><td>Hệ thống lưu lịch sử quẹt thẻ</td></tr>
+<tr><td>Ai làm trong Kaopiz HR</td><td>Trang đăng nhập của Entra ID</td><td>Entra ID (IdP)</td><td>hr-web / hr-api</td><td>Entra ID (sign-in log) + hr-api (audit log)</td></tr>
+<tr><td>Thất bại thì</td><td>Không tìm thấy tài khoản</td><td>Đăng nhập lỗi / API trả <code>401</code></td><td>API trả <code>403</code></td><td>Không chặn ai — nhưng thiếu log thì không điều tra được sự cố</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> Trưởng phòng Bình đăng nhập thành công (authentication OK) rồi mở bảng lương của An — cùng phòng nên được phép (authorization OK). Bình mở bảng lương của nhân viên phòng khác → vẫn là Bình (authentication vẫn OK) nhưng bị từ chối (authorization fail → 403). Cả hai lần đều được ghi log.</p>
+<span class="rule">Khai tên → chứng minh → xin phép → bị ghi lại. Đăng nhập thành công mới chỉ xong bước 2.</span>
+</div>
+
+<h3 id="401-403">Liên hệ với HTTP: 401 vs 403</h3>
+<p>Khi một API từ chối request, status code cho client biết <b>bước nào</b> thất bại — từ đó client biết nên làm gì tiếp (đăng nhập lại hay thôi).</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Status</th><th>Ý nghĩa</th><th>Tầng thất bại</th><th>Client nên làm gì</th></tr></thead>
+<tbody>
+<tr><td><code>401 Unauthorized</code></td><td>Chưa xác thực, hoặc credential/token không hợp lệ (tên “Unauthorized” là di sản lịch sử, thực chất là “unauthenticated”).</td><td>Authentication</td><td>Lấy token mới / đăng nhập lại rồi thử lại.</td></tr>
+<tr><td><code>403 Forbidden</code></td><td>Đã biết bạn là ai, nhưng bạn <b>không đủ quyền</b>.</td><td>Authorization</td><td>Thử lại vô ích — cần được cấp thêm quyền.</td></tr>
+</tbody></table></div>
+<p>Ví dụ với hr-api (token rút gọn cho dễ đọc):</p>
+<pre><code class="language-http"># 1) Không gửi token → API chưa biết bạn là ai
+GET /payroll/57 HTTP/1.1
+Host: hr-api.kaopiz.local
+
+HTTP/1.1 401 Unauthorized
+WWW-Authenticate: Bearer
+
+# 2) Token hợp lệ của An, nhưng xem lương người khác
+GET /payroll/88 HTTP/1.1
+Host: hr-api.kaopiz.local
+Authorization: Bearer eyJhbGciOi...(token của An)
+
+HTTP/1.1 403 Forbidden</code></pre>
+<p>Chi tiết hơn ở <a href="m06-2-api-authz.html#401-vs-403">Module 06</a> và thực hành ở <a href="lab-2-api-jwt.html">Lab 2</a>.</p>
+
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Đăng nhập thành công là vào được mọi thứ.</span><span class="f-label">Thực tế</span><span>Authentication thành công chỉ trả lời “bạn là ai”. Được làm gì là bước riêng — <b>authorization</b>. Ví dụ: An đăng nhập hr-web bình thường nhưng mở bảng lương của người khác vẫn bị <code>403</code>.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span><code>401 Unauthorized</code> nghĩa là “không có quyền”, vì tên nó là “Unauthorized”.</span><span class="f-label">Thực tế</span><span>401 là lỗi <b>xác thực</b> (thiếu token, token sai/hết hạn); thiếu quyền là <code>403</code>. Nhầm hai mã khiến client xử lý sai: gặp 403 mà cứ lấy token mới rồi thử lại thì mãi vẫn 403; gặp 401 mà báo “bạn không có quyền” thì người dùng không biết chỉ cần đăng nhập lại.</span></div>
+
+<!-- ===================================================== -->
+<h2 id="vai-tro">C. Các thuật ngữ và vai trò <span class="badge must">Must</span></h2>
+
+<p>Phần này có nhiều tên viết tắt. Đừng cố thuộc hết ngay — hãy nắm ý chính: luôn có <b>một bên xác minh và phát “giấy tờ”</b>, và <b>các bên khác tin vào giấy tờ đó</b>. Tên gọi khác nhau chủ yếu vì chúng đến từ các giao thức khác nhau (OAuth, OIDC, SAML) mà bạn sẽ học ở Module 03–04.</p>
+
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Hãy nghĩ đến <b>đi du lịch nước ngoài</b>:
+<ul>
+<li><b>IdP</b> giống <b>cơ quan cấp hộ chiếu</b> — nơi xác minh bạn là ai và cấp giấy tờ.</li>
+<li><b>RP/SP</b> giống <b>khách sạn</b> — họ không tự xác minh bạn mà <b>tin vào hộ chiếu</b> do cơ quan kia cấp.</li>
+<li>Trong OAuth, <b>Authorization Server</b> là quầy <b>cấp thẻ ra vào</b> (access token), <b>Resource Server</b> là <b>cửa có máy quẹt thẻ</b> (API), còn <b>Client</b> là ứng dụng cầm thẻ đi quẹt.</li>
+</ul></div>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Thuật ngữ</th><th>Ý nghĩa</th><th>Thường gặp ở</th></tr></thead>
+<tbody>
+<tr><td><b>Subject</b></td><td>Thực thể mà một quyết định bảo mật hoặc thao tác đang nói đến (user, service, device…).</td><td>Mọi nơi; claim <code>sub</code> trong JWT</td></tr>
+<tr><td><b>Principal</b></td><td>Danh tính/đại diện bảo mật mà hệ thống dùng để gắn với quyền. Ý nghĩa cụ thể thay đổi theo nền tảng.</td><td>.NET <code>ClaimsPrincipal</code>, Kerberos principal, Java <code>Principal</code></td></tr>
+<tr><td><b>User</b></td><td>Người dùng; không phải lúc nào cũng là principal duy nhất (service account, device cũng có thể là principal).</td><td>—</td></tr>
+<tr><td><b>Identity Provider (IdP)</b></td><td>Quản lý danh tính, thực hiện xác thực, rồi gửi kết quả xác thực/thông tin danh tính cho các bên tin cậy.</td><td>Entra ID, Okta, Keycloak, Google</td></tr>
+<tr><td><b>Relying Party (RP)</b></td><td>Ứng dụng <b>dựa vào</b> kết quả xác thực do bên khác cung cấp.</td><td>OIDC, WebAuthn</td></tr>
+<tr><td><b>Service Provider (SP)</b></td><td>Ứng dụng/dịch vụ nhận <i>assertion</i> (bản xác nhận đăng nhập có chữ ký) từ IdP.</td><td>SAML</td></tr>
+<tr><td><b>Client</b></td><td>Ứng dụng gửi yêu cầu tới authorization server hoặc API.</td><td>OAuth</td></tr>
+<tr><td><b>Authorization Server (AS)</b></td><td>Cấp token theo giao thức OAuth.</td><td>OAuth (Keycloak, Entra ID đóng vai trò này)</td></tr>
+<tr><td><b>Resource Server (RS)</b></td><td>API/server bảo vệ tài nguyên và kiểm tra access token.</td><td>OAuth (Web API của bạn)</td></tr>
+<tr><td><b>Identity Federation</b></td><td>Thiết lập quan hệ tin cậy giữa các miền/hệ thống danh tính độc lập (xem <a href="m01-2-sso-federation-mfa.html#federation">Bài 1.2</a>).</td><td>SAML, OIDC, WS-Federation</td></tr>
+</tbody></table></div>
+
+<div class="diagram">
+<pre class="mermaid">
+flowchart LR
+  U(("👤 User"))
+  subgraph IdP["Sản phẩm IdP (vd. Keycloak / Entra ID)"]
+    direction TB
+    OP["OpenID Provider (OIDC)"]
+    AS["Authorization Server (OAuth)"]
+    SIDP["SAML IdP"]
+  end
+  RP["Web app / Desktop app<br/>= Client (OAuth)<br/>= Relying Party (OIDC)"]
+  SP["SaaS cũ dùng SAML<br/>= Service Provider"]
+  API["Web API<br/>= Resource Server"]
+  U --> RP
+  U --> SP
+  RP -- "đăng nhập (OIDC)" --> OP
+  RP -- "xin access token" --> AS
+  SP -- "AuthnRequest (SAML)" --> SIDP
+  RP -- "gọi API + access token" --> API
+</pre>
+<div class="caption">Cùng một sản phẩm có thể đóng nhiều vai trò; cùng một ứng dụng có thể vừa là Client vừa là RP. Tên gọi phụ thuộc giao thức đang nói tới.</div>
+</div>
+
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: IdP vs SP vs RP vs AS vs RS — ai là ai trong Kaopiz HR?</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Vai trò</th><th>Việc chính</th><th>Thuộc giao thức</th><th>Trong Kaopiz HR</th></tr></thead>
+<tbody>
+<tr><td><b>IdP</b></td><td>Xác thực người dùng, phát kết quả đăng nhập</td><td>Khái niệm chung (OIDC gọi là OpenID Provider)</td><td><b>Entra ID</b> — nơi An nhập mật khẩu + passkey</td></tr>
+<tr><td><b>RP</b></td><td>Nhận và tin kết quả đăng nhập (ID token)</td><td>OIDC</td><td><b>hr-web</b> — nhận ID token, tạo session cho An</td></tr>
+<tr><td><b>SP</b></td><td>Nhận và tin kết quả đăng nhập (SAML assertion)</td><td>SAML</td><td><i>Giả sử</i> công ty dùng thêm phần mềm chấm công SaaS đăng nhập qua SAML với Entra ID → phần mềm đó là SP</td></tr>
+<tr><td><b>AS</b></td><td>Cấp access token để gọi API</td><td>OAuth</td><td><b>Entra ID</b> (cùng sản phẩm, vai trò khác)</td></tr>
+<tr><td><b>Client</b></td><td>Xin token và cầm token đi gọi API</td><td>OAuth</td><td><b>hr-web</b> (vừa là RP vừa là Client)</td></tr>
+<tr><td><b>RS</b></td><td>Kiểm tra access token, trả dữ liệu</td><td>OAuth</td><td><b>hr-api</b> — không bao giờ thấy mật khẩu của An</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> An mở hr-web → bị chuyển sang Entra ID đăng nhập (Entra ID làm <b>IdP</b>) → hr-web nhận ID token và tạo session (hr-web làm <b>RP</b>) → hr-web xin access token (Entra ID làm <b>AS</b>, hr-web làm <b>Client</b>) → hr-web gọi <code>GET /payroll/57</code> kèm token tới hr-api (<b>RS</b>) → hr-api kiểm tra token rồi trả bảng lương.</p>
+<span class="rule">IdP/AS là bên <b>phát</b> giấy tờ; RP/SP là bên <b>tin</b> kết quả đăng nhập; RS là bên <b>kiểm</b> token ở cửa API. RP (OIDC) ≈ SP (SAML) — cùng vai, khác giao thức.</span>
+</div>
+
+<div class="callout warn"><span class="callout-title">⚠️ Đừng xem mọi thuật ngữ là đồng nghĩa</span>
+<ul>
+<li>Các vai trò trên có thể do các thành phần khác nhau đảm nhiệm <b>hoặc</b> được gộp trong cùng một sản phẩm.</li>
+<li>“RP” và “SP” gần nghĩa nhau nhưng thuộc hai thế giới giao thức khác nhau (OIDC vs SAML).</li>
+<li>“RP” (Relying Party) và “RS” (Resource Server) <b>không</b> giống nhau: RP tin kết quả đăng nhập của người dùng, RS kiểm tra access token khi bị gọi API.</li>
+<li>Viết tắt “AS” trong OAuth là <i>Authorization Server</i>, còn trong Kerberos là <i>Authentication Server</i> — xem <a href="m05-2-kerberos-enterprise.html#kerberos">Module 05</a>.</li>
+</ul></div>
+
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Client trong OAuth là trình duyệt của người dùng.</span><span class="f-label">Thực tế</span><span>Client là <b>ứng dụng</b> xin token và dùng token gọi API. Trong Kaopiz HR, Client là hr-web (code chạy trên server); trình duyệt của An chỉ là “người đưa thư” chuyển hướng qua lại. Client cũng có thể là app desktop, app mobile hoặc một job như payroll-batch — không có trình duyệt nào cả.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>OAuth 2.0 là giao thức đăng nhập.</span><span class="f-label">Thực tế</span><span>OAuth 2.0 là <b>authorization framework</b> (khung để ủy quyền truy cập API). Lớp xác thực danh tính chuẩn hóa xây trên nó là <b>OpenID Connect</b> (<a href="m03-oauth-oidc.html">M03</a>).</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>JWT là một chuẩn authentication.</span><span class="f-label">Thực tế</span><span>JWT chỉ là <b>định dạng</b> biểu diễn claims (RFC 7519) — giống “mẫu giấy”, không phải “quy trình”. Nó được OIDC, OAuth… dùng, nhưng tự nó không phải giao thức xác thực (<a href="m02-3-token-jwt.html#jwt">M02</a>).</span></div>
+
+<div class="callout tip"><span class="callout-title">✅ Tự kiểm tra nhanh</span><ul>
+<li>Mã nhân viên <code>1024</code> của An là identifier hay credential? Vì sao?</li>
+<li>An đăng nhập được nhưng mở <code>/payroll/88</code> bị chặn — bước nào thất bại, API nên trả mã gì?</li>
+<li>Trong Kaopiz HR, thành phần nào vừa là RP vừa là Client? Thành phần nào là RS?</li>
+</ul></div>
+
+<h2 id="quiz-bai">Quiz nhanh — Bài 1.1</h2>
+<div id="quiz"></div>
+
+</main>
+<script>
+window.QUIZ = [
+  { q: "Một API nội bộ chỉ mở trong mạng công ty. Nó đọc header <code>X-User-Email</code> rồi trả bảng lương của email đó. Khi test, header luôn chứa đúng email của người đang dùng. Nhận xét nào đúng?", tricky: true,
+    options: ["Đây là authentication hợp lệ, vì email trong header luôn đúng người", "Không có bước authentication nào: email chỉ là identifier, bất kỳ ai trong mạng cũng tự gửi được header với email của An", "An toàn vì API chỉ mở trong mạng nội bộ", "Chỉ cần API kiểm tra email đó có tồn tại trong DB là thành authentication"],
+    answer: 1,
+    why: ["“Đúng email” chỉ có nghĩa là identification đúng; không có bằng chứng (credential) nào được kiểm tra, nên header đúng là do người gửi tự khai.", "Header là thứ client tự đặt; API không kiểm tra credential hay chữ ký nào, nên ai gửi <code>X-User-Email: an.nv@company.com</code> cũng được coi là An.", "Mạng nội bộ không chứng minh danh tính: mọi nhân viên, máy bị nhiễm mã độc hay service khác trong mạng đều gửi được header tùy ý.", "Kiểm tra email tồn tại chỉ xác nhận identifier có thật — vẫn là identification, chưa có bằng chứng người gửi là chủ email."],
+    explain: "Identifier để <b>tìm</b>, credential để <b>chứng minh</b>. Kết quả “luôn đúng” khi test không có nghĩa là có xác thực. API phải nhận token do IdP ký và kiểm tra chữ ký — xem <a href='m01-1-identity-roles.html#identity-account'>mục A</a>." },
+  { q: "Những thứ nào dưới đây là <b>credential</b> (bằng chứng xác thực) của An?",
+    options: ["Email <code>an.nv@company.com</code>", "Mật khẩu Entra ID của An", "Private key của passkey nằm trong điện thoại An", "Claim <code>sub</code> trong token của An", "Mã nhân viên <code>1024</code>"],
+    answer: [1, 2],
+    why: ["Email là identifier: dùng để tra cứu tài khoản, ai cũng biết và gõ được.", "Mật khẩu là bí mật chỉ An biết, được dùng để chứng minh An là chủ tài khoản.", "Private key không rời thiết bị; ký được challenge bằng nó chứng minh An đang giữ passkey.", "<code>sub</code> là mã định danh người dùng do IdP cấp — identifier, không phải bí mật.", "Mã nhân viên in trên thẻ, ghi trong hồ sơ — là identifier/attribute, không chứng minh gì."],
+    explain: "Credential là thứ <b>bí mật hoặc gắn với thứ chỉ chủ nhân giữ</b>. Email, <code>sub</code>, mã NV đều là identifier — xem bảng phân biệt ở <a href='m01-1-identity-roles.html#identity-account'>mục A</a>." },
+  { q: "hr-api ghi một dòng log: “user 57 bị từ chối khi xem payroll 88 lúc 09:15”. Những bước nào đã <b>thành công</b> (hoặc đã diễn ra) với request này?",
+    options: ["Identification — hệ thống đã biết request tự nhận là user 57", "Authentication — token của user 57 hợp lệ", "Authorization — user 57 được phép xem payroll 88", "Accounting — chính dòng log này"],
+    answer: [0, 1, 3],
+    why: ["Log ghi được “user 57” nghĩa là request đã mang theo danh tính được khai báo.", "Hệ thống biết chắc đây là user 57 rồi mới xét quyền; nếu token sai thì đã dừng ở 401, không tới bước xét quyền payroll 88.", "Đây chính là bước thất bại: user 57 không có quyền với payroll 88 → 403.", "Việc ghi lại “ai làm gì, lúc nào, kết quả ra sao” là accounting — kể cả khi request bị từ chối."],
+    explain: "Thứ tự: khai tên → chứng minh → xin phép → ghi lại. “Bị từ chối xem tài nguyên cụ thể” nghĩa là đã qua authentication và rớt ở authorization; accounting vẫn ghi cả thất bại — xem <a href='m01-1-identity-roles.html#iaaa'>mục B</a>." },
+  { q: "hr-api trả <code>403 Forbidden</code> cho request của An. Code phía hr-web nên xử lý thế nào?",
+    options: ["Tự động lấy access token mới rồi gửi lại request", "Chuyển An về trang đăng nhập Entra ID", "Báo An không có quyền với dữ liệu này, không tự thử lại", "Thử lại 3 lần vì có thể API đang lỗi tạm thời"],
+    answer: 2,
+    why: ["Token mới vẫn là của An với cùng quyền, nên vẫn nhận 403 — đây là cách xử lý dành cho 401.", "403 nghĩa là API đã biết đó là An; đăng nhập lại không thay đổi quyền của An.", "403 là lỗi authorization: danh tính đã rõ, chỉ thiếu quyền, nên chỉ có thể thông báo hoặc xin cấp thêm quyền.", "403 không phải lỗi tạm thời (như 503); thử lại chỉ tạo thêm request bị từ chối."],
+    explain: "401 → lấy token mới / đăng nhập lại. 403 → thử lại vô ích, cần được cấp quyền. Xem <a href='m01-1-identity-roles.html#401-403'>401 vs 403</a>." },
+  { q: "Trong bước hr-web gọi <code>GET /payroll/57</code> kèm access token tới hr-api, hr-web và hr-api lần lượt đóng vai trò gì?",
+    options: ["hr-web là IdP, hr-api là RP", "hr-web là Client, hr-api là Resource Server", "hr-web là Authorization Server, hr-api là Client", "hr-web là Resource Server, hr-api là Relying Party"],
+    answer: 1,
+    why: ["hr-web không xác thực người dùng — Entra ID làm việc đó; hr-api cũng không nhận ID token để tạo session nên không phải RP.", "hr-web cầm access token đi gọi API → Client; hr-api kiểm tra access token và trả dữ liệu → Resource Server.", "Authorization Server là bên cấp token (Entra ID), không phải hr-web; hr-api không đi xin token.", "Đảo ngược vai: hr-web là bên gọi, hr-api là bên bị gọi; RP là bên tin kết quả đăng nhập, không phải bên kiểm access token."],
+    explain: "Tên vai trò phụ thuộc giao thức và bước đang nói tới: cùng hr-web là RP khi nhận ID token, là Client khi gọi API. Xem <a href='m01-1-identity-roles.html#vai-tro'>mục C</a>." }
+];
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="assets/pages.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

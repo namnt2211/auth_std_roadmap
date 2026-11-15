@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M04 · Bài 4.4 · Bảo mật SAML &amp; so sánh với OIDC</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<main class="content">
+
+<div class="page-head">
+  <div class="breadcrumb"><a href="index.html">Lộ trình</a> / <a href="m04-saml.html">Module 04</a> / Bài 4.4</div>
+  <h1>Bài 4.4 — Bảo mật SAML &amp; so sánh với OIDC</h1>
+  <p class="lead">Ứng dụng (SP) phải kiểm tra những gì trước khi tin một SAML Response; hai lỗ hổng kinh điển của XML là XXE và XML Signature Wrapping; vì sao nên dùng thư viện có sẵn thay vì tự viết; và khi nào chọn SAML, khi nào chọn OIDC.</p>
+  <div class="meta-row">
+    <span class="chip">⏱ ~15 phút</span>
+    <span class="chip">📘 <a href="m04-saml.html">Module 04 · SAML 2.0 &amp; Enterprise SSO</a></span>
+  </div>
+</div>
+
+<div class="terms"><span class="terms-title">📖 Thuật ngữ trong bài</span><dl>
+<dt>Validation</dt><dd>Chuỗi kiểm tra SP chạy trên Response trước khi tạo session cho người dùng.</dd>
+<dt>Replay</dt><dd>Kẻ xấu lấy một Response hợp lệ đã dùng và nộp lại lần nữa.</dd>
+<dt>Clock skew</dt><dd>Độ lệch đồng hồ cho phép giữa server IdP và SP (vài phút).</dd>
+<dt>DTD / entity</dt><dd>Phần khai báo đầu file XML cho phép định nghĩa “biến” — có thể trỏ ra file hay URL bên ngoài.</dd>
+<dt>XXE</dt><dd>XML External Entity — lừa parser XML đọc file/URL bên ngoài ngay lúc parse.</dd>
+<dt>XSW</dt><dd>XML Signature Wrapping — chèn assertion giả cạnh assertion thật để bộ kiểm chữ ký và code đọc dữ liệu nhìn hai chỗ khác nhau.</dd>
+<dt>Parser differential</dt><dd>Hai bộ parse XML trong cùng hệ thống hiểu một tài liệu theo hai cách khác nhau.</dd>
+<dt>Broker</dt><dd>IdP trung gian (vd. Keycloak) nói SAML với bên ngoài và OIDC với ứng dụng của bạn.</dd>
+</dl></div>
+
+<!-- ===================================================== -->
+<h2 id="saml-validation">F. Kiểm tra bảo mật SAML — Checklist validation <span class="badge must">Must</span></h2>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Bảo vệ giỏi không chỉ nhìn con dấu. Anh ta kiểm tra: dấu thật của đúng công ty đã đăng ký (chữ ký + Issuer), giấy ghi đúng tên tòa nhà này (Audience) và đúng quầy (Recipient), đúng số phiếu mình phát (InResponseTo), còn hạn (Conditions), và <b>chưa ai dùng tờ này</b> (chống replay). Thiếu một bước là có kẽ hở.</div>
+<p>Đây là phần quan trọng nhất của module (Deliverable 3). SP <b>chỉ được tạo session khi tất cả</b> các kiểm tra dưới đây đều đạt. Bạn không phải tự code từng dòng — thư viện SAML làm hầu hết — nhưng phải biết danh sách này để <b>cấu hình đúng</b> và <b>đọc hiểu lỗi</b> khi đăng nhập thất bại.</p>
+<div class="callout example"><span class="callout-title">🧪 Ví dụ: áp checklist vào Response của An</span>
+Expense nhận Response ở <a href="m04-2-assertion.html#saml-response-example">Bài 4.2</a> lúc 02:00:06Z và kiểm: <code>Success</code> ✅ → chữ ký verify bằng cert Keycloak trong metadata ✅ → Issuer = <code>https://sso.company.com/realms/corp</code> ✅ → Audience = <code>https://expense.example.com/saml</code> ✅ → Destination/Recipient = <code>…/saml/acs</code> ✅ → InResponseTo <code>_a1b2…</code> đang chờ trong phiên này ✅ → 02:00:06 nằm trong 01:59:35–02:05:05 ✅ → ID <code>_as9d…</code> chưa từng thấy ✅ → tạo session. Nếu cùng Response đó bị nộp lại lúc 02:03 (vẫn còn hạn, chữ ký vẫn đúng) → bị từ chối, vì request <code>_a1b2…</code> đã được dùng và xóa, và ID assertion đã nằm trong cache chống replay.</div>
+
+<div class="table-wrap"><table>
+<thead><tr><th>#</th><th>Kiểm tra</th><th>Cụ thể</th><th>Ngăn chặn điều gì</th></tr></thead>
+<tbody>
+<tr><td>1</td><td><b>XML parser an toàn</b></td><td>Tắt DTD / external entity <b>trước khi</b> parse bất kỳ thứ gì.</td><td>XXE, “billion laughs” DoS.</td></tr>
+<tr><td>2</td><td><b>Status</b></td><td><code>StatusCode = Success</code>.</td><td>Xử lý nhầm response lỗi.</td></tr>
+<tr><td>3</td><td><b>Chữ ký hợp lệ</b></td><td>Assertion (và/hoặc Response) có chữ ký; verify bằng certificate <b>lấy từ metadata đã tin cậy</b>, không dùng cert nhúng trong <code>KeyInfo</code> của message; thuật toán mạnh; không chấp nhận assertion không ký.</td><td>Giả mạo assertion, tự ký bằng cert của kẻ tấn công.</td></tr>
+<tr><td>4</td><td><b>Phần tử được ký = phần tử được dùng</b></td><td>Reference URI trỏ đúng Assertion/Response mà code đọc NameID/attribute; chỉ chấp nhận đúng 1 assertion; dùng chính cây DOM đã verify.</td><td>XML Signature Wrapping (XSW).</td></tr>
+<tr><td>5</td><td><b>Issuer</b></td><td>Bằng entity ID IdP đã cấu hình; cert ký thuộc đúng IdP đó (khi SP tin nhiều IdP).</td><td>IdP A giả danh IdP B.</td></tr>
+<tr><td>6</td><td><b>Audience</b></td><td>Chứa entity ID của SP.</td><td>Assertion phát cho app khác bị đem sang app này.</td></tr>
+<tr><td>7</td><td><b>Destination / Recipient</b></td><td>Bằng URL ACS thật của SP.</td><td>Chuyển tiếp response sang endpoint khác.</td></tr>
+<tr><td>8</td><td><b>InResponseTo</b></td><td>SP-initiated: khớp một AuthnRequest do SP gửi, còn chờ, thuộc phiên trình duyệt này; xóa sau khi dùng. Nếu response <i>không</i> có InResponseTo mà SP không cho phép IdP-initiated → từ chối.</td><td>Login CSRF, response bị chèn, replay.</td></tr>
+<tr><td>9</td><td><b>Thời gian</b></td><td><code>NotBefore</code> ≤ now &lt; <code>NotOnOrAfter</code> (Conditions và SubjectConfirmationData), clock skew nhỏ; đồng bộ NTP.</td><td>Dùng assertion hết hạn.</td></tr>
+<tr><td>10</td><td><b>Chống replay</b></td><td>Lưu ID assertion đã dùng (cache phân tán nếu nhiều instance) tới khi hết hạn; từ chối ID trùng.</td><td>Nộp lại assertion bị đánh cắp.</td></tr>
+<tr><td>11</td><td><b>SubjectConfirmation</b></td><td>Method = bearer, có SubjectConfirmationData hợp lệ.</td><td>Assertion không dành cho trình diện kiểu bearer.</td></tr>
+<tr><td>12</td><td><b>Mapping danh tính</b></td><td>Khóa account = Issuer + NameID (persistent); attribute chỉ lấy từ assertion đã verify; cẩn trọng auto-link theo email.</td><td>Chiếm account qua email trùng (xem <a href="m03-7-user-identity.html#account-linking">account linking</a>).</td></tr>
+<tr><td>13</td><td><b>Thư viện trưởng thành, cập nhật</b></td><td>Không tự viết parse/verify; cập nhật bản vá thư viện.</td><td>Toàn bộ lớp lỗi XSW/parser differential.</td></tr>
+</tbody></table></div>
+
+<div class="diagram">
+<pre class="mermaid">
+flowchart TD
+  S["POST /saml/acs nhận SAMLResponse"] --> P{"Parse XML an toàn<br/>(DTD tắt)?"}
+  P -- "lỗi" --> X["❌ Từ chối"]
+  P -- "ok" --> ST{"Status = Success?"}
+  ST -- "không" --> X
+  ST -- "có" --> SIG{"Chữ ký hợp lệ bằng cert<br/>từ metadata IdP?"}
+  SIG -- "không" --> X
+  SIG -- "có" --> W{"Assertion đang đọc chính là<br/>phần tử đã được ký?"}
+  W -- "không" --> X
+  W -- "có" --> ISS{"Issuer, Audience,<br/>Destination, Recipient đúng?"}
+  ISS -- "không" --> X
+  ISS -- "có" --> IRT{"InResponseTo khớp request<br/>đang chờ của phiên này?"}
+  IRT -- "không" --> X
+  IRT -- "có" --> T{"Trong cửa sổ thời gian<br/>và ID chưa từng dùng?"}
+  T -- "không" --> X
+  T -- "có" --> OK["✅ Map NameID → account,<br/>tạo session SP, ghi audit log"]
+</pre>
+<div class="caption">Thứ tự kiểm tra của SP tại ACS. Mọi nhánh “không” đều kết thúc bằng từ chối, ghi log lý do (không ghi toàn bộ assertion chứa dữ liệu cá nhân).</div>
+</div>
+
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Có chữ ký hợp lệ là đủ để tin assertion.</span><span class="f-label">Thực tế</span><span>Còn phải kiểm Issuer, Audience, Destination/Recipient, InResponseTo, thời gian, replay — và chữ ký phải bao đúng phần tử được dùng. Ví dụ: assertion thật Keycloak phát cho Wiki có chữ ký đúng, nhưng nộp vào Expense vẫn phải bị từ chối vì sai Audience.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Dùng certificate trong <code>KeyInfo</code> của response để kiểm chữ ký.</span><span class="f-label">Thực tế</span><span>Ai cũng tự ký được bằng cert của mình rồi nhúng vào <code>KeyInfo</code>. Cert phải đến từ <b>metadata đã tin cậy</b> của IdP.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Chữ ký đúng thì response không thể bị replay.</span><span class="f-label">Thực tế</span><span>Replay dùng nguyên response thật, nên chữ ký vẫn đúng. Chặn replay bằng InResponseTo dùng một lần, cửa sổ thời gian ngắn và cache ID assertion đã dùng.</span></div>
+
+<h3 id="xxe">XML External Entity (XXE)</h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+XML cho phép khai báo “biến” (<b>entity</b>) trỏ tới file hay URL bên ngoài. Giống như một lá thư ghi “xin đọc to nội dung của tủ hồ sơ số 5 vào chỗ này” — nhân viên ngây thơ sẽ mở tủ ra đọc thật. Parser XML an toàn là nhân viên được dặn: <b>không bao giờ làm theo chỉ dẫn kiểu đó</b>.</div>
+<p>Parser XML cấu hình lỏng sẽ xử lý khai báo <code>&lt;!DOCTYPE&gt;</code> trong dữ liệu do kẻ tấn công gửi. Với SAML, attacker <b>không cần chữ ký hợp lệ</b> — lỗi xảy ra ngay lúc parse, trước khi kiểm chữ ký. Ai cũng POST được bất kỳ thứ gì vào <code>/saml/acs</code>.</p>
+<p><b>Cần nhìn 2 dòng trong khối dưới:</b> dòng 2 khai báo entity <code>xxe</code> = nội dung file <code>/etc/passwd</code>; dòng 4 dùng <code>&amp;xxe;</code> ở chỗ Issuer. Parser lỏng sẽ thay <code>&amp;xxe;</code> bằng nội dung file — nếu thông báo lỗi kiểu “Issuer không hợp lệ: …” in lại giá trị Issuer, kẻ tấn công đọc được file.</p>
+<pre data-title="SAMLResponse độc hại (sau base64-decode)"><code class="language-xml">&lt;?xml version="1.0"?&gt;
+&lt;!DOCTYPE r [ &lt;!ENTITY xxe SYSTEM "file:///etc/passwd"&gt; ]&gt;
+&lt;samlp:Response xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol" ...&gt;
+  &lt;saml:Issuer xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion"&gt;&amp;xxe;&lt;/saml:Issuer&gt;
+&lt;/samlp:Response&gt;</code></pre>
+<p>Hậu quả:</p>
+<ul>
+<li><b>Đọc file</b> trên server (như ví dụ trên).</li>
+<li><b>SSRF</b> (Server-Side Request Forgery — lừa server gọi tới URL nội bộ): entity trỏ tới <code>http://10.0.0.5/admin</code>…</li>
+<li><b>DoS</b> bằng “billion laughs”: entity lồng nhau nở ra hàng tỷ ký tự, làm cạn RAM.</li>
+</ul>
+<p>Trên .NET hiện đại, <code>XmlReader</code> mặc định <code>DtdProcessing = Prohibit</code>; nhưng code cũ dùng <code>XmlDocument</code> trên .NET Framework cũ hoặc tự đặt <code>XmlResolver</code> có thể vẫn dính. Thư viện SAML tốt đã cấu hình sẵn parser an toàn.</p>
+<pre data-title="Nếu buộc phải tự parse XML (không phải để verify SAML!)"><code class="language-csharp">var settings = new XmlReaderSettings
+{
+    DtdProcessing = DtdProcessing.Prohibit, // từ chối mọi DOCTYPE
+    XmlResolver = null                      // không tải tài nguyên ngoài
+};
+using var reader = XmlReader.Create(stream, settings);</code></pre>
+
+<h3 id="xsw">XML Signature Wrapping (XSW)</h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Kẻ gian có một giấy giới thiệu thật (của chính hắn). Hắn bỏ giấy thật vào cuối tập hồ sơ, rồi đặt <b>lên trên cùng</b> một tờ giả ghi “Giám đốc”. Người kiểm dấu lật tìm và thấy tờ có dấu thật → “OK”. Người cho vào cửa lại đọc <b>tờ trên cùng</b> → cho hắn vào với tư cách Giám đốc. Lỗi nằm ở chỗ <b>hai người nhìn hai tờ khác nhau</b>.</div>
+<p>Ý tưởng: chữ ký XML chỉ bảo vệ <b>phần tử có ID được tham chiếu</b>, không bảo vệ vị trí của nó trong cây. Kẻ tấn công giữ nguyên assertion thật (chữ ký vẫn đúng) nhưng <b>chèn thêm một assertion giả</b> ở vị trí mà code nghiệp vụ sẽ đọc trước.</p>
+<p>Khi xem sơ đồ và đoạn code dưới, hãy theo dõi hai mũi tên: bộ verify trỏ vào <code>_A</code> (thật), còn code nghiệp vụ trỏ vào <code>_EVIL</code> (giả).</p>
+<div class="diagram">
+<pre class="mermaid">
+flowchart LR
+  subgraph Goc["Response gốc (hợp lệ)"]
+    direction TB
+    G1["Response"] --> G2["Assertion ID=_A<br/>NameID = attacker<br/>ds:Signature trỏ tới _A"]
+  end
+  subgraph Gia["Response sau khi bị wrap"]
+    direction TB
+    H1["Response"] --> H2["Assertion ID=_EVIL<br/>NameID = admin (giả, không ký)"]
+    H1 --> H3["Extensions / phần tử lạ"]
+    H3 --> H4["Assertion ID=_A gốc<br/>chữ ký vẫn hợp lệ"]
+  end
+  Goc -- "attacker sửa XML" --> Gia
+  V["🔏 Bộ verify chữ ký:<br/>tìm theo ID _A → ✅ hợp lệ"] -.-> H4
+  L["🧑‍💻 Code nghiệp vụ lỗi:<br/>lấy Assertion ĐẦU TIÊN → admin"] -.-> H2
+</pre>
+<div class="caption">XSW: bộ kiểm chữ ký và code đọc dữ liệu “nhìn” vào hai phần tử khác nhau. Kết quả: đăng nhập thành bất kỳ ai.</div>
+</div>
+<pre data-title="❌ Anti-pattern minh họa (đừng làm thế này)"><code class="language-csharp">// Kiểm chữ ký: SignedXml tìm phần tử theo ID trong Reference → hợp lệ
+bool ok = VerifySignature(xmlDoc, idpCert);
+
+// Đọc dữ liệu: lấy assertion ĐẦU TIÊN tìm thấy — có thể là assertion giả!
+var nameId = xmlDoc.SelectSingleNode("//*[local-name()='NameID']").InnerText;
+if (ok) SignIn(nameId);   // XSW: signed element ≠ element được dùng</code></pre>
+<p>Các biến thể XSW rất đa dạng: đặt assertion giả trong <code>Extensions</code>, trong <code>Object</code> của Signature, trùng ID, khác namespace… Ngoài ra còn lớp lỗi <b>parser differential</b> — hai parser XML khác nhau trong cùng thư viện hiểu tài liệu khác nhau.</p>
+<p>Ví dụ thực tế: thư viện <b>ruby-saml</b> dính CVE-2024-45409 (bỏ qua kiểm chữ ký) và CVE-2025-25291/25292 (parser differential). Cả hai đều cho phép đăng nhập giả mạo, ảnh hưởng cả các sản phẩm lớn dùng thư viện này.</p>
+
+<div class="compare" id="xxe-vs-xsw"><span class="compare-title">Phân biệt dễ nhầm: XXE vs XML Signature Wrapping</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>XXE</th><th>XSW</th></tr></thead>
+<tbody>
+<tr><td>Tấn công vào đâu</td><td><b>Bộ parse XML</b> (đọc file thành cây).</td><td><b>Logic kiểm chữ ký + đọc dữ liệu</b> của thư viện/ứng dụng.</td></tr>
+<tr><td>Xảy ra lúc nào</td><td>Ngay khi parse — <b>trước</b> khi kiểm chữ ký.</td><td><b>Sau</b> khi parse: chữ ký “đúng” nhưng dữ liệu được đọc từ chỗ khác.</td></tr>
+<tr><td>Kẻ tấn công cần gì</td><td>Không cần gì — chỉ cần POST được tới ACS.</td><td>Một Response/assertion <b>hợp lệ thật</b> (vd. của chính tài khoản hắn).</td></tr>
+<tr><td>Dấu hiệu trong XML</td><td>Có <code>&lt;!DOCTYPE … &lt;!ENTITY …&gt;</code> ở đầu.</td><td>Có <b>nhiều</b> Assertion, hoặc Assertion nằm ở chỗ lạ (<code>Extensions</code>, <code>ds:Object</code>…).</td></tr>
+<tr><td>Hậu quả</td><td>Đọc file, SSRF, DoS server.</td><td>Đăng nhập thành <b>bất kỳ ai</b> (vd. admin).</td></tr>
+<tr><td>Phòng chống</td><td>Tắt DTD / external entity (checklist #1).</td><td>Chỉ đọc dữ liệu từ đúng phần tử đã verify; chỉ chấp nhận 1 assertion (checklist #4); dùng thư viện cập nhật.</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> XXE — một người lạ gửi XML có <code>&lt;!ENTITY xxe SYSTEM "file:///etc/passwd"&gt;</code> tới <code>/saml/acs</code> của Expense, không cần tài khoản nào. XSW — một nhân viên có tài khoản thật lấy Response hợp lệ của chính mình, chèn thêm Assertion giả ghi NameID của giám đốc tài chính, rồi gửi lên Expense.</p>
+<span class="rule">XXE phá <b>trình đọc</b> XML (trước chữ ký). XSW lừa <b>người đọc</b> chữ ký (sau chữ ký).</span>
+</div>
+
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>ACS chỉ nhận dữ liệu từ IdP, nên không lo XXE.</span><span class="f-label">Thực tế</span><span>ACS là endpoint công khai: ai cũng POST được XML tùy ý vào đó. XXE xảy ra ngay lúc parse, trước khi kiểm chữ ký, nên kẻ tấn công không cần tài khoản hay chữ ký nào.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Hàm verify chữ ký trả <code>true</code> nghĩa là dữ liệu mình đọc đã được bảo vệ.</span><span class="f-label">Thực tế</span><span>Verify chỉ nói “phần tử mà Reference trỏ tới là nguyên vẹn”. Nếu code đọc NameID từ chỗ khác (assertion đầu tiên, phần tử gốc mới) thì vẫn dính XSW — phải đọc từ đúng phần tử đã verify.</span></div>
+
+<h3 id="use-library">Vì sao phải dùng thư viện SAML trưởng thành</h3>
+<div class="grid cols-2">
+  <div class="card bad"><span class="icon">🧨</span><h4>Tự viết = tự rước lỗi</h4><p>Verify XMLDSig đúng đòi hỏi xử lý C14N, transforms, ID resolution, namespace, multiple assertions, encrypted assertions, schema validation, XXE… Mỗi chỗ sai nhỏ là một lỗ hổng bypass xác thực hoàn toàn. Ngay cả thư viện lâu năm cũng liên tục phát hiện lỗi mới.</p></div>
+  <div class="card ok"><span class="icon">📦</span><h4>Lựa chọn trong .NET</h4><p><b>Sustainsys.Saml2</b> (tích hợp ASP.NET Core authentication handler) và <b>ITfoxtec.Identity.Saml2</b> (+ <code>ITfoxtec.Identity.Saml2.MvcCore</code>) — cả hai vẫn được phát hành trên NuGet. Hoặc đặt SAML ở <b>IdP/broker</b> (Keycloak, Entra ID…) và cho ứng dụng chỉ nói OIDC.</p></div>
+</div>
+<div class="callout warn"><span class="callout-title">⚠️ Dùng thư viện vẫn phải cấu hình đúng</span>
+Theo dõi security advisory và cập nhật phiên bản (NuGet từng hiển thị advisory cho một số bản Sustainsys.Saml2 cũ). Không bật các tùy chọn nới lỏng (chấp nhận response không ký, cho phép unsolicited, tắt kiểm tra certificate) chỉ để “cho chạy được”. Kiểm tra lại phiên bản mới nhất và trạng thái hỗ trợ .NET 10 trên nuget.org trước khi chọn.</div>
+<div class="callout tip"><span class="callout-title">💡 Kiến trúc thường gặp: “SAML ở rìa, OIDC bên trong”</span>
+Nếu ứng dụng .NET của bạn cần đăng nhập bằng IdP SAML của khách hàng, phương án gọn là cấu hình <b>Keycloak làm broker</b>: Keycloak đóng vai SP với IdP của khách hàng (SAML), còn ứng dụng của bạn chỉ là OIDC client của Keycloak. Toàn bộ xử lý XML security nằm trong sản phẩm IdP đã được kiểm định. Thực hành ở <a href="lab-5-saml.html#lab5">Lab 5</a>.</div>
+
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Đã dùng thư viện SAML thì không cần quan tâm tới bảo mật nữa.</span><span class="f-label">Thực tế</span><span>Thư viện chỉ an toàn khi được <b>cập nhật</b> (lỗi XSW mới vẫn được phát hiện) và <b>cấu hình chặt</b>. Bật “chấp nhận response không ký” hay “cho phép unsolicited” để chạy được là tự mở lại lỗ hổng.</span></div>
+
+<!-- ===================================================== -->
+<h2 id="oidc-vs-saml">G. So sánh OIDC và SAML <span class="badge should">Should</span></h2>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+SAML và OIDC giống <b>hai mẫu giấy giới thiệu</b> khác nhau cho cùng một việc: SAML là mẫu giấy hành chính kiểu cũ (XML), rất phổ biến trong doanh nghiệp; OIDC là mẫu hiện đại gọn nhẹ (JSON), hợp với app di động và API. Cả hai đều an toàn nếu được kiểm tra đúng cách.</div>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>OIDC</th><th>SAML 2.0</th></tr></thead>
+<tbody>
+<tr><td>Định dạng chính</td><td>JSON / JWT</td><td>XML</td></tr>
+<tr><td>Mô hình</td><td>Identity layer xây trên OAuth 2.0</td><td>Federation dựa trên assertion</td></tr>
+<tr><td>Phổ biến</td><td>Web, mobile, SPA, API, ứng dụng hiện đại</td><td>Enterprise SSO, SaaS, hệ thống doanh nghiệp legacy</td></tr>
+<tr><td>Token/assertion</td><td>ID Token (+ access token, refresh token)</td><td>SAML Response / Assertion</td></tr>
+<tr><td>Định danh người dùng</td><td><code>iss</code> + <code>sub</code></td><td>Issuer + NameID (persistent)</td></tr>
+<tr><td>Đối tượng</td><td><code>aud</code></td><td><code>Audience</code></td></tr>
+<tr><td>Chống CSRF / gắn request</td><td><code>state</code>, <code>nonce</code>, PKCE</td><td><code>InResponseTo</code>, RelayState</td></tr>
+<tr><td>Truyền tải</td><td>Redirect + back-channel token endpoint</td><td>Redirect/POST qua browser (Artifact dùng back-channel)</td></tr>
+<tr><td>Cấu hình trust</td><td>Discovery document + JWKS (<a href="m03-6-discovery-logout.html#discovery-jwks">M03</a>), xoay key tự động</td><td>Metadata XML, cert thường cập nhật thủ công</td></tr>
+<tr><td>Gọi API</td><td>Access token dùng trực tiếp với API</td><td>Không có khái niệm access token cho API</td></tr>
+<tr><td>Mobile/native</td><td>Hỗ trợ tốt (Auth Code + PKCE)</td><td>Kém phù hợp</td></tr>
+<tr><td>Bảo mật cần chú ý</td><td>TLS, chữ ký token, PKCE, validation (<a href="m02-3-token-jwt.html#jwt-validation">JWT validation</a>)</td><td>XML Signature, trust metadata, assertion validation, XXE/XSW</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> Công ty trong ví dụ xây một ứng dụng web mới và một app mobile gọi API → chọn <b>OIDC</b> (app mobile cần access token để gọi API, SAML không có). Cùng lúc, phòng kế toán mua Expense — một SaaS chỉ hỗ trợ SAML → cấu hình Expense làm SAML SP của Keycloak. Keycloak nói được cả hai, nên nhân viên vẫn chỉ có một tài khoản.</p>
+
+<div class="compare" id="saml-oidc-wsfed"><span class="compare-title">Phân biệt dễ nhầm: SAML vs OIDC vs WS-Federation</span>
+<p class="small">Bảng trên so sánh chi tiết SAML và OIDC. Bảng này thêm <a href="m04-1-saml-components.html#ws-federation">WS-Federation</a> để bạn nhận ra cả ba khi gặp trong hệ thống thật.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>SAML 2.0</th><th>OIDC</th><th>WS-Federation</th></tr></thead>
+<tbody>
+<tr><td>Ra đời / ai thúc đẩy</td><td>2005, OASIS</td><td>2014, OpenID Foundation</td><td>Microsoft và đối tác (thời kỳ WS-*)</td></tr>
+<tr><td>Định dạng token</td><td>SAML Assertion (XML)</td><td>ID Token (JWT/JSON)</td><td>Thường là SAML assertion (1.1/2.0) bọc trong message WS-Trust</td></tr>
+<tr><td>Nhận ra trên URL / request</td><td><code>SAMLRequest=</code>, <code>SAMLResponse</code></td><td><code>response_type=code</code>, <code>client_id=</code>, <code>scope=openid</code></td><td><code>wa=wsignin1.0</code>, <code>wtrealm=</code></td></tr>
+<tr><td>Hay gặp ở</td><td>SaaS doanh nghiệp, federation giữa tổ chức</td><td>Ứng dụng mới: web, SPA, mobile, API</td><td>AD FS, SharePoint on-prem, ứng dụng ASP.NET Framework cũ</td></tr>
+<tr><td>Hệ thống mới nên chọn?</td><td>Khi đối tác/SaaS yêu cầu</td><td><b>Có — mặc định</b></td><td>Không; chỉ để tương thích hệ thống cũ</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> Khi debug một lỗi đăng nhập, mở DevTools: thấy <code>SAMLResponse</code> trong form POST → SAML; thấy <code>?code=…&amp;state=…</code> quay về callback → OIDC; thấy <code>wa=wsignin1.0</code> → ứng dụng cũ đang dùng WS-Federation với AD FS.</p>
+<span class="rule">SAML = XML cho doanh nghiệp; OIDC = JSON cho mọi thứ mới; WS-Fed = giao thức Microsoft đời cũ, thường “chở” SAML token bên trong.</span>
+</div>
+<div class="callout info"><span class="callout-title">ℹ️ Không có chuẩn “luôn an toàn hơn”</span>
+Lựa chọn dựa trên hệ sinh thái (SaaS đó chỉ hỗ trợ SAML?), khả năng tương thích, và yêu cầu tổ chức. Quy tắc thực dụng: <b>ứng dụng mới → OIDC</b>; <b>tích hợp SaaS/khách hàng doanh nghiệp yêu cầu SAML → hỗ trợ SAML</b>, tốt nhất qua IdP/broker. Bảng này không làm thành deliverable riêng mà được đưa vào <a href="m07-5-decision-matrix.html#decision-matrix">decision matrix ở Module 07</a>.</div>
+
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>OIDC mới hơn nên luôn an toàn hơn SAML (hoặc: SAML dùng XML Signature nên an toàn hơn OIDC).</span><span class="f-label">Thực tế</span><span>Không chuẩn nào luôn an toàn hơn; cả hai đều an toàn khi được kiểm tra đúng và đều hỏng khi bỏ qua validation. Chọn theo hệ sinh thái: ứng dụng mới → OIDC; SaaS/khách hàng yêu cầu → SAML.</span></div>
+
+<div class="callout tip"><span class="callout-title">✅ Tự kiểm tra nhanh</span><ul>
+<li>Vì sao không được dùng certificate nằm trong <code>KeyInfo</code> của Response để kiểm chữ ký?</li>
+<li>Kẻ tấn công nào cần có tài khoản thật: kẻ làm XXE hay kẻ làm XSW?</li>
+<li>Ứng dụng .NET mới cần đăng nhập bằng IdP SAML của khách hàng — kiến trúc gọn nhất là gì?</li>
+</ul></div>
+
+<h2 id="quiz-bai">Quiz nhanh — Bài 4.4</h2>
+<div id="quiz"></div>
+
+</main>
+<script>
+window.QUIZ = [
+  { q: "Expense chỉ yêu cầu <b>Response</b> có chữ ký (Assertion không ký riêng). Kẻ tấn công lấy Response thật của chính hắn (đã ký), tạo một <code>samlp:Response</code> <b>mới</b> ở gốc tài liệu chứa Assertion giả NameID = admin, rồi nhét nguyên vẹn Response thật vào bên trong (vd. trong <code>Extensions</code>). Bộ verify tìm phần tử theo ID trong <code>Reference URI</code>, còn code nghiệp vụ đọc Assertion của Response gốc. Kết quả?", tricky: true,
+    options: ["An toàn — Response đã ký nên mọi thứ bên trong đều được bảo vệ", "Tấn công thất bại vì DigestValue thay đổi khi Response thật bị di chuyển", "Chữ ký verify thành công trên Response thật đã bị nhét vào trong, nhưng code đọc Assertion giả ở Response gốc → đăng nhập thành admin (XSW)", "Đây là XXE nên chỉ cần tắt DTD là chặn được"],
+    answer: 2,
+    why: ["Chữ ký bảo vệ phần tử được Reference trỏ tới (Response thật), không bảo vệ Response gốc mới do kẻ tấn công tạo ra.", "Nội dung phần tử được ký không đổi (chữ ký kiểu enveloped bị loại khỏi phép băm), nên digest vẫn khớp dù nó bị dời chỗ.", "Phần tử được verify ≠ phần tử được đọc — đúng định nghĩa XML Signature Wrapping; “ký Response” không tự động miễn nhiễm.", "Không có DOCTYPE/entity nào; đây là lỗi logic sau khi parse, tắt DTD không giúp gì."],
+    explain: "Bẫy: “đã ký cả Response” nghe như bao trùm mọi thứ. Thực tế chữ ký bảo vệ <b>một phần tử theo ID</b>, không bảo vệ vị trí của nó. Phòng chống: phần tử đã verify phải chính là Response gốc/Assertion đang đọc, chỉ chấp nhận đúng 1 assertion, dùng thư viện cập nhật. Xem <a href='m04-4-security.html#xsw'>XSW</a>." },
+  { q: "Vì sao bước “parse XML an toàn (tắt DTD/external entity)” phải đứng <b>trước</b> bước kiểm chữ ký?",
+    options: ["Vì XXE xảy ra ngay lúc parse — kẻ tấn công không cần chữ ký hợp lệ, chỉ cần POST được tới ACS", "Vì DTD làm chữ ký XML bị sai", "Vì spec SAML yêu cầu Response phải có DTD", "Thứ tự không quan trọng, miễn là có cả hai bước"],
+    answer: 0,
+    why: ["Muốn kiểm chữ ký thì phải parse trước; nếu parser lỏng thì file đã bị đọc/SSRF đã xảy ra trước khi tới bước chữ ký.", "DTD không liên quan tới tính đúng sai của chữ ký; vấn đề là parser làm theo chỉ dẫn trong DTD.", "SAML không cần DTD; SP an toàn nên từ chối mọi DOCTYPE.", "Thứ tự rất quan trọng: chữ ký không cứu được nếu parser đã bị khai thác."],
+    explain: "Xem <a href='m04-4-security.html#xxe'>XXE</a> và checklist #1 ở <a href='m04-4-security.html#saml-validation'>bảng validation</a>." },
+  { q: "Expense chạy 3 instance sau load balancer, mỗi instance tự lưu ID assertion đã dùng trong RAM riêng. Nhận xét nào đúng? (chọn nhiều)",
+    options: ["Một Response bị đánh cắp có thể được nộp lại vào instance khác trong cửa sổ hiệu lực mà không bị phát hiện", "Nên dùng cache phân tán chung (vd. Redis) và giữ ID tới khi assertion hết hạn", "Tăng clock skew sẽ giảm nguy cơ replay", "Không sao, vì chữ ký XML đã chặn replay"],
+    answer: [0, 1],
+    why: ["Instance B chưa từng thấy ID mà instance A đã dùng → chấp nhận lần nữa.", "Cache dùng chung giúp mọi instance thấy cùng danh sách ID đã dùng; giữ tới NotOnOrAfter là đủ.", "Nới clock skew làm cửa sổ replay <b>dài hơn</b>, tức là tệ hơn.", "Replay dùng nguyên Response thật nên chữ ký vẫn hợp lệ — chữ ký không chống replay."],
+    explain: "Chống replay = InResponseTo dùng một lần + thời gian ngắn + cache ID dùng chung. Xem checklist #10 ở <a href='m04-4-security.html#saml-validation'>bảng validation</a>." },
+  { q: "Expense tin 2 IdP: Keycloak của công ty A và Okta của công ty B (cả hai cert đều có trong metadata đã cấu hình). Một Response ghi <code>Issuer</code> = Keycloak A nhưng chữ ký lại verify được bằng cert của Okta B. Expense nên làm gì?",
+    options: ["Chấp nhận, vì cert ký nằm trong metadata tin cậy", "Từ chối, vì cert ký phải thuộc đúng IdP mà Issuer khai báo", "Chấp nhận nếu Audience đúng", "Chấp nhận nhưng map người dùng sang công ty B"],
+    answer: 1,
+    why: ["“Có trong metadata” chưa đủ; nếu chấp nhận, admin của IdP B có thể ký assertion giả danh người dùng của công ty A.", "Issuer và cert ký phải khớp nhau — checklist #5 chống IdP A giả danh IdP B.", "Audience đúng chỉ nói assertion dành cho Expense, không giải quyết việc IdP giả danh nhau.", "Response tự nhận là Keycloak A; tự ý đổi sang B là đoán, không phải kiểm tra — phải từ chối."],
+    explain: "Khi SP tin nhiều IdP, chọn cert kiểm chữ ký <b>theo Issuer</b>. Xem checklist #5 ở <a href='m04-4-security.html#saml-validation'>bảng validation</a>." },
+  { q: "Đăng nhập SAML trên production lỗi liên tục. Một dev đề xuất bật “chấp nhận response không ký” và “cho phép unsolicited response” trong Sustainsys.Saml2 cho tới khi tìm ra nguyên nhân. Đánh giá?",
+    options: ["Ổn, vì Sustainsys.Saml2 là thư viện trưởng thành nên vẫn an toàn", "Không ổn: response không ký cho phép ai cũng tự viết assertion; unsolicited mở ra login CSRF. Phải đọc log lỗi cụ thể (cert, Audience, InResponseTo…) và sửa cấu hình", "Ổn nếu chỉ bật trong vài giờ", "Ổn nếu giữ kiểm tra Audience"],
+    answer: 1,
+    why: ["Thư viện an toàn khi cấu hình chặt; bật tùy chọn nới lỏng là tự tắt lớp bảo vệ của nó.", "Hai tùy chọn này tháo đúng hai lớp bảo vệ chính (nguồn gốc và gắn request). Lỗi SAML thường có thông điệp cụ thể để sửa tận gốc.", "Chỉ cần vài phút là kẻ tấn công có thể gửi assertion tự viết; “tạm thời” trên production vẫn là lỗ hổng thật.", "Audience nằm trong assertion; không có chữ ký thì kẻ tấn công ghi Audience nào cũng được."],
+    explain: "Xem callout “Dùng thư viện vẫn phải cấu hình đúng” ở <a href='m04-4-security.html#use-library'>phần thư viện</a>." }
+];
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="assets/pages.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

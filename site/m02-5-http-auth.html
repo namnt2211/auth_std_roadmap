@@ -1,0 +1,541 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M02 · Bài 2.5 · HTTP auth schemes &amp; API key</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<main class="content">
+
+<div class="page-head">
+  <div class="breadcrumb"><a href="index.html">Lộ trình</a> / <a href="m02-crypto-session-token.html">Module 02</a> / Bài 2.5</div>
+  <h1>Bài 2.5 — HTTP auth schemes &amp; API key</h1>
+  <p class="lead">Khi gọi API, “giấy tờ” được gửi trong header <code>Authorization</code>, và khi bị từ chối, server giải thích lý do trong header <code>WWW-Authenticate</code>. Bài này giúp bạn đọc hai header đó, phân biệt Basic, Bearer, API key, và chọn đúng cách cho từng tình huống.</p>
+  <div class="meta-row">
+    <span class="chip">⏱ ~15 phút</span>
+    <span class="chip">📘 <a href="m02-crypto-session-token.html">Module 02 · Cryptography, Session, Token &amp; HTTP Auth</a></span>
+  </div>
+</div>
+
+<!-- ===================================================== -->
+<h2 id="http-auth">G. HTTP authentication schemes <span class="badge must">Must</span></h2>
+<div class="terms"><span class="terms-title">📖 Thuật ngữ trong bài</span><dl>
+<dt>Scheme</dt><dd>“Loại giấy tờ” đứng đầu header <code>Authorization</code>, vd. <code>Basic</code>, <code>Bearer</code>.</dd>
+<dt><code>Authorization</code></dt><dd>Header client gửi lên để trình giấy tờ.</dd>
+<dt><code>WWW-Authenticate</code></dt><dd>Header server trả về khi từ chối, nói “cần giấy tờ gì, giấy của bạn lỗi gì”.</dd>
+<dt>Basic</dt><dd>Gửi <code>username:password</code> (chỉ Base64, không mã hóa) trong mọi request.</dd>
+<dt>Bearer token</dt><dd>“Ai cầm là dùng được” — thường là access token OAuth.</dd>
+<dt>API key</dt><dd>Chuỗi bí mật dài hạn định danh <b>ứng dụng</b>, không định danh người dùng.</dd>
+<dt>Client Credentials</dt><dd>Cách OAuth cho một service tự xin access token cho chính nó (không có người dùng).</dd>
+</dl></div>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+HTTP có một “ô” chuẩn để trình giấy tờ: header <code>Authorization</code>. Phần đầu nói <b>loại giấy tờ</b> (Basic, Bearer…), phần sau là <b>giấy tờ</b>. Khi bị từ chối, server trả lời bằng header <code>WWW-Authenticate</code>: “ở đây cần loại giấy tờ X, và giấy của bạn bị lỗi Y”.</div>
+
+<h3 id="authorization-header">Header <code>Authorization</code></h3>
+<p>Định dạng chung (RFC 9110): <code>Authorization: &lt;scheme&gt; &lt;credentials&gt;</code> — tức là “loại giấy tờ” + dấu cách + “giấy tờ”. Ba dòng dưới là ba cách hr-api có thể nhận credential:</p>
+<pre data-title="Ví dụ"><code class="language-plaintext">Authorization: Basic YW4ubnY6UEBzc3cwcmQh
+Authorization: Bearer eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6ImhyLTIwMjYtMTEifQ.eyJleHAi…
+X-API-Key: kz_7d1f…        ← API key thường dùng header riêng, không phải scheme chuẩn</code></pre>
+
+<h3 id="www-authenticate">Header <code>WWW-Authenticate</code> — đọc lỗi 401 như đọc log</h3>
+<p>Server trả kèm <code>401</code> để báo <b>scheme yêu cầu</b> và (với Bearer) <b>lý do lỗi</b>. Đây là nguồn thông tin troubleshooting (gỡ lỗi) số 1 — mở DevTools tab Network hoặc xem response header trong Postman.</p>
+<p>Bốn response mẫu dưới đây từ hr-api: hãy so sánh <b>status code</b> và giá trị <code>error</code> trong từng trường hợp.</p>
+<pre data-title="Không gửi token (RFC 6750: không kèm mã lỗi)"><code class="language-plaintext">HTTP/1.1 401 Unauthorized
+WWW-Authenticate: Bearer realm="hr-api"</code></pre>
+<pre data-title="Token hết hạn / sai chữ ký / sai audience"><code class="language-plaintext">HTTP/1.1 401 Unauthorized
+WWW-Authenticate: Bearer realm="hr-api", error="invalid_token", error_description="The access token expired"</code></pre>
+<pre data-title="Token hợp lệ nhưng thiếu scope"><code class="language-plaintext">HTTP/1.1 403 Forbidden
+WWW-Authenticate: Bearer realm="hr-api", error="insufficient_scope", scope="hr.write"</code></pre>
+<pre data-title="Request sai định dạng (vd. gửi token ở 2 nơi)"><code class="language-plaintext">HTTP/1.1 400 Bad Request
+WWW-Authenticate: Bearer realm="hr-api", error="invalid_request"</code></pre>
+<div class="table-wrap"><table>
+<thead><tr><th>Mã lỗi (RFC 6750 §3.1)</th><th>HTTP status</th><th>Ý nghĩa</th><th>Client nên làm gì</th></tr></thead>
+<tbody>
+<tr><td><code>invalid_request</code></td><td>400</td><td>Thiếu/thừa/lặp tham số, gửi credential bằng nhiều cách cùng lúc, request sai định dạng.</td><td>Sửa code gửi request.</td></tr>
+<tr><td><code>invalid_token</code></td><td>401</td><td>Token hết hạn, bị thu hồi, sai định dạng, sai chữ ký, sai issuer/audience…</td><td>Refresh token / đăng nhập lại; nếu vẫn lỗi → kiểm tra <code>iss</code>/<code>aud</code>/cấu hình.</td></tr>
+<tr><td><code>insufficient_scope</code></td><td>403</td><td>Token hợp lệ nhưng không đủ scope; có thể kèm <code>scope</code> cần thiết.</td><td>Xin token với scope phù hợp (có thể cần consent).</td></tr>
+</tbody></table></div>
+<p class="small muted">Nội dung <code>error_description</code> thực tế tùy framework. ASP.NET Core JwtBearer thường mô tả lỗi audience/issuer/hết hạn trong header này — rất có ích khi debug, nhưng ở production cân nhắc không lộ quá chi tiết.</p>
+
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  participant C as Client
+  participant API as hr-api
+  C->>API: GET /payroll/57 (không có Authorization)
+  API-->>C: 401 + WWW-Authenticate: Bearer realm=hr-api
+  C->>API: GET /payroll/57 + Bearer token (aud=account)
+  API-->>C: 401 + Bearer error=invalid_token, audience invalid
+  Note over C: Đọc header, sửa cấu hình audience ở Keycloak
+  C->>API: GET /payroll/57 + Bearer token (aud=hr-api, scope=hr.read)
+  API-->>C: 200 OK
+  C->>API: PUT /payroll/57 + cùng token
+  API-->>C: 403 + Bearer error=insufficient_scope, scope=hr.write
+</pre>
+<div class="caption">Challenge–response của HTTP auth: mỗi lần bị từ chối, header <code>WWW-Authenticate</code> chỉ cho client biết cần sửa gì.</div>
+</div>
+
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: Authorization vs WWW-Authenticate</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th><code>Authorization</code></th><th><code>WWW-Authenticate</code></th></tr></thead>
+<tbody>
+<tr><td>Chiều</td><td>Client → server (trong <b>request</b>)</td><td>Server → client (trong <b>response</b>)</td></tr>
+<tr><td>Ý nghĩa</td><td>“Đây là giấy tờ của tôi”</td><td>“Tôi cần loại giấy tờ này / giấy của bạn lỗi thế này”</td></tr>
+<tr><td>Đi kèm status</td><td>Mọi request cần xác thực</td><td><code>401</code> (bắt buộc theo RFC 9110); với Bearer còn dùng cả ở <code>403</code>/<code>400</code></td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> hr-web gửi <code>Authorization: Bearer &lt;token có aud=account&gt;</code> → hr-api trả <code>401</code> + <code>WWW-Authenticate: Bearer error="invalid_token", error_description="…audience…"</code>. Dev đọc header thứ hai là biết phải sửa audience ở Keycloak, không cần đoán.</p>
+<span class="rule">Tên dễ gây hiểu lầm: header tên “Authorization” nhưng thực ra mang thông tin <b>xác thực</b> (authentication). Client “trình” bằng Authorization, server “đòi” bằng WWW-Authenticate.</span>
+</div>
+<div class="callout info"><span class="callout-title">ℹ️ Nhắc lại 401 vs 403</span>
+<b>401</b> = server <b>không biết/không tin</b> bạn là ai (thiếu token, token hết hạn, sai chữ ký, sai <code>aud</code>) → cần token hợp lệ (refresh, đăng nhập lại, hoặc sửa cấu hình). <b>403</b> = server <b>biết</b> bạn là ai nhưng bạn <b>không được phép</b> → thử lại với cùng token cũng vô ích. Chi tiết ở <a href="m01-1-identity-roles.html#401-403">M01</a> và <a href="m06-2-api-authz.html#401-vs-403">M06</a>.</div>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>401 và 403 giống nhau, đều là “không có quyền”.</span><span class="f-label">Thực tế</span><span>401 = không tin token (thiếu, hết hạn, sai chữ ký/<code>aud</code>) → cần token hợp lệ. 403 = tin token nhưng không đủ quyền → refresh cũng vô ích, phải xin thêm scope/quyền.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Gặp 401 thì cứ refresh token rồi gọi lại là xong.</span><span class="f-label">Thực tế</span><span>Refresh chỉ chữa được token <b>hết hạn</b>. Nếu <code>error_description</code> nói sai audience/issuer, token mới vẫn được cấp với cùng cấu hình → vẫn 401. Đọc <code>WWW-Authenticate</code> trước, rồi sửa cấu hình (vd. audience mapper ở Keycloak).</span></div>
+
+<h3 id="basic">Basic authentication</h3>
+<ul>
+<li>RFC 7617: <code>Authorization: Basic base64(username:password)</code>.</li>
+<li><b>Base64 chỉ là encoding</b> (đổi cách biểu diễn), <b>không phải mã hóa</b>: ai bắt được header là có mật khẩu → <b>chỉ dùng qua TLS</b>.</li>
+<li>Gửi mật khẩu thật trong <b>mọi</b> request; không có hạn dùng, scope hay cách thu hồi riêng.</li>
+<li>Hạn chế dùng cho API mới. Vẫn gặp ở hệ thống cũ, công cụ nội bộ, và khi <b>client tự xác thực</b> với token endpoint của AS — gọi là <code>client_secret_basic</code>: client gửi <code>base64(client_id:client_secret)</code> (bạn đã thấy ở request introspection của <a href="m02-4-token-lifecycle.html#introspection-revocation">bài 2.4</a>).</li>
+</ul>
+<p>Widget dưới cho bạn tự thấy: chỉ một cú bấm là đọc ra mật khẩu, không cần key nào.</p>
+<div class="widget" id="b64-widget"><div class="w-title">🧪 Base64 không phải mã hóa — decode header Basic</div>
+<label class="small">Header Authorization (hoặc chỉ phần Base64)</label>
+<input type="text" id="b64In" value="Authorization: Basic YW4ubnY6UEBzc3cwcmQh">
+<div class="btn-row"><button class="btn" id="b64Decode">Decode</button></div>
+<label class="small" style="margin-top:12px;display:block">Hoặc tạo header từ username / password</label>
+<div class="grid cols-2"><input type="text" id="b64User" value="an.nv"><input type="text" id="b64Pass" value="P@ssw0rd!"></div>
+<div class="btn-row"><button class="btn ghost" id="b64Encode">Encode thành header Basic</button></div>
+<div class="out" id="b64Out">Bấm “Decode”: không cần key nào cả.</div>
+</div>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Đã chạy qua HTTPS thì Basic auth dùng cho API mới cũng ổn như Bearer token.</span><span class="f-label">Thực tế</span><span>TLS chỉ bảo vệ trên đường truyền. Basic vẫn gửi <b>mật khẩu thật</b> trong mọi request, không có hạn dùng, scope hay cách thu hồi riêng; lộ ở log hoặc ở một server trung gian là lộ mật khẩu. Bearer token ngắn hạn, có scope thì lộ ít hại hơn.</span></div>
+
+<h3 id="bearer">Bearer token (RFC 6750)</h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+“Bearer” nghĩa là <b>người cầm</b>: giống <b>tiền mặt</b> — ai cầm tờ tiền là tiêu được, cửa hàng không hỏi bạn là ai. Vì vậy phải giữ token như giữ mật khẩu.</div>
+<ul>
+<li><code>Authorization: Bearer &lt;access_token&gt;</code>. Ai cầm token là dùng được → bảo vệ token như mật khẩu.</li>
+<li><b>Không gửi qua query string/URL</b> (<code>?access_token=…</code>): URL bị ghi vào log server/proxy, lịch sử trình duyệt, header <code>Referer</code>.</li>
+<li>Luôn qua TLS; access token ngắn hạn; không log token.</li>
+<li>Muốn token bị trộm cũng không dùng được → <b>sender-constrained token</b> (token “gắn chủ”: chỉ bên giữ một key riêng mới dùng được) — DPoP RFC 9449, mTLS RFC 8705, xem <a href="m06-5-password-token-storage.html#token-storage">M06</a>.</li>
+</ul>
+<div class="callout example"><span class="callout-title">🧪 Ví dụ: vì sao không đặt token trong URL</span>
+hr-web gọi <code>GET https://hr-api/payroll/57?access_token=eyJhbGci…</code>. Nginx trước hr-api ghi nguyên URL vào access log; log được đẩy sang hệ thống giám sát mà cả team xem được → ai đọc log cũng có token của An tới khi hết hạn. Đặt token trong header <code>Authorization: Bearer</code> thì thường không bị ghi vào access log (định dạng log mặc định không chứa header này) — nhưng vẫn phải cẩn thận với log ứng dụng.</div>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Đã dùng HTTPS thì đặt token trong query string cũng an toàn.</span><span class="f-label">Thực tế</span><span>TLS mã hóa URL <b>trên đường truyền</b>, nhưng ở hai đầu URL vẫn là văn bản rõ: access log của server/proxy, lịch sử trình duyệt, header <code>Referer</code>. Token phải nằm trong header <code>Authorization</code>.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Bearer token có chữ ký nên kẻ trộm không dùng được.</span><span class="f-label">Thực tế</span><span>Chữ ký chống <b>sửa</b>, không chống <b>dùng lại</b>. “Bearer” = ai cầm cũng dùng được nguyên vẹn tới khi hết hạn. Muốn token bị trộm vô dụng cần sender-constrained token (DPoP, mTLS).</span></div>
+
+<h2 id="api-key">G.1. API key <span class="badge must">Must</span></h2>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+API key giống <b>chìa khóa nhà kho cấp cho một công ty đối tác</b>: nó cho biết <b>công ty nào</b> (ứng dụng/dự án) đang vào, không biết <b>nhân viên nào</b> (người dùng). Chìa thường dùng rất lâu và mở được mọi cửa được gán — nên mất chìa là chuyện lớn.</div>
+<ul>
+<li>Chuỗi bí mật định danh <b>ứng dụng/dự án</b> gọi API, <b>không định danh người dùng</b>.</li>
+<li>Thường sống lâu, không có scope/consent/audience chuẩn hóa; không có chuẩn chung về cách gửi (thường header tùy chỉnh như <code>X-API-Key</code>).</li>
+</ul>
+<div class="dodont">
+<div class="do"><h5>✅ Phù hợp</h5><ul><li>Public API đơn giản (dữ liệu thời tiết, bản đồ…).</li><li>Quota, rate limit, metering, tính phí theo dự án.</li><li>Tích hợp server-to-server quy mô nhỏ, key nằm an toàn ở backend.</li></ul></div>
+<div class="dont"><h5>❌ Không phù hợp</h5><ul><li>Hành động <b>thay mặt người dùng</b> (không biết user nào, không có consent).</li><li>Nhúng trong <b>public client</b>: SPA, mobile, desktop (WPF) — key sẽ bị lộ khi người dùng mở DevTools/decompile.</li><li>Quyền chi tiết, ngắn hạn, cần audit theo người dùng.</li></ul></div>
+</div>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>API key là cách xác thực người dùng.</span><span class="f-label">Thực tế</span><span>API key định danh <b>ứng dụng/dự án</b>, không phải người dùng: mọi nhân viên dùng chung app đều gửi cùng một key, API không biết ai là An.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Làm rối (obfuscate) hoặc mã hóa API key trong app WPF/SPA là đủ giấu.</span><span class="f-label">Thực tế</span><span>App phải tự giải mã được key để gửi đi, nên người dùng cũng lấy được (DevTools, decompile, bắt request). Public client không giữ được secret — dùng Authorization Code + PKCE.</span></div>
+<h4>Thực hành tốt</h4>
+<ul>
+<li>Gửi qua <b>header</b>, không qua URL.</li>
+<li>Sinh bằng CSPRNG (bộ sinh số ngẫu nhiên an toàn cho mật mã, vd. <code>RandomNumberGenerator</code> trong .NET — không phải <code>Random</code>), ≥ 128 bit, thường 256 bit. Thêm prefix nhận diện (vd. <code>kz_live_</code>) để công cụ secret scanning (quét bí mật trong code) phát hiện khi lỡ commit.</li>
+<li><b>Chỉ lưu hash</b> phía server; hiển thị key cho người dùng <b>một lần</b> lúc tạo.</li>
+<li>Hỗ trợ <b>rotation/revoke</b> (cho phép 2 key song song khi xoay), có <b>expiration</b>, gắn <b>quyền tối thiểu</b> (theo API/hành động/IP), <b>theo dõi usage</b> và cảnh báo bất thường.</li>
+</ul>
+<p>Code dưới gói các thực hành trên thành 3 bước: sinh key → chỉ lưu hash → so sánh khi có request. “So sánh constant-time” nghĩa là thời gian so sánh không phụ thuộc vào việc sai ở ký tự thứ mấy, để kẻ gian không đo thời gian mà đoán dần key.</p>
+<pre data-title="Sinh và lưu API key an toàn (.NET)"><code class="language-csharp">using System.Security.Cryptography;
+using System.Text;
+
+// 1) Sinh key: 32 byte ngẫu nhiên (256 bit) từ CSPRNG + prefix nhận diện
+string secret = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
+string apiKey = $"kz_live_{secret}";          // hiển thị cho khách hàng ĐÚNG MỘT LẦN
+
+// 2) Lưu: chỉ lưu hash + vài ký tự đầu để nhận diện trên UI
+byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(apiKey));
+db.ApiKeys.Add(new ApiKeyRecord
+{
+    ClientId  = "payroll-batch",
+    Prefix    = apiKey[..12],                   // "kz_live_7d1f" để hiển thị/tra cứu
+    KeyHash   = hash,
+    Scopes    = "payroll:export",
+    ExpiresAt = DateTimeOffset.UtcNow.AddDays(90)
+});
+
+// 3) Kiểm tra khi có request: băm key nhận được, so sánh constant-time
+static bool Matches(string presented, byte[] storedHash) =&gt;
+    CryptographicOperations.FixedTimeEquals(
+        SHA256.HashData(Encoding.UTF8.GetBytes(presented)), storedHash);</code></pre>
+<div class="callout info"><span class="callout-title">🤔 Vừa nói SHA-256 không đủ cho mật khẩu, sao lại dùng cho API key?</span>
+Vì API key là <b>256 bit ngẫu nhiên</b> — không có “danh sách key phổ biến” để đoán, brute-force 2<sup>256</sup> là bất khả thi dù hash nhanh. Mật khẩu người dùng thì entropy thấp, nên mới cần thuật toán chậm. Điểm mấu chốt là <b>entropy của input</b>, không phải bản thân SHA-256.</div>
+
+<h3 id="auth-scheme-compare">So sánh API key, Basic, Bearer và OAuth Client Credentials</h3>
+<p><b>Deliverable 6.</b> Client Credentials là grant (cách xin token) của OAuth dành cho service-to-service — một service tự xin token cho chính nó, không có người dùng. Chi tiết ở <a href="m03-3-other-grants.html#client-credentials">M03</a>.</p>
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: API key vs Basic vs Bearer vs Client Credentials</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>API key</th><th>Basic</th><th>Bearer token (nói chung)</th><th>OAuth Client Credentials</th></tr></thead>
+<tbody>
+<tr><td><b>Định danh ai</b></td><td>Ứng dụng/dự án</td><td>User hoặc account kỹ thuật</td><td>Tùy token: user + client, hoặc chỉ client</td><td>Client (ứng dụng), không có user</td></tr>
+<tr><td><b>Gửi gì mỗi request</b></td><td>Secret dài hạn</td><td>Username + password thật</td><td>Token (thường ngắn hạn)</td><td>Access token ngắn hạn; secret chỉ gửi tới AS khi xin token</td></tr>
+<tr><td><b>Thời hạn</b></td><td>Dài (tới khi thu hồi/hết hạn tự đặt)</td><td>Tới khi đổi mật khẩu</td><td>Theo <code>exp</code></td><td>Ngắn (phút), tự xin lại</td></tr>
+<tr><td><b>Scope / audience</b></td><td>Không chuẩn hóa (tự cài)</td><td>Không</td><td>Có thể có (<code>scope</code>, <code>aud</code>)</td><td>Có, chuẩn hóa</td></tr>
+<tr><td><b>Thu hồi / xoay vòng</b></td><td>Thủ công, tự xây</td><td>Đổi mật khẩu</td><td>Hết hạn tự nhiên; revoke/introspect tùy AS</td><td>Chuẩn hóa: token tự hết hạn; xoay client secret hoặc dùng private_key_jwt/mTLS</td></tr>
+<tr><td><b>Phù hợp</b></td><td>Public API đơn giản, quota</td><td>Legacy, công cụ nội bộ, client auth ở token endpoint</td><td>API hiện đại</td><td>Service-to-service (payroll-batch → hr-api)</td></tr>
+<tr><td><b>Rủi ro chính</b></td><td>Lộ key = truy cập lâu dài</td><td>Lộ mật khẩu thật</td><td>Ai cầm cũng dùng được</td><td>Lộ client secret; cấp scope quá rộng</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ — chọn cái nào?</b></p>
+<ul>
+<li><b>hr-web gọi hr-api thay mặt An</b> → <b>Bearer</b> access token lấy qua đăng nhập OAuth/OIDC (Authorization Code + PKCE). Có user, có scope, hạn ngắn.</li>
+<li><b>payroll-batch chạy đêm, xuất bảng lương từ hr-api</b> → <b>Client Credentials</b>: không có người dùng, nhưng cần token ngắn hạn có <code>aud</code>/<code>scope</code> và audit được.</li>
+<li><b>Kaopiz mở API tra ngày nghỉ lễ công khai cho đối tác, cần đếm quota</b> → <b>API key</b> là đủ: chỉ cần biết “đối tác nào” và giới hạn số lần gọi.</li>
+<li><b>Tool nội bộ cũ chỉ hỗ trợ username/password</b> → <b>Basic</b> qua HTTPS, dùng tài khoản kỹ thuật riêng, lên kế hoạch chuyển dần.</li>
+<li><b>App WPF trên máy nhân viên</b> → <b>không</b> nhúng API key hay client secret; dùng Bearer token qua Authorization Code + PKCE (<a href="m07-2-native-s2s.html#desktop">M07</a>).</li>
+</ul>
+<span class="rule">Có người dùng → Bearer token từ OAuth. Service tự chạy → Client Credentials. Chỉ cần đếm/giới hạn theo ứng dụng → API key. Basic → chỉ cho hệ thống cũ.</span>
+</div>
+<div class="flow">
+<div class="step"><b>payroll-batch</b>client_id + secret</div><span class="arrow">→</span>
+<div class="step"><b>Keycloak</b>token endpoint<br/>grant_type=client_credentials</div><span class="arrow">→</span>
+<div class="step"><b>Access token</b>5 phút, aud=hr-api, scope=payroll:export</div><span class="arrow">→</span>
+<div class="step"><b>hr-api</b>validate như mọi access token</div>
+</div>
+
+<div class="callout tip"><span class="callout-title">✅ Tự kiểm tra nhanh</span><ul>
+<li>hr-api trả <code>401</code> kèm <code>WWW-Authenticate: Bearer error="invalid_token"</code>. Bạn kiểm tra những gì trước?</li>
+<li>Vì sao header <code>Authorization: Basic …</code> bị lộ trong log là sự cố nghiêm trọng?</li>
+<li>Một service chạy định kỳ cần gọi hr-api, không có người dùng. Chọn API key hay Client Credentials, vì sao?</li>
+</ul></div>
+
+<h2 id="quiz-bai">Quiz nhanh — Bài 2.5</h2>
+<div id="quiz"></div>
+
+</main>
+<script>
+(function () {
+  "use strict";
+  function $(id) { return document.getElementById(id); }
+  function esc(s) {
+    return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+  function utf8Encode(str) { return new TextEncoder().encode(str); }
+  function utf8Decode(bytes) { return new TextDecoder("utf-8", { fatal: false }).decode(bytes); }
+  function bytesToB64(bytes) {
+    var bin = "";
+    for (var i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+    return btoa(bin);
+  }
+  function b64ToBytes(b64) {
+    var bin = atob(b64);
+    var out = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+  function b64urlEncodeStr(str) {
+    return bytesToB64(utf8Encode(str)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  }
+  function b64urlDecodeStr(s) {
+    if (!/^[A-Za-z0-9_-]*$/.test(s)) throw new Error("Chứa ký tự không thuộc bảng Base64url");
+    var t = s.replace(/-/g, "+").replace(/_/g, "/");
+    while (t.length % 4) t += "=";
+    return utf8Decode(b64ToBytes(t));
+  }
+  var box = 'style="white-space:normal;font-family:var(--font);margin:6px 0"';
+
+  // ---------------- JWT decoder ----------------
+  var SAMPLE_H = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6ImhyLTIwMjYtMTEifQ";
+  var SAMPLE_P = "eyJleHAiOjE3OTQyNzYzMDAsImlhdCI6MTc5NDI3NjAwMCwianRpIjoiNWMxZTdkMmEtOWI0Zi00YThlLWI2ZDEtM2YyYTljOGU3YjYwIiwiaXNzIjoiaHR0cHM6Ly9zc28ua2FvcGl6LmxvY2FsL3JlYWxtcy9rYW9waXoiLCJhdWQiOiJoci1hcGkiLCJzdWIiOiI4ZjJjMWE3ZS00YjlkLTRlMTUtOWEzZi0yZDZjN2I4ZTlmMTAiLCJ0eXAiOiJCZWFyZXIiLCJhenAiOiJoci13ZWIiLCJzY29wZSI6Im9wZW5pZCBwcm9maWxlIGhyLnJlYWQiLCJwcmVmZXJyZWRfdXNlcm5hbWUiOiJhbi5udiIsInJlYWxtX2FjY2VzcyI6eyJyb2xlcyI6WyJlbXBsb3llZSJdfX0";
+  var SAMPLE_S = "Y2h1LWt5LW1pbmgtaG9hOiBkYXkgS0hPTkcgcGhhaSBjaHUga3kgUlMyNTYgdGhhdCAtIGNoaSBkZSBtaW5oIGhvYSBjYXUgdHJ1YyBKV1Q";
+  var SAMPLE = SAMPLE_H + "." + SAMPLE_P + "." + SAMPLE_S;
+
+  var CLAIMS = {
+    iss: "Issuer — ai phát hành token",
+    sub: "Subject — định danh ổn định của chủ thể (trong phạm vi iss)",
+    aud: "Audience — token dành cho ai (API phải là một trong số này)",
+    exp: "Expiration — hết hạn sau thời điểm này",
+    nbf: "Not before — chưa hiệu lực trước thời điểm này",
+    iat: "Issued at — thời điểm phát hành",
+    auth_time: "Thời điểm người dùng thực sự xác thực",
+    jti: "JWT ID — mã duy nhất của token",
+    azp: "Authorized party — client đã xin token",
+    scope: "Phạm vi quyền (chuỗi, cách nhau bởi dấu cách)",
+    scp: "Phạm vi quyền (tên claim kiểu Entra ID)",
+    roles: "Vai trò (tùy hệ thống)",
+    realm_access: "Vai trò cấp realm (Keycloak)",
+    resource_access: "Vai trò theo client (Keycloak)",
+    typ: "Loại token (claim riêng của Keycloak)",
+    sid: "Session ID phía IdP",
+    nonce: "Chống replay ID token (OIDC)",
+    preferred_username: "Tên đăng nhập hiển thị — không dùng làm khóa định danh",
+    email: "Email — không dùng làm khóa định danh",
+    client_id: "Client đã xin token"
+  };
+  var TIME_CLAIMS = { exp: 1, nbf: 1, iat: 1, auth_time: 1 };
+
+  function fmtTime(v) {
+    if (typeof v !== "number") return "";
+    var d = new Date(v * 1000);
+    var vn;
+    try { vn = d.toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" }) + " (giờ VN)"; }
+    catch (e) { vn = d.toLocaleString(); }
+    return vn + " · " + d.toISOString().replace(".000Z", "Z");
+  }
+
+  function renderJwt(raw) {
+    var out = $("jwtOut");
+    var tok = (raw || "").trim().replace(/^Authorization:\s*/i, "").replace(/^Bearer\s+/i, "").trim();
+    if (!tok) { out.innerHTML = "Chưa có token."; return; }
+    var parts = tok.split(".");
+    var html = "";
+    if (parts.length === 5) {
+      var jh = "";
+      try { jh = esc(JSON.stringify(JSON.parse(b64urlDecodeStr(parts[0])), null, 2)); } catch (e) { jh = "(không decode được header)"; }
+      out.innerHTML = '<div ' + box + '>🔒 Token có <b>5 phần</b> → đây là <b>JWE</b> (mã hóa). Chỉ header đọc được; payload là ciphertext, cần private key/secret của người nhận để giải mã.</div>' +
+        '<div class="small">Header:</div>' + jh;
+      return;
+    }
+    if (parts.length !== 3) {
+      out.innerHTML = '<div ' + box + '>❌ Token có ' + parts.length + ' phần. JWS compact phải có 3 phần (header.payload.signature), JWE có 5. Có thể đây là <b>opaque token</b> — không decode được, API phải dùng introspection.</div>';
+      return;
+    }
+    html += '<div class="jwt" style="margin:6px 0"><span class="h">' + esc(parts[0]) + '</span><span class="dot">.</span><span class="p">' + esc(parts[1]) + '</span><span class="dot">.</span><span class="s">' + esc(parts[2] || "(trống)") + '</span></div>';
+    var header, payload;
+    try { header = JSON.parse(b64urlDecodeStr(parts[0])); }
+    catch (e) { out.innerHTML = html + '<div ' + box + '>❌ Header không phải Base64url/JSON hợp lệ: ' + esc(e.message) + '</div>'; return; }
+    try { payload = JSON.parse(b64urlDecodeStr(parts[1])); }
+    catch (e) { out.innerHTML = html + '<div ' + box + '>❌ Payload không phải Base64url/JSON hợp lệ: ' + esc(e.message) + '</div>'; return; }
+
+    html += '<div ' + box + '><b style="color:var(--jwt-h)">Header</b></div>' + esc(JSON.stringify(header, null, 2));
+    html += '<div ' + box + '><b style="color:var(--jwt-p)">Payload</b></div>' + esc(JSON.stringify(payload, null, 2));
+
+    var warns = [];
+    var alg = String(header.alg || "");
+    if (!alg || alg.toLowerCase() === "none") warns.push("🚨 <code>alg</code> = <b>" + esc(alg || "(thiếu)") + "</b>: token <b>không có chữ ký</b>. API phải từ chối — thuật toán chỉ lấy từ allowlist của API.");
+    else if (/^HS/i.test(alg)) warns.push("ℹ️ <code>" + esc(alg) + "</code> là HMAC (secret dùng chung): ai verify được cũng ký được.");
+    if (!parts[2]) warns.push("🚨 Phần chữ ký trống.");
+    if (parts[2] === SAMPLE_S) warns.push("ℹ️ Chữ ký của token mẫu là <b>chữ ký minh họa</b> (Base64url của một câu ghi chú), không phải RS256 thật.");
+    if (header.kid) warns.push("🔑 <code>kid</code> = " + esc(header.kid) + " → API tìm public key có kid này trong JWKS của issuer.");
+
+    var now = Math.floor(Date.now() / 1000);
+    var rows = "";
+    Object.keys(payload).forEach(function (k) {
+      var v = payload[k];
+      var val = typeof v === "string" ? v : JSON.stringify(v);
+      var extra = "";
+      if (TIME_CLAIMS[k] && typeof v === "number") {
+        extra = "<br><span class=\"small\">" + esc(fmtTime(v)) + "</span>";
+        if (k === "exp") extra += v < now ? ' <b style="color:var(--danger)">— ĐÃ HẾT HẠN</b>' : ' <b style="color:var(--ok)">— còn ' + Math.round((v - now) / 60) + ' phút</b>';
+        if (k === "nbf" && v > now) extra += ' <b style="color:var(--danger)">— CHƯA HIỆU LỰC</b>';
+      }
+      rows += "<tr><td><code>" + esc(k) + "</code></td><td>" + esc(val) + extra + "</td><td>" + esc(CLAIMS[k] || "Claim riêng / tùy hệ thống") + "</td></tr>";
+    });
+    if (typeof payload.exp === "number" && typeof payload.iat === "number") {
+      warns.push("⏱ Thời gian sống: " + Math.round((payload.exp - payload.iat) / 60) + " phút (exp − iat).");
+    }
+    if (payload.aud === undefined) warns.push("⚠️ Không có <code>aud</code> — API không xác định được token có dành cho mình không.");
+    html += '<div ' + box + '><b>Claims</b></div><div class="table-wrap" style="white-space:normal"><table><thead><tr><th>Claim</th><th>Giá trị</th><th>Ý nghĩa</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+    if (warns.length) html += '<div ' + box + '>' + warns.join("<br>") + '</div>';
+    html += '<div ' + box + '><b style="color:var(--danger)">⛔ DECODE ≠ VERIFY.</b> Widget này chỉ Base64url-decode, <b>không kiểm tra chữ ký</b> (không có public key của issuer). Mọi thông tin trên có thể đã bị sửa. API phải verify chữ ký + iss + aud + exp/nbf + loại token + scope bằng thư viện chuẩn.</div>';
+    out.innerHTML = html;
+  }
+
+  if ($("jwtIn")) {
+    $("jwtIn").value = SAMPLE;
+    $("jwtDecode").addEventListener("click", function () { renderJwt($("jwtIn").value); });
+    $("jwtSample").addEventListener("click", function () { $("jwtIn").value = SAMPLE; renderJwt(SAMPLE); });
+    $("jwtTamper").addEventListener("click", function () {
+      var p = JSON.parse(b64urlDecodeStr(SAMPLE_P));
+      p.realm_access = { roles: ["employee", "admin"] };
+      p.scope = "openid profile hr.read hr.write hr.admin";
+      p.exp = Math.floor(Date.now() / 1000) + 365 * 24 * 3600;
+      var t = SAMPLE_H + "." + b64urlEncodeStr(JSON.stringify(p)) + "." + SAMPLE_S;
+      $("jwtIn").value = t; renderJwt(t);
+      $("jwtOut").insertAdjacentHTML("afterbegin", '<div ' + box + '>🦹 Token vừa bị <b>sửa payload</b> (thêm role admin, scope hr.admin, hạn 1 năm) nhưng giữ nguyên chữ ký cũ. Decode vẫn “đẹp” — chỉ bước verify chữ ký mới phát hiện được.</div>');
+    });
+    $("jwtNone").addEventListener("click", function () {
+      var h = b64urlEncodeStr(JSON.stringify({ alg: "none", typ: "JWT" }));
+      var p = JSON.parse(b64urlDecodeStr(SAMPLE_P));
+      p.realm_access = { roles: ["admin"] };
+      var t = h + "." + b64urlEncodeStr(JSON.stringify(p)) + ".";
+      $("jwtIn").value = t; renderJwt(t);
+    });
+  }
+
+  // ---------------- Hash demo ----------------
+  function sha256Fallback(bytes) {
+    function rr(v, n) { return (v >>> n) | (v << (32 - n)); }
+    var H = [], K = [], primes = [], cand = 2, i, t;
+    while (primes.length < 64) {
+      var isP = true;
+      for (i = 0; i < primes.length; i++) { if (cand % primes[i] === 0) { isP = false; break; } }
+      if (isP) primes.push(cand);
+      cand++;
+    }
+    for (i = 0; i < 64; i++) {
+      if (i < 8) H[i] = (Math.pow(primes[i], 1 / 2) * 4294967296) | 0;
+      K[i] = (Math.pow(primes[i], 1 / 3) * 4294967296) | 0;
+    }
+    var m = [], l = bytes.length;
+    for (i = 0; i < l; i++) m.push(bytes[i]);
+    m.push(0x80);
+    while ((m.length % 64) !== 56) m.push(0);
+    var bitHi = Math.floor(l / 536870912), bitLo = (l * 8) >>> 0;
+    m.push((bitHi >>> 24) & 255, (bitHi >>> 16) & 255, (bitHi >>> 8) & 255, bitHi & 255,
+           (bitLo >>> 24) & 255, (bitLo >>> 16) & 255, (bitLo >>> 8) & 255, bitLo & 255);
+    var w = [];
+    for (var off = 0; off < m.length; off += 64) {
+      for (t = 0; t < 16; t++) {
+        var j = off + t * 4;
+        w[t] = (m[j] << 24) | (m[j + 1] << 16) | (m[j + 2] << 8) | m[j + 3];
+      }
+      for (t = 16; t < 64; t++) {
+        var x = w[t - 15], y = w[t - 2];
+        var s0 = rr(x, 7) ^ rr(x, 18) ^ (x >>> 3);
+        var s1 = rr(y, 17) ^ rr(y, 19) ^ (y >>> 10);
+        w[t] = (w[t - 16] + s0 + w[t - 7] + s1) | 0;
+      }
+      var a = H[0], b = H[1], c = H[2], d = H[3], e = H[4], f = H[5], g = H[6], h = H[7];
+      for (t = 0; t < 64; t++) {
+        var S1 = rr(e, 6) ^ rr(e, 11) ^ rr(e, 25);
+        var ch = (e & f) ^ (~e & g);
+        var t1 = (h + S1 + ch + K[t] + w[t]) | 0;
+        var S0 = rr(a, 2) ^ rr(a, 13) ^ rr(a, 22);
+        var maj = (a & b) ^ (a & c) ^ (b & c);
+        var t2 = (S0 + maj) | 0;
+        h = g; g = f; f = e; e = (d + t1) | 0; d = c; c = b; b = a; a = (t1 + t2) | 0;
+      }
+      H[0] = (H[0] + a) | 0; H[1] = (H[1] + b) | 0; H[2] = (H[2] + c) | 0; H[3] = (H[3] + d) | 0;
+      H[4] = (H[4] + e) | 0; H[5] = (H[5] + f) | 0; H[6] = (H[6] + g) | 0; H[7] = (H[7] + h) | 0;
+    }
+    var hex = "";
+    for (i = 0; i < 8; i++) { var s = (H[i] >>> 0).toString(16); while (s.length < 8) s = "0" + s; hex += s; }
+    return hex;
+  }
+  function sha256Hex(str) {
+    var bytes = utf8Encode(str);
+    if (window.crypto && window.crypto.subtle && window.crypto.subtle.digest) {
+      return window.crypto.subtle.digest("SHA-256", bytes).then(function (buf) {
+        return Array.prototype.map.call(new Uint8Array(buf), function (x) { return ("0" + x.toString(16)).slice(-2); }).join("");
+      });
+    }
+    return Promise.resolve(sha256Fallback(bytes)); // fallback khi crypto.subtle không khả dụng (ngữ cảnh không bảo mật)
+  }
+  function bitDiff(h1, h2) {
+    var n = 0;
+    for (var i = 0; i < h1.length; i++) {
+      var v = parseInt(h1[i], 16) ^ parseInt(h2[i], 16);
+      while (v) { n += v & 1; v >>= 1; }
+    }
+    return n;
+  }
+  function highlightDiff(h1, h2) {
+    var s = "";
+    for (var i = 0; i < h2.length; i++) {
+      s += h1[i] === h2[i] ? h2[i] : '<b style="color:var(--danger)">' + h2[i] + "</b>";
+    }
+    return s;
+  }
+  function runHash() {
+    var a = $("hashA").value, b = $("hashB").value;
+    Promise.all([sha256Hex(a), sha256Hex(b)]).then(function (r) {
+      var ha = r[0], hb = r[1];
+      var same = 0;
+      for (var i = 0; i < 64; i++) if (ha[i] === hb[i]) same++;
+      var api = (window.crypto && window.crypto.subtle) ? "crypto.subtle" : "JS fallback";
+      $("hashOut").innerHTML =
+        "SHA-256(A) = " + ha + "\n" +
+        "SHA-256(B) = " + highlightDiff(ha, hb) + "\n\n" +
+        '<span style="font-family:var(--font)">' +
+        (a === b ? "A và B giống nhau → digest giống hệt nhau (hash là tất định)." :
+          "Khác <b>" + bitDiff(ha, hb) + "/256 bit</b> (lý tưởng ≈ 128 = một nửa). Chỉ " + same + "/64 ký tự hex trùng vị trí — không đoán được A từ B hay ngược lại.") +
+        "\nĐộ dài digest luôn là 64 ký tự hex (256 bit), dù input dài hay ngắn. (Tính bằng " + api + ")</span>";
+    });
+  }
+  if ($("hashRun")) {
+    $("hashRun").addEventListener("click", runHash);
+    $("hashSalt").addEventListener("click", function () {
+      var arr = new Uint8Array(8);
+      if (window.crypto && window.crypto.getRandomValues) window.crypto.getRandomValues(arr);
+      else for (var i = 0; i < 8; i++) arr[i] = Math.floor(Math.random() * 256);
+      var salt = Array.prototype.map.call(arr, function (x) { return ("0" + x.toString(16)).slice(-2); }).join("");
+      var base = $("hashA").value.replace(/^[0-9a-f]{16}\$/, "");
+      $("hashA").value = salt + "$" + base;
+      $("hashB").value = base;
+      runHash();
+      setTimeout(function () {
+        $("hashOut").insertAdjacentHTML("beforeend", '<span style="font-family:var(--font)">\n\n🧂 A giờ là <b>salt + "$" + mật khẩu</b>. Cùng mật khẩu nhưng salt khác → hash khác, nên bảng hash tính sẵn vô dụng. Nhưng việc tính vẫn tức thì → kẻ tấn công vẫn thử nhanh từng mật khẩu với salt đã biết. Vì vậy cần thuật toán <b>chậm</b> (Argon2id/scrypt/PBKDF2).</span>');
+      }, 50);
+    });
+  }
+
+  // ---------------- Base64 / Basic ----------------
+  if ($("b64Decode")) {
+    $("b64Decode").addEventListener("click", function () {
+      var v = $("b64In").value.trim().replace(/^Authorization:\s*/i, "").replace(/^Basic\s+/i, "").trim();
+      try {
+        var txt = utf8Decode(b64ToBytes(v));
+        var idx = txt.indexOf(":");
+        var html = "Base64 : " + esc(v) + "\nDecode : " + esc(txt) + "\n\n";
+        if (idx >= 0) {
+          html += "username = " + esc(txt.slice(0, idx)) + "\npassword = <b style=\"color:var(--danger)\">" + esc(txt.slice(idx + 1)) + "</b>\n\n";
+        }
+        html += '<span style="font-family:var(--font)">⚠️ Không cần key, không cần mật khẩu nào để decode — Base64 chỉ là <b>encoding</b>. Bảo vệ thật sự phải đến từ <b>TLS</b>.</span>';
+        $("b64Out").innerHTML = html;
+      } catch (e) {
+        $("b64Out").textContent = "Không phải chuỗi Base64 hợp lệ: " + e.message;
+      }
+    });
+    $("b64Encode").addEventListener("click", function () {
+      var raw = $("b64User").value + ":" + $("b64Pass").value;
+      var enc = bytesToB64(utf8Encode(raw));
+      $("b64In").value = "Authorization: Basic " + enc;
+      $("b64Out").innerHTML = "Chuỗi gốc : " + esc(raw) + "\nHeader    : Authorization: Basic " + esc(enc) +
+        '\n\n<span style="font-family:var(--font)">Bấm “Decode” để thấy nó đảo ngược dễ thế nào.</span>';
+    });
+  }
+})();
+</script>
+<script>
+window.QUIZ = [
+  { q: "Môi trường test, hr-web gọi <code>http://hr-api.kaopiz.local</code> (HTTP thường, không TLS) với <code>Authorization: Bearer</code> + JWT ký RS256, hạn 5 phút. Một người trong cùng mạng Wi-Fi bắt được request. Nhận định nào đúng?",
+    tricky: true,
+    options: ["An toàn: JWT có chữ ký nên kẻ nghe lén không làm gì được", "Nguy hiểm: kẻ nghe lén dùng nguyên token đó gọi hr-api được tới khi hết hạn — chữ ký chống sửa, không chống dùng lại", "An toàn: token chỉ sống 5 phút, không kịp dùng", "An toàn: Bearer token được mã hóa bằng public key của hr-api"],
+    answer: 1,
+    why: ["Bẫy chính: chữ ký chỉ ngăn <b>sửa</b> token; kẻ gian không cần sửa, chỉ cần gửi lại nguyên văn.", "Bearer = ai cầm cũng dùng được; không có TLS thì token đi dạng rõ trên mạng, ai bắt được là dùng được.", "5 phút là quá đủ để chạy script gọi API hàng trăm lần; hạn ngắn chỉ giới hạn, không loại bỏ thiệt hại.", "JWS không mã hóa gì cả, payload chỉ là Base64url; và token không được mã hóa bằng key của API."],
+    explain: "Bearer token luôn phải đi qua TLS. Xem <a href='m02-5-http-auth.html#bearer'>Bearer token</a>." },
+  { q: "hr-api trả <code>401</code> + <code>WWW-Authenticate: Bearer error=\"invalid_token\", error_description=\"The audience 'account' is invalid\"</code>. Dev cho hr-web refresh token rồi gọi lại, vẫn 401. Vì sao, và cần làm gì?",
+    options: ["Token mới vẫn được cấp với cùng cấu hình nên vẫn <code>aud: account</code>; phải cấu hình audience (vd. audience mapper/client scope) ở Keycloak", "Keycloak đang lỗi, chờ vài phút rồi thử lại", "Phải đổi hr-api sang trả 403 cho đúng", "Xóa cookie trình duyệt là hết"],
+    answer: 0,
+    why: ["Refresh chỉ chữa token hết hạn; lỗi audience nằm ở cấu hình cấp token, refresh bao nhiêu lần cũng ra token sai <code>aud</code>.", "<code>error_description</code> đã nói rõ nguyên nhân là audience, không phải sự cố tạm thời.", "Sai audience là token không hợp lệ với hr-api → 401 là đúng; 403 dành cho token hợp lệ nhưng thiếu quyền.", "Cookie không liên quan đến <code>aud</code> trong access token; token mới vẫn sai như cũ."],
+    explain: "Đọc <code>WWW-Authenticate</code> trước khi đoán. Xem <a href='m02-5-http-auth.html#www-authenticate'>WWW-Authenticate</a>." },
+  { q: "Theo RFC 6750, những cặp “tình huống → response” nào đúng?",
+    options: ["Request không gửi token → <code>401</code> + <code>WWW-Authenticate: Bearer realm=\"hr-api\"</code> (không có mã lỗi)", "Token hết hạn → <code>401</code> + <code>error=\"invalid_token\"</code>", "Token hợp lệ nhưng thiếu scope <code>hr.write</code> → <code>401</code> + <code>error=\"insufficient_scope\"</code>", "Gửi token đồng thời ở header và query string → <code>400</code> + <code>error=\"invalid_request\"</code>"],
+    answer: [0, 1, 3],
+    why: ["Khi request không có thông tin xác thực, RFC 6750 khuyến nghị không kèm mã lỗi, chỉ báo scheme và realm.", "Token hết hạn là token không hợp lệ → 401 <code>invalid_token</code>, client nên refresh.", "Mã lỗi đúng nhưng status sai: <code>insufficient_scope</code> đi với 403, vì server tin token chỉ là quyền không đủ.", "Gửi credential bằng nhiều cách cùng lúc là request sai định dạng → 400 <code>invalid_request</code>."],
+    explain: "Xem bảng mã lỗi ở <a href='m02-5-http-auth.html#www-authenticate'>mục WWW-Authenticate</a>." },
+  { q: "Team xây API key 256 bit ngẫu nhiên (CSPRNG) cho đối tác. Cách lưu ở server nào hợp lý nhất?",
+    options: ["Lưu nguyên văn key để so sánh cho nhanh", "Lưu SHA-256 của key, khi có request thì băm key nhận được và so sánh constant-time", "Bắt buộc dùng Argon2id/bcrypt vì SHA-256 quá nhanh, không đủ an toàn", "Mã hóa key bằng AES để hiện lại cho đối tác khi họ quên"],
+    answer: 1,
+    why: ["Lộ DB là lộ toàn bộ key dùng được ngay.", "Key 256 bit ngẫu nhiên không thể brute-force dù hash nhanh, nên SHA-256 là đủ; so sánh constant-time chống đoán qua thời gian phản hồi.", "Nhầm với mật khẩu: thuật toán chậm cần cho input entropy thấp; với key 256 bit ngẫu nhiên nó chỉ làm chậm mọi request mà không thêm an toàn đáng kể.", "Key nên chỉ hiển thị một lần; lưu dạng giải mã được thì lộ AES key là lộ mọi API key. Quên thì cấp key mới."],
+    explain: "Điểm mấu chốt là entropy của input. Xem <a href='m02-5-http-auth.html#api-key'>API key</a>." },
+  { q: "<code>payroll-batch</code> chạy mỗi đêm, xuất bảng lương từ hr-api, không có người dùng nào ngồi trước máy. Cần token ngắn hạn, có <code>scope=payroll:export</code> và audit được. Chọn cách nào?",
+    options: ["API key dài hạn trong header <code>X-API-Key</code>", "Basic với username/password của An", "OAuth Client Credentials: batch tự xin access token từ Keycloak, gửi Bearer tới hr-api", "Dùng ID token lấy từ lần An đăng nhập gần nhất"],
+    answer: 2,
+    why: ["API key sống lâu, không có scope/audience chuẩn hóa; không đáp ứng yêu cầu token ngắn hạn có scope.", "Dùng tài khoản của một người cho service là sai danh tính, lộ mật khẩu thật, và audit sẽ ghi nhầm là An.", "Client Credentials dành cho service-to-service: token ngắn hạn có <code>aud</code>/<code>scope</code>, secret chỉ gửi tới AS.", "ID token không dùng gọi API, và batch chạy đêm không có phiên đăng nhập của người dùng."],
+    explain: "Xem <a href='m02-5-http-auth.html#auth-scheme-compare'>bảng so sánh 4 cách</a>." }
+];
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="assets/pages.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

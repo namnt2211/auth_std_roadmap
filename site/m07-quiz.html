@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M07 · Ôn tập &amp; Quiz</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<main class="content">
+
+<div class="page-head">
+  <div class="breadcrumb"><a href="index.html">Lộ trình</a> / <a href="m07-architecture.html">Module 07</a> / Ôn tập</div>
+  <h1>Module 07 — Ôn tập &amp; Quiz</h1>
+  <p class="lead">Ôn lại Module 07 trước khi làm quiz: các hiểu lầm hay gặp, bảng tóm tắt token nằm ở đâu theo từng kiến trúc, deliverables và câu hỏi tự luận. Làm sau khi học xong các bài; đạt ≥ 80% quiz để đánh dấu hoàn thành module.</p>
+  <div class="meta-row">
+    <span class="chip">⏱ ~15 phút</span>
+    <span class="chip">📘 <a href="m07-architecture.html">Module 07 · Architecture &amp; Practical Cases</a></span>
+  </div>
+</div>
+
+<h2 id="hieu-lam">Các hiểu lầm cần tránh</h2>
+<p>Chi tiết và ví dụ nằm ngay dưới từng phần trong bài; đây là bản tóm tắt để ôn nhanh.</p>
+<ul>
+<li><b>Hiểu lầm:</b> nhúng client secret vào WPF rồi obfuscate là an toàn → <b>Thực tế:</b> mọi thứ trong app phân phối đều trích xuất được; dùng public client + PKCE (<a href='m07-2-native-s2s.html#desktop'>xem bài</a>).</li>
+<li><b>Hiểu lầm:</b> bật CORS đúng là API đã được bảo vệ → <b>Thực tế:</b> CORS là luật của browser về đọc response, không chặn curl/Postman; API vẫn phải kiểm tra token (<a href='m07-1-design-web.html#cors'>xem bài</a>).</li>
+<li><b>Hiểu lầm:</b> dùng BFF thì hết lo CSRF và XSS → <b>Thực tế:</b> browser cầm cookie nên phải chống CSRF; XSS vẫn gọi API qua BFF khi tab đang mở (<a href='m07-1-design-web.html#bff'>xem bài</a>).</li>
+<li><b>Hiểu lầm:</b> dùng WebView trong app để login cho “mượt” → <b>Thực tế:</b> RFC 8252: native app MUST NOT dùng embedded user-agent; app đọc được mật khẩu, mất SSO; dùng system browser/broker (<a href='m07-2-native-s2s.html#desktop'>xem bài</a>).</li>
+<li><b>Hiểu lầm:</b> có mTLS rồi thì không cần authorization → <b>Thực tế:</b> mTLS chỉ cho biết service nào đang gọi; quyền vẫn phải kiểm tra (<a href='m07-2-native-s2s.html#s2s'>xem bài</a>).</li>
+<li><b>Hiểu lầm:</b> một client credential cho tất cả microservice → <b>Thực tế:</b> mất một là mất hết, không phân quyền, không audit được; mỗi service một identity (<a href='m07-2-native-s2s.html#s2s'>xem bài</a>).</li>
+<li><b>Hiểu lầm:</b> API gateway đã kiểm tra token thì service phía sau khỏi kiểm tra → <b>Thực tế:</b> ai trong mạng nội bộ gọi thẳng service được; service giữ dữ liệu tự kiểm tra token và quyền (<a href='m07-2-native-s2s.html#gateway-vs-service'>xem bài</a>).</li>
+<li><b>Hiểu lầm:</b> khóa tài khoản ở IdP là nhân viên mất quyền ngay → <b>Thực tế:</b> session và token đã cấp vẫn sống; cần revoke, token ngắn hạn, SCIM, CAE (<a href='m07-3-provisioning-wpf.html#provisioning'>xem bài</a>).</li>
+<li><b>Hiểu lầm:</b> dùng JIT provisioning thì người nghỉ việc tự bị khóa trong app → <b>Thực tế:</b> JIT chỉ tạo account lúc đăng nhập lần đầu, app không được báo khi user nghỉ; cần SCIM hoặc deprovisioning riêng (<a href='m07-3-provisioning-wpf.html#provisioning'>xem bài</a>).</li>
+<li><b>Hiểu lầm:</b> gặp 401 “audience is invalid” thì tắt kiểm tra audience → <b>Thực tế:</b> API sẽ nhận cả token của API khác và ID token; sửa phía xin/phát token (<a href='m07-4-cases-troubleshooting.html#similar-errors'>xem bài</a>).</li>
+</ul>
+
+<h2 id="tom-tat">Tóm tắt nhanh</h2>
+<ul>
+<li>Thiết kế bắt đầu từ <b>10 câu hỏi</b>: subject, client, resource, federation, MFA, delegated access, lưu token, nơi phân quyền, vòng đời account, sự cố.</li>
+<li><b>Server-side web</b>: OIDC code flow, confidential client, cookie session + CSRF.</li>
+<li><b>SPA</b>: code + PKCE; dữ liệu nhạy cảm → <b>BFF</b> (RFC 10017). <b>CORS không phải authN/authZ</b>.</li>
+<li><b>Desktop/mobile</b>: public client, code + PKCE, <b>system browser</b> (RFC 8252), token trong secure OS storage (DPAPI/Keychain/Keystore).</li>
+<li><b>Service-to-service</b>: Client Credentials hoặc workload identity, mỗi service một identity; mTLS bổ sung, không thay authorization.</li>
+<li><b>Enterprise network</b>: AD + Kerberos, LDAPS, RADIUS, SAML/OIDC federation, FIDO2.</li>
+<li><b>Offboarding</b> = vô hiệu hóa ở IdP + SCIM + revoke session/refresh token + access token ngắn hạn (+ CAE).</li>
+<li><b>WPF + API</b>: WPF lấy token qua browser; API tự xác minh token và tự phân quyền; không tin role từ UI.</li>
+<li>Troubleshooting: đọc <code>WWW-Authenticate</code> + log; 401 → kiểm tra token (exp, aud, iss, chữ ký); 403 → kiểm tra scope, claim type, policy.</li>
+<li>Không có giao thức tốt nhất — chọn theo use case bằng <b>decision matrix</b>.</li>
+</ul>
+<div class="compare"><span class="compare-title">Ôn nhanh: mỗi kiến trúc — token nằm ở đâu, ai giữ secret, redirect kiểu gì</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Kiến trúc</th><th>Loại client</th><th>Token nằm ở đâu</th><th>Redirect / cách lấy token</th></tr></thead>
+<tbody>
+<tr><td>Server-side web</td><td>Confidential</td><td>Server; browser cầm cookie</td><td>HTTPS callback của web app</td></tr>
+<tr><td>SPA thuần</td><td>Public</td><td>Browser (memory)</td><td>HTTPS callback của SPA, PKCE</td></tr>
+<tr><td>SPA + BFF</td><td>Confidential (BFF)</td><td>BFF; browser cầm cookie</td><td>HTTPS callback của BFF</td></tr>
+<tr><td>Desktop</td><td>Public</td><td>Máy người dùng, mã hóa (DPAPI/MSAL cache)</td><td>Loopback <code>127.0.0.1</code>, system browser, PKCE</td></tr>
+<tr><td>Mobile</td><td>Public</td><td>Keychain / Keystore</td><td>Claimed HTTPS link (hoặc custom scheme), PKCE</td></tr>
+<tr><td>Service-to-service</td><td>Confidential</td><td>Bộ nhớ của service (cache)</td><td>Không redirect: Client Credentials / workload identity</td></tr>
+</tbody></table></div>
+<span class="rule">Code chạy trên máy người dùng → public client + PKCE. Code chạy trên server của bạn → confidential client.</span>
+</div>
+
+<!-- ===================================================== -->
+<h2 id="output">Output / Deliverables</h2>
+<ul class="checklist">
+<li><span><b>Decision matrix</b> chọn OIDC, SAML, Kerberos, FIDO2, RADIUS, API key theo use case, gộp so sánh OIDC vs SAML (M04) và use case enterprise (M05) — xem <a href="m07-5-decision-matrix.html#decision-matrix">G</a>. <span class="badge core">Core</span></span></li>
+<li><span><b>Architecture diagram</b> cho Web hoặc Desktop + API (dựa trên repo Lab), kèm sequence login và gọi API — xem <a href="m07-3-provisioning-wpf.html#wpf-example">D</a>. <span class="badge core">Core</span></span></li>
+<li><span><b>Troubleshooting guide</b> ≥ 10 lỗi thường gặp, xây từ bảng lỗi ở Lab — xem <a href="m07-4-cases-troubleshooting.html#troubleshooting-table">F</a>.</span></li>
+<li><span><b>Bổ sung checklist master</b> (M06) các mục kiến trúc: BFF, CORS, mTLS, key rotation, secret management — xem <a href="m07-5-decision-matrix.html#arch-checklist">G.4</a>.</span></li>
+</ul>
+<p class="small muted">Slide/bài trình bày không thuộc deliverable của module này; thời gian chuẩn bị tính riêng (xem <a href="appendix-2-resources.html#sharing">Phụ lục — chuẩn bị chia sẻ</a>).</p>
+
+<h2 id="knowledge-check">Knowledge Check (tự luận)</h2>
+<details><summary>Chọn flow nào cho WPF desktop app? Vì sao?</summary>
+<p><b>Authorization Code + PKCE</b> qua <b>system browser</b> với redirect loopback (RFC 8252). WPF là public client nên không giữ được secret; PKCE bảo vệ authorization code khỏi bị chặn và dùng lại. System browser giúp app không chạm vào mật khẩu, hỗ trợ MFA/passkey và SSO sẵn có.</p></details>
+<details><summary>Có nên nhúng client secret vào WPF không?</summary>
+<p>Không. Assembly .NET dịch ngược rất dễ; secret nhúng là “bí mật” chung của mọi bản cài, không chứng minh được gì và một khi lộ thì phải đổi cho tất cả. Đăng ký WPF là public client, dùng PKCE.</p></details>
+<details><summary>Vì sao API không nên nhận ID token làm access token?</summary>
+<p>ID token dành cho <b>client</b> (<code>aud</code> = client_id), mô tả sự kiện đăng nhập, không mang scope cho API. Nhận ID token nghĩa là API chấp nhận token phát hành cho bên khác — bất kỳ client nào có ID token của user đều gọi được API. API phải nhận access token có <code>aud</code> là chính nó.</p></details>
+<details><summary>Khi nào dùng SAML thay vì OIDC?</summary>
+<p>Khi ứng dụng/SaaS chỉ hỗ trợ SAML, khi IdP hoặc đối tác federation yêu cầu SAML, hoặc khi tổ chức đã có hạ tầng SAML ổn định. Với app mới, mobile, SPA hoặc cần gọi API, OIDC/OAuth phù hợp hơn.</p></details>
+<details><summary>Khi nào Kerberos phù hợp hơn OIDC?</summary>
+<p>Trong mạng nội bộ Windows domain: máy domain-joined, file share, app nội bộ dùng Windows Integrated Authentication — người dùng đã có TGT khi đăng nhập máy nên SSO trong suốt, không cần browser redirect. Kerberos không phù hợp cho client ngoài domain/Internet hoặc mobile.</p></details>
+<details><summary>mTLS có thay thế authorization không?</summary>
+<p>Không. mTLS xác thực hai đầu kết nối (service nào đang gọi). Authorization vẫn phải quyết định service đó được làm gì (scope/permission) và, nếu thay mặt user, user đó có quyền gì.</p></details>
+<details><summary>Nếu token hợp lệ nhưng user không có quyền xem resource thì API trả gì?</summary>
+<p><code>403 Forbidden</code> — hoặc <code>404 Not Found</code> nếu chính sách là không lộ sự tồn tại của resource. Không trả 401 (token hợp lệ, xác thực lại không giải quyết được gì).</p></details>
+<details><summary>Làm thế nào để thu hồi quyền khi nhân viên nghỉ việc?</summary>
+<p>Vô hiệu hóa ở nguồn danh tính/IdP; thu hồi refresh token và phiên SSO; SCIM đẩy <code>active=false</code> tới các app; access token ngắn hạn để token còn lại hết hạn nhanh; dùng CAE/introspection nếu có; thu hồi thiết bị, API key, certificate, passkey; rotate shared secret; kiểm tra audit log.</p></details>
+
+<div class="callout tip"><span class="callout-title">✅ Tiêu chí hoàn thành</span>
+Có thể trình bày kiến trúc, bảo vệ lựa chọn giao thức, giải thích trust boundary và trả lời các câu hỏi thiết kế phổ biến.</div>
+
+<h2 id="quiz">Quiz trắc nghiệm</h2>
+<div id="quiz"></div>
+
+</main>
+<script>
+window.QUIZ = [
+  { q: "Team xây app WPF gọi Order API thay mặt nhân viên. Flow nào phù hợp nhất?",
+    options: ["Client Credentials với secret nhúng trong app", "ROPC: app tự nhận username/password rồi gửi lên IdP", "Implicit flow trong WebView", "Authorization Code + PKCE qua system browser, redirect loopback"],
+    answer: 3,
+    why: ["Client Credentials không có user nên API không biết nhân viên nào đang thao tác, và secret nhúng trong WPF trích xuất được.", "ROPC cho app chạm vào mật khẩu, không hỗ trợ MFA/passkey/SSO tốt và đã bị loại bỏ trong OAuth 2.1.", "Implicit flow trả token trên URL (đã bị loại bỏ), còn WebView nhúng bị RFC 8252 cấm cho authorization request.", "WPF là public client gọi API thay user: code + PKCE thay cho secret, system browser giữ mật khẩu ngoài tầm app, loopback nhận code."],
+    explain: "WPF là public client gọi API thay user → code + PKCE, system browser (RFC 8252). Client Credentials không có user; ROPC/Implicit đã không khuyến nghị." },
+  { q: "Vì sao RFC 8252 cấm native app dùng embedded WebView cho authorization request?",
+    options: ["App nhúng có thể đọc/ghi lại credential người dùng gõ, người dùng không thấy URL thật và không dùng lại được phiên SSO của browser", "WebView chạy chậm", "WebView không hỗ trợ HTTPS", "Vì WebView không hỗ trợ JSON"],
+    answer: 0,
+    why: ["App kiểm soát WebView nhúng nên đọc được thông tin người dùng gõ; người dùng không thấy URL thật để kiểm tra, và WebView không dùng chung phiên SSO của browser.", "Tốc độ không phải lý do; RFC 8252 cấm vì bảo mật và niềm tin của người dùng.", "WebView vẫn tải trang qua HTTPS bình thường; vấn đề là app nằm giữa người dùng và IdP.", "JSON không liên quan; trang đăng nhập là HTML, và WebView xử lý JSON được."],
+    explain: "RFC 8252 §8.12: native apps MUST NOT use embedded user-agents — lý do bảo mật và tin cậy." },
+  { q: "Redirect URI nào được RFC 8252 khuyến nghị cho desktop app dùng loopback?",
+    options: ["<code>http://localhost/callback</code> với port cố định", "<code>https://app.example.com/callback</code> chạy trên server công ty", "<code>http://127.0.0.1:{port}/</code> với port chọn lúc chạy", "<code>file:///callback</code>"],
+    answer: 2,
+    why: ["RFC 8252 §8.3 xếp <code>localhost</code> là NOT RECOMMENDED (có thể bị phân giải sai/bị firewall chặn), và port cố định dễ xung đột với app khác.", "Code về server công ty thì app desktop không nhận được trực tiếp; đây là redirect của web app, không phải của native app.", "IP literal loopback + port chọn lúc chạy: request không rời khỏi máy, và AS phải chấp nhận port bất kỳ (§7.3).", "<code>file://</code> không phải redirect URI hợp lệ cho native app; browser không “gọi” được vào app qua nó."],
+    explain: "§7.3: dùng IP literal loopback, AS chấp nhận port bất kỳ tại thời điểm request. §8.3: <code>localhost</code> là NOT RECOMMENDED. (Một số IdP như Entra/MSAL có quy ước riêng.)" },
+  { q: "Trên Windows, cách nào phù hợp để lưu refresh token của app WPF? (chọn nhiều)",
+    options: ["DPAPI (<code>ProtectedData</code>, scope CurrentUser)", "MSAL token cache qua <code>Microsoft.Identity.Client.Extensions.Msal</code>", "File <code>tokens.json</code> trong thư mục cài đặt", "Windows Credential Manager"],
+    answer: [0, 1, 3],
+    why: ["DPAPI scope CurrentUser mã hóa bằng khóa gắn với tài khoản Windows, chép file sang máy khác không giải mã được.", "MSAL cache helper mã hóa bằng DPAPI trên Windows và là cách Microsoft khuyến nghị cho desktop dùng MSAL.", "File plaintext trong thư mục cài đặt: ai đọc được ổ đĩa (backup, malware, máy dùng chung) là lấy được refresh token.", "Credential Manager là kho credential của Windows, bảo vệ theo user; hợp với refresh token (lưu ý giới hạn kích thước)."],
+    explain: "Dùng cơ chế bảo vệ của OS. File plaintext ai đọc được ổ đĩa là lấy được token." },
+  { q: "SPA xử lý dữ liệu tài chính nhạy cảm. Theo RFC 10017, pattern nào an toàn nhất?",
+    options: ["Browser-based OAuth client lưu token trong localStorage", "Token-mediating backend", "BFF: token ở server, browser chỉ có cookie phiên", "Implicit flow"],
+    answer: 2,
+    why: ["Đây là pattern kém an toàn nhất, và <code>localStorage</code> đọc được bởi bất kỳ script XSS nào.", "Token-mediating backend giữ refresh token ở server nhưng vẫn đưa access token vào browser, nên XSS vẫn lấy được access token.", "BFF giữ mọi token ở server, browser chỉ cầm cookie HttpOnly — XSS không đánh cắp được token để dùng lâu dài.", "Implicit flow trả token trên URL fragment và đã bị loại bỏ trong OAuth 2.1/RFC 9700."],
+    explain: "RFC 10017 xếp BFF an toàn nhất vì token không bao giờ vào browser." },
+  { q: "Dùng BFF với session cookie thì cần thêm biện pháp gì?",
+    options: ["Không cần gì thêm", "Chống CSRF (custom header / antiforgery) và cookie HttpOnly, Secure, SameSite", "Lưu thêm access token trong localStorage để dự phòng", "Tắt CORS hoàn toàn"],
+    answer: 1,
+    why: ["Cookie được browser tự gửi kèm request, nên trang lạ có thể lợi dụng nó (CSRF) nếu BFF không có biện pháp chống.", "Cookie HttpOnly/Secure/SameSite giảm rủi ro đánh cắp, còn custom header/antiforgery chặn request giả mạo từ trang khác — RFC 10017 yêu cầu BFF chống CSRF.", "Đưa access token vào localStorage phá hỏng chính lợi ích của BFF: XSS lại đọc được token.", "CORS không phải biện pháp bảo mật của server; “tắt CORS” không chống được CSRF, và form POST đơn giản vẫn được gửi."],
+    explain: "Cookie tự động gửi → phải chống CSRF. RFC 10017 yêu cầu BFF có CSRF defense." },
+  { q: "Phát biểu nào đúng về CORS?",
+    options: ["CORS xác thực người gọi API", "Cấu hình CORS đúng thì không cần kiểm tra token", "CORS chặn được curl/Postman", "CORS là luật của browser về việc trang được đọc response cross-origin; không phải authentication/authorization"],
+    answer: 3,
+    why: ["CORS không hề kiểm tra người gọi là ai; nó chỉ là header server gửi để browser quyết định cho trang đọc response.", "CORS không thay việc xác minh token; client ngoài browser gọi thẳng API bất kể CORS.", "curl/Postman không phải browser nên không áp dụng CORS.", "Đúng định nghĩa: CORS nới lỏng Same-Origin Policy của browser cho việc đọc response, không phải authN/authZ."],
+    explain: "Client ngoài browser bỏ qua CORS. API vẫn phải xác minh token và phân quyền." },
+  { q: "Microservice <code>reporting</code> gọi Order API mà không có user. Thiết kế nào tốt nhất?",
+    options: ["Client Credentials hoặc workload identity với identity riêng cho reporting, scope tối thiểu", "Dùng tài khoản nhân viên của admin", "Một client secret chung cho mọi microservice", "Không cần xác thực vì nằm trong mạng nội bộ"],
+    answer: 0,
+    why: ["Không có user thì dùng Client Credentials hoặc workload identity; identity riêng + scope tối thiểu giúp phân quyền và audit được.", "Tài khoản người dùng gắn với một nhân viên: họ nghỉ việc hoặc đổi mật khẩu là job hỏng, và log ghi sai chủ thể.", "Credential chung: lộ một là lộ hết, không phân quyền và không audit được từng service.", "Mạng nội bộ không phải trust boundary đủ tin cậy; ai vào được mạng là gọi được API."],
+    explain: "Mỗi service một identity, least privilege; mạng nội bộ không phải trust boundary đủ tin cậy." },
+  { q: "Đã bật mTLS giữa các service. Phát biểu nào đúng?",
+    options: ["Không cần kiểm tra scope nữa", "mTLS thay thế OAuth hoàn toàn", "mTLS xác thực kết nối; API vẫn phải phân quyền theo scope/permission", "mTLS chỉ dùng cho browser"],
+    answer: 2,
+    why: ["mTLS chỉ biết service nào kết nối; service đó được làm gì vẫn phải kiểm tra bằng scope/permission.", "mTLS xác thực tầng kết nối; OAuth vẫn cần để cấp quyền có phạm vi (và có thể kết hợp: certificate-bound token, RFC 8705).", "Đúng: mTLS xác thực hai đầu kết nối, authorization vẫn là việc của API.", "mTLS chủ yếu dùng giữa service với service; browser hiếm khi dùng client certificate."],
+    explain: "mTLS trả lời “ai đang gọi”, không trả lời “được làm gì”." },
+  { q: "Nhân viên nghỉ việc, IT vô hiệu hóa account ở IdP. 30 phút sau người đó vẫn dùng app được. Nguyên nhân khả dĩ? (chọn nhiều)",
+    options: ["Session cookie của app vẫn còn hiệu lực", "Refresh token chưa bị thu hồi nên vẫn đổi được access token", "App dùng JIT provisioning nên không biết user đã nghỉ", "Mật khẩu chưa bị đổi"],
+    answer: [0, 1, 2],
+    why: ["Cookie phiên của app tách khỏi phiên IdP; không revoke/back-channel logout thì nó sống đến khi hết hạn.", "Nếu refresh token chưa bị thu hồi, app vẫn đổi được access token mới mà không cần đăng nhập lại.", "Với JIT, app không được báo khi user nghỉ nên account trong app vẫn active.", "Đổi mật khẩu không làm mất hiệu lực session/token đã cấp; và account đã bị vô hiệu hóa thì mật khẩu cũng không dùng để đăng nhập mới được."],
+    explain: "Vô hiệu hóa ở IdP chỉ chặn đăng nhập mới. Cần revoke session/refresh token, SCIM, token ngắn hạn, CAE." },
+  { q: "SCIM request nào vô hiệu hóa user theo RFC 7644?",
+    options: ["<code>DELETE /oauth/token</code>", "<code>POST /logout</code>", "<code>GET /Users?active=false</code>", "<code>PATCH /Users/{id}</code> với PatchOp <code>replace active=false</code>"],
+    answer: 3,
+    why: ["<code>/oauth/token</code> là endpoint của OAuth, không thuộc SCIM; và token endpoint không nhận DELETE để khóa user.", "Logout kết thúc một phiên, không vô hiệu hóa account trong app.", "GET chỉ truy vấn (lọc user đang inactive), không thay đổi gì.", "RFC 7644 §3.5.2: PATCH với PatchOp <code>replace</code> thuộc tính <code>active</code> thành <code>false</code>."],
+    explain: "SCIM dùng PATCH với schema <code>urn:ietf:params:scim:api:messages:2.0:PatchOp</code>." },
+  { q: "JIT provisioning khác SCIM ở điểm quan trọng nào?",
+    options: ["JIT nhanh hơn trong offboarding", "JIT tạo account khi user đăng nhập lần đầu nhưng app không biết khi user nghỉ việc; SCIM để IdP chủ động đẩy tạo/cập nhật/vô hiệu hóa", "SCIM chỉ dùng cho SAML", "JIT là chuẩn RFC 7644"],
+    answer: 1,
+    why: ["Ngược lại: JIT không có cơ chế deprovisioning, nên offboarding chậm hơn.", "JIT dựa vào lần đăng nhập; SCIM để IdP chủ động đẩy cả thay đổi và vô hiệu hóa.", "SCIM là API REST độc lập với giao thức SSO, dùng được với cả SAML lẫn OIDC.", "RFC 7644 là SCIM protocol; JIT không có chuẩn riêng."],
+    explain: "Điểm yếu lớn của JIT là deprovisioning." },
+  { q: "API nhận token có chữ ký hợp lệ nhưng <code>aud</code> = <code>wpf-client</code> và có claim <code>nonce</code>. API nên làm gì?",
+    options: ["Từ chối (401): đây là ID token, không phải access token cho API", "Chấp nhận vì chữ ký hợp lệ", "Trả 403", "Chuyển sang introspection để chấp nhận"],
+    answer: 0,
+    why: ["<code>aud</code> là client và có <code>nonce</code> → đây là ID token; token không dành cho API thì credential không hợp lệ → 401.", "Chữ ký chỉ chứng minh IdP phát hành, không chứng minh token dành cho API này.", "403 dành cho token hợp lệ nhưng thiếu quyền; ở đây token vốn không hợp lệ với API.", "Introspection không biến token của bên khác thành hợp lệ; API vẫn phải từ chối theo <code>aud</code>."],
+    explain: "<code>aud</code> = client_id và có <code>nonce</code> → ID token. API chỉ nhận access token có <code>aud</code> là chính nó." },
+  { q: "API ASP.NET Core trả 403 dù token có <code>roles: [\"Manager\"]</code>. <code>User.IsInRole(\"Manager\")</code> trả false. Kiểm tra gì trước?",
+    options: ["Đổi sang 401", "Tăng lifetime token", "RoleClaimType và claim mapping (MapInboundClaims, tên claim role thực tế trong token)", "Bật CORS"],
+    answer: 2,
+    why: ["Đổi mã lỗi không sửa được nguyên nhân; token hợp lệ thiếu quyền thì 403 là đúng.", "Token còn hạn (nếu hết hạn đã là 401); lifetime không liên quan tới việc đọc role.", "Role có trong token nhưng <code>IsInRole</code> tìm theo <code>RoleClaimType</code>; claim bị map lại hoặc nằm ở tên khác thì không khớp.", "CORS là chuyện của browser; request đã tới API và bị policy từ chối."],
+    explain: "Policy không khớp thường do claim type: role nằm ở claim khác tên hoặc bị map lại." },
+  { q: "Callback OIDC trên ASP.NET Core báo “Correlation failed”. Nguyên nhân thường gặp?",
+    options: ["Token hết hạn", "Cookie correlation/nonce không quay lại (chạy HTTP, SameSite, khác host giữa lúc đi và về)", "Sai audience", "Sai scope"],
+    answer: 1,
+    why: ["Lỗi xảy ra ở callback, trước khi token được dùng; token hết hạn có thông báo riêng.", "Handler lưu correlation/nonce trong cookie tạm; HTTP thay HTTPS, SameSite hoặc đổi host làm cookie không quay lại.", "Sai audience là lỗi khi API xác minh access token, không phải lỗi correlation lúc callback.", "Sai scope gây lỗi từ IdP (<code>invalid_scope</code>) hoặc 403 ở API, không gây “Correlation failed”."],
+    explain: "Handler cần cookie tạm để kiểm tra state/nonce; nếu cookie bị chặn hoặc host thay đổi, kiểm tra thất bại." },
+  { q: "SAML SP báo “Signature validation failed” sau một đêm, trước đó vẫn chạy. Khả năng cao nhất?",
+    options: ["User nhập sai mật khẩu", "CORS sai", "Thiếu PKCE", "IdP đã rollover signing certificate và SP chưa cập nhật metadata/cert"],
+    answer: 3,
+    why: ["Sai mật khẩu bị IdP chặn trước khi phát assertion; SP không thấy lỗi chữ ký.", "SAML Response được POST qua form, không liên quan CORS.", "PKCE là cơ chế OAuth, SAML không dùng.", "Chạy tốt rồi đột ngột lỗi chữ ký → cert ký đã đổi (rollover/hết hạn) mà SP còn giữ cert cũ."],
+    explain: "Theo dõi ngày hết hạn cert và đồng bộ metadata là một phần của key rotation." },
+  { q: "Trường hợp nào Kerberos phù hợp hơn OIDC?",
+    options: ["Mobile app trên Internet", "App nội bộ dùng Windows Integrated Authentication trên máy domain-joined", "SPA gọi API công khai", "Đối tác gọi API"],
+    answer: 1,
+    why: ["Điện thoại không domain-joined, không tới được KDC qua Internet → dùng OIDC.", "Máy domain-joined đã có TGT nên vào app IWA không cần redirect, không hỏi mật khẩu.", "SPA trên Internet cần access token OAuth; Kerberos không cấp loại token đó.", "Đối tác nằm ngoài domain của bạn; dùng API key hoặc Client Credentials."],
+    explain: "Kerberos cho SSO trong suốt trong Windows domain; không phù hợp client ngoài domain." },
+  { q: "Đối tác gọi API dữ liệu công khai, cần quota, ít nhạy cảm. Lựa chọn hợp lý? (chọn nhiều)",
+    options: ["API key gửi qua header, có rotation và revoke", "Client Credentials nếu cần scope và token ngắn hạn", "API key trong query string cho tiện", "Dùng tài khoản nhân viên của bạn chia sẻ cho đối tác"],
+    answer: [0, 1],
+    why: ["Dữ liệu ít nhạy cảm, cần quota → API key là đủ, miễn gửi qua header và có rotation/revoke.", "Khi cần scope hoặc token ngắn hạn, Client Credentials là lựa chọn mạnh hơn.", "Key trong URL bị ghi vào log, lịch sử, header Referer.", "Chia sẻ tài khoản người: không audit được, không thu hồi riêng được, vi phạm chính sách."],
+    explain: "API key/Client Credentials đều định danh ứng dụng. Không đưa key vào URL, không chia sẻ tài khoản người." },
+  { q: "Vì sao nên bật PKCE kể cả cho server-side web app (confidential client)?",
+    options: ["Vì PKCE chống authorization code injection; OAuth 2.1 và RFC 9700 khuyến nghị PKCE cho mọi client", "Vì không thể dùng client secret với web app", "Vì PKCE thay cho HTTPS", "Vì PKCE làm token ngắn hơn"],
+    answer: 0,
+    why: ["Secret chứng minh app nào đổi code; PKCE thêm việc gắn code với đúng phiên, chống code injection — nên được khuyến nghị cho mọi client.", "Web app server-side dùng client secret bình thường; PKCE bổ sung chứ không thay thế.", "PKCE không mã hóa gì trên đường truyền; HTTPS vẫn bắt buộc.", "PKCE không ảnh hưởng tới kích thước hay thời hạn token."],
+    explain: "PKCE gắn code với phiên đã khởi tạo nó, bổ sung cho client secret." },
+  { q: "Trong kiến trúc WPF + API, thành phần nào quyết định user có được duyệt đơn #1024?",
+    options: ["WPF app (ẩn nút Duyệt)", "IdP khi phát token", "Order API dựa trên token đã xác minh + policy + dữ liệu đơn", "System browser"],
+    answer: 2,
+    why: ["Ẩn nút chỉ là UX; ai có token cũng gọi thẳng API được.", "IdP xác thực user và cấp scope/role, nhưng không biết đơn #1024 thuộc ai hay đang ở trạng thái nào.", "API là nơi có token đã xác minh, policy và dữ liệu đơn để quyết định (resource-based + business rule).", "Browser chỉ là nơi người dùng đăng nhập, không tham gia quyết định quyền."],
+    explain: "Authorization ở API: scope/role từ token + resource-based + business rule. UI chỉ là UX." },
+  { q: "Trong hệ thống Kaopiz HR, thành phần nào <b>giữ được</b> client secret (hoặc khóa riêng) một cách có ý nghĩa? (chọn nhiều)",
+    tricky: true,
+    options: ["Backend của <code>hr-web</code> (Razor Pages)", "BFF đi kèm bản React", "App WPF chấm công, nếu secret được mã hóa DPAPI", "Bundle JS của SPA thuần", "Job <code>payroll-batch</code> chạy trên server (tốt hơn nữa là workload identity)"],
+    answer: [0, 1, 4],
+    why: ["Code chạy trên server công ty, secret đọc từ secret store → confidential client.", "BFF là backend; giữ secret thay SPA chính là lý do nó tồn tại.", "Bẫy: DPAPI chỉ bảo vệ dữ liệu sau khi đã ở trên máy; secret vẫn phải được phân phối tới mọi máy người dùng nên không còn là bí mật — WPF là public client.", "Mọi thứ trong bundle JS đều tải về browser, ai cũng đọc được.", "Service chạy trên hạ tầng bạn kiểm soát giữ được secret trong secret manager; workload identity còn bỏ được secret dài hạn."],
+    explain: "Quy tắc: code chạy trên máy người dùng → public client; code chạy trên server của bạn → confidential. Xem <a href='m07-1-design-web.html#web-spa-bff-compare'>so sánh web/SPA/BFF</a> và <a href='m07-2-native-s2s.html#desktop'>B.4 Desktop</a>." },
+  { q: "17:00 IT khóa An ở IdP; IdP revoke refresh token và gửi SCIM <code>active=false</code> tới <code>hr-web</code> (app xóa luôn session của An). Access token WPF của An cấp lúc 16:58, sống 10 phút; <code>hr-api</code> chỉ xác minh JWT, không có CAE. Lúc 17:05, việc nào An <b>vẫn làm được</b>? (chọn nhiều)",
+    tricky: true,
+    options: ["Mở trang bảng lương trên <code>hr-web</code> bằng tab đang đăng nhập", "Dùng WPF gọi thẳng <code>hr-api</code> xem danh sách đơn", "Đăng nhập SSO mới vào một app khác của công ty", "Dùng WPF tiếp tục bình thường tới 17:30 nhờ refresh token"],
+    answer: [1],
+    why: ["SCIM đã khiến <code>hr-web</code> khóa account và xóa session, nên cookie trong tab không còn dùng được.", "Bẫy: access token còn hạn tới 17:08, chữ ký/<code>aud</code>/<code>exp</code> vẫn hợp lệ và <code>hr-api</code> không hỏi IdP — SCIM gửi tới <code>hr-web</code> không giúp gì cho <code>hr-api</code>.", "Đăng nhập mới phải qua IdP, nơi An đã bị khóa.", "Refresh token đã bị revoke; lúc 17:08 WPF refresh sẽ nhận <code>invalid_grant</code>."],
+    explain: "Offboarding nhiều lớp: revoke + SCIM + access token ngắn + CAE/introspection nếu cần chặn tức thì. Xem <a href='m07-3-provisioning-wpf.html#provisioning'>C. Provisioning</a>." },
+  { q: "API gateway chỉ kiểm tra chữ ký và <code>exp</code>, quên kiểm tra <code>aud</code>. Các service phía sau tin gateway. Hệ quả nào đúng? (chọn nhiều)",
+    tricky: true,
+    options: ["ID token của <code>hr-web</code> (cùng IdP ký) gửi tới gateway sẽ được cho qua", "Không sao, vì chữ ký hợp lệ nghĩa là token dành cho hệ thống của mình", "Nếu <code>payroll-service</code> tự kiểm tra <code>aud</code> thì nó vẫn chặn được token sai đích", "CORS của gateway sẽ chặn các token này"],
+    answer: [0, 2],
+    why: ["ID token có chữ ký hợp lệ của cùng IdP và còn hạn; thiếu kiểm tra <code>aud</code> thì không gì phân biệt nó với access token.", "Bẫy: một IdP ký token cho rất nhiều client và API; chữ ký chỉ chứng minh ai phát hành, không chứng minh token dành cho ai.", "Đây là lý do service giữ dữ liệu vẫn tự kiểm tra: lớp phòng thủ thứ hai bắt được lỗi cấu hình của gateway.", "CORS không kiểm tra token, và request từ ngoài browser không bị CORS ảnh hưởng."],
+    explain: "Kết hợp ba bài: kiểm tra <code>aud</code> (<a href='m07-4-cases-troubleshooting.html#similar-errors'>7.4</a>), gateway không phải lớp duy nhất (<a href='m07-2-native-s2s.html#gateway-vs-service'>7.2</a>), CORS không phải authN (<a href='m07-1-design-web.html#cors'>7.1</a>)." }
+];
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="assets/pages.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M07 · Bài 7.4 · Case studies &amp; troubleshooting</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<main class="content">
+
+<div class="page-head">
+  <div class="breadcrumb"><a href="index.html">Lộ trình</a> / <a href="m07-architecture.html">Module 07</a> / Bài 7.4</div>
+  <h1>Bài 7.4 — Case studies &amp; troubleshooting</h1>
+  <p class="lead">Áp dụng kiến thức vào tình huống thật: với từng bài toán thì chọn giải pháp nào và vì sao. Sau đó học cách <b>đọc lỗi</b> — nhiều lỗi trông giống nhau (cùng là 401, cùng là “đăng nhập thất bại”) nhưng nguyên nhân và cách sửa khác hẳn.</p>
+  <div class="meta-row">
+    <span class="chip">⏱ ~25 phút</span>
+    <span class="chip">📘 <a href="m07-architecture.html">Module 07 · Architecture &amp; Practical Cases</a></span>
+  </div>
+</div>
+
+<!-- ===================================================== -->
+<h2 id="case-studies">E. Case studies</h2>
+<div class="terms"><span class="terms-title">📖 Thuật ngữ trong bài</span><dl>
+<dt>Case study</dt><dd>Một tình huống mẫu để luyện cách chọn giải pháp.</dd>
+<dt>Account linking</dt><dd>Gộp nhiều cách đăng nhập (Google, Microsoft, mật khẩu) vào cùng một tài khoản trong app.</dd>
+<dt><code>WWW-Authenticate</code></dt><dd>Header API gửi kèm lỗi 401, nói rõ vì sao token bị từ chối (<code>error</code>, <code>error_description</code>).</dd>
+<dt><code>iss</code> / <code>aud</code> / <code>exp</code></dt><dd>Claim trong token: ai phát hành / token dành cho API nào / hết hạn lúc nào.</dd>
+<dt>Clock skew</dt><dd>Độ lệch đồng hồ cho phép giữa các máy khi kiểm tra thời hạn token.</dd>
+<dt>JWKS</dt><dd>Danh sách public key của IdP, API dùng để kiểm tra chữ ký token.</dd>
+<dt><code>invalid_client</code> / <code>invalid_grant</code></dt><dd>Mã lỗi từ token endpoint: client không xác thực được / code hoặc refresh token không hợp lệ.</dd>
+<dt>ACS URL</dt><dd>Assertion Consumer Service: địa chỉ SP nhận SAML Response (giống redirect URI của OIDC).</dd>
+</dl></div>
+<p>Hai bảng dưới gom các bài toán hay gặp và lựa chọn thường dùng. Cách đọc: tìm dòng giống hệ thống của bạn, rồi đọc cột “Lý do” để hiểu <i>vì sao</i> — đừng chỉ nhớ đáp án.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Tình huống</th><th>Giải pháp thường cân nhắc</th><th>Lý do</th></tr></thead>
+<tbody>
+<tr><td>Nhân viên đăng nhập nhiều SaaS bằng tài khoản công ty</td><td>SAML hoặc OIDC federation</td><td>SSO giữa IdP và các ứng dụng</td></tr>
+<tr><td>SPA/native app gọi API thay mặt user</td><td>OIDC + Authorization Code + PKCE</td><td>Authentication và delegated API access</td></tr>
+<tr><td>Service gọi service không có user</td><td>OAuth Client Credentials hoặc workload identity</td><td>Machine identity</td></tr>
+<tr><td>Windows domain integrated authentication</td><td>Kerberos (AD)</td><td>Domain authentication</td></tr>
+<tr><td>Website muốn passwordless chống phishing</td><td>WebAuthn/FIDO2/Passkey</td><td>Public-key credential gắn với RP</td></tr>
+<tr><td>Wi-Fi/VPN enterprise authentication</td><td>RADIUS/EAP tùy kiến trúc</td><td>Network access control</td></tr>
+<tr><td>API cần phân quyền theo ownership và department</td><td>RBAC kết hợp ABAC/ReBAC</td><td>Role và context/resource relationship</td></tr>
+</tbody></table></div>
+<p><b>Case study bổ sung:</b></p>
+<div class="table-wrap"><table>
+<thead><tr><th>Tình huống</th><th>Giải pháp thường cân nhắc</th><th>Lý do</th></tr></thead>
+<tbody>
+<tr><td>Website B2C cho đăng nhập bằng Google/Microsoft</td><td>OIDC social login + bảng external login theo <code>iss</code> + <code>sub</code></td><td>Không phải tự quản lý mật khẩu; cần quy tắc account linking an toàn (<a href="m03-7-user-identity.html#account-linking">M03</a>)</td></tr>
+<tr><td>Đối tác gọi public API lấy dữ liệu, có quota</td><td>API key; hoặc Client Credentials nếu cần scope và token ngắn hạn</td><td>Định danh ứng dụng, metering đơn giản (<a href="m02-5-http-auth.html#api-key">M02</a>)</td></tr>
+<tr><td>Nhân viên nghỉ việc phải mất quyền ngay</td><td>SCIM + revoke session/refresh token + access token ngắn hạn</td><td>Offboarding không chỉ là chặn đăng nhập mới (<a href="m07-3-provisioning-wpf.html#provisioning">C</a>)</td></tr>
+</tbody></table></div>
+<p class="small muted">Các lựa chọn là hướng tham khảo; quyết định thực tế còn phụ thuộc IdP, hệ sinh thái, compliance và khả năng tương thích.</p>
+
+<h3 id="case-analysis">Phân tích sâu 3 case</h3>
+<details><summary>Case 1 — B2C social login: “email trùng thì gộp tài khoản” có ổn không?</summary>
+<p><b>Bối cảnh:</b> shop online cho đăng nhập bằng Google, Microsoft và mật khẩu riêng.</p>
+<ul>
+<li>Lưu bảng <code>ExternalLogins(Issuer, Subject, UserId)</code>. Khóa định danh là <code>iss</code> + <code>sub</code>; email chỉ là thuộc tính.</li>
+<li><b>Không</b> tự gộp chỉ vì email trùng: một IdP có thể cho phép email chưa xác minh; kẻ tấn công tạo account ở IdP B với email của nạn nhân → chiếm tài khoản (account takeover qua account linking).</li>
+<li>Gộp chỉ khi user <b>đã đăng nhập</b> bằng phương thức hiện có rồi chủ động “liên kết thêm”, hoặc email đã xác minh <i>và</i> IdP được tin cậy về email đó, kèm xác nhận.</li>
+<li>Flow: OIDC code + PKCE từ backend (confidential) hoặc BFF; session cookie cho shop.</li>
+</ul></details>
+<details><summary>Case 2 — Đối tác gọi API: API key hay Client Credentials?</summary>
+<ul>
+<li><b>API key</b>: đơn giản, phù hợp dữ liệu ít nhạy cảm, cần quota/metering. Nhược: thường dài hạn, không có scope chuẩn, không hết hạn tự động, dễ lộ qua log/repo. Bắt buộc: gửi qua header (không query string), hash khi lưu, có rotation và revoke, gắn với một đối tác.</li>
+<li><b>Client Credentials</b>: token ngắn hạn, có <code>scope</code>/<code>aud</code>, IdP quản lý vòng đời, có thể nâng cấp lên <code>private_key_jwt</code>/mTLS. Phù hợp khi dữ liệu nhạy cảm hoặc cần phân quyền theo scope.</li>
+<li>Cả hai đều <b>định danh ứng dụng</b>, không định danh người dùng. Nếu đối tác truy cập dữ liệu <i>thay mặt user</i> của bạn → cần Authorization Code (delegated) thay vì Client Credentials.</li>
+</ul></details>
+<details><summary>Case 3 — Nhân viên nghỉ việc lúc 17:00, phải mất quyền ngay</summary>
+<ol>
+<li>HR vô hiệu hóa ở nguồn (HRIS/AD) → IdP vô hiệu hóa user và <b>thu hồi refresh token/phiên SSO</b>.</li>
+<li>IdP gửi <b>SCIM PATCH <code>active=false</code></b> tới các app hỗ trợ SCIM → app khóa account, xóa session.</li>
+<li>App/API không hỗ trợ SCIM: dựa vào access token <b>ngắn hạn</b> (5–15 phút) và refresh token đã bị thu hồi.</li>
+<li>Nếu có CAE/introspection: API từ chối token ngay khi nhận sự kiện.</li>
+<li>Thu hồi credential khác: thiết bị (mất thiết bị → wipe), API key cá nhân, SSH key, chứng thư, passkey đăng ký; rotate shared secret mà người đó biết.</li>
+<li>Kiểm tra audit log các hoạt động gần thời điểm nghỉ.</li>
+</ol></details>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Đăng nhập Google mang email trùng với account cũ thì tự gộp vào account đó là tiện và an toàn.</span><span class="f-label">Thực tế</span><span>Email chỉ là thuộc tính, có IdP còn cho phép email chưa xác minh. Kẻ tấn công tạo account ở IdP khác với email của nạn nhân là chiếm được tài khoản. Khóa định danh là <code>iss</code> + <code>sub</code>; chỉ gộp khi user đã đăng nhập bằng cách cũ rồi chủ động liên kết.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Đối tác dùng Client Credentials thì API biết được người dùng nào bên đối tác đang thao tác.</span><span class="f-label">Thực tế</span><span>Client Credentials (và API key) chỉ định danh <i>ứng dụng</i> của đối tác; token không có user. Nếu đối tác truy cập dữ liệu <i>thay mặt user của bạn</i>, cần Authorization Code (delegated access).</span></div>
+
+<!-- ===================================================== -->
+<h2 id="troubleshooting">F. Troubleshooting <span class="badge should">Should</span></h2>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Khi cửa không mở, kiểm tra theo thứ tự: <b>có đưa thẻ không</b> → <b>thẻ thật không, đúng tòa nhà không, còn hạn không</b> (401) → <b>thẻ có quyền vào phòng này không</b> (403). Đừng đi sửa nội quy phòng (policy) khi vấn đề là thẻ đã hết hạn.</div>
+<div class="diagram">
+<pre class="mermaid">
+flowchart TD
+  S["API trả lỗi"] --> Q1{"Status code?"}
+  Q1 -- "401" --> A1{"Có header<br/>Authorization?"}
+  A1 -- "Không" --> F1["Client chưa gắn token,<br/>hoặc proxy/CORS preflight làm mất header"]
+  A1 -- "Có" --> A2{"WWW-Authenticate<br/>nói gì?"}
+  A2 -- "token expired" --> F2["Refresh token,<br/>kiểm tra clock skew"]
+  A2 -- "audience invalid" --> F3["Sai aud: xin token cho API này,<br/>hoặc đang gửi ID token"]
+  A2 -- "issuer / signature invalid" --> F4["Sai Authority/tenant,<br/>JWKS cũ, sai realm"]
+  Q1 -- "403" --> B1{"Token có scope<br/>API yêu cầu?"}
+  B1 -- "Không" --> G1["Xin thêm scope,<br/>cấu hình client ở IdP"]
+  B1 -- "Có" --> B2{"Policy đọc đúng<br/>claim type?"}
+  B2 -- "Không" --> G2["MapInboundClaims,<br/>RoleClaimType, scp vs scope"]
+  B2 -- "Có" --> G3["Resource / business rule<br/>từ chối: đúng hành vi?"]
+</pre>
+<div class="caption">Chẩn đoán 401/403. Luôn đọc header <code>WWW-Authenticate</code> và log của authentication handler trước.</div>
+</div>
+
+<h3 id="similar-errors">Các lỗi trông giống nhau nhưng khác nguyên nhân</h3>
+<p>Ba lỗi dưới đều là <code>401 Unauthorized</code>. Nếu chỉ nhìn status code, bạn sẽ đoán mò. Hãy đọc header <code>WWW-Authenticate</code> — ASP.NET Core (JwtBearer) ghi rõ lý do:</p>
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: 401 do hết hạn vs do sai <code>aud</code> vs do sai issuer</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Token hết hạn</th><th>Sai audience (<code>aud</code>)</th><th>Sai issuer (<code>iss</code>)</th></tr></thead>
+<tbody>
+<tr><td><code>error_description</code> thường gặp</td><td><code>The token expired at '…'</code></td><td><code>The audience '…' is invalid</code></td><td><code>The issuer '…' is invalid</code></td></tr>
+<tr><td>Đặc điểm</td><td>Trước đó chạy được, sau vài phút thì lỗi</td><td>Lỗi ngay từ request đầu tiên</td><td>Lỗi ngay; thường sau khi đổi môi trường/domain</td></tr>
+<tr><td>Nguyên nhân hay gặp</td><td>Client không refresh; đồng hồ máy lệch</td><td>Xin token cho API khác; gửi nhầm ID token; thiếu audience mapper</td><td><code>localhost</code> vs hostname thật; http vs https; sai realm/tenant; IdP sau reverse proxy</td></tr>
+<tr><td>Cách sửa</td><td>Refresh token; đồng bộ NTP</td><td>Xin token có <code>aud</code> = API này; <b>không</b> nới <code>ValidAudience</code></td><td>Sửa <code>Authority</code> hoặc cấu hình hostname của IdP cho khớp <code>iss</code></td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> An gọi <code>hr-api</code> và nhận 401. Decode token (vd bằng <a href="m02-3-token-jwt.html#jwt-widget">công cụ JWT ở M02</a>): <code>"aud": "hr-web"</code> → đây là ID token hoặc token xin cho <code>hr-web</code>, không phải cho <code>hr-api</code>. Nếu thay vào đó <code>"iss": "http://localhost:8080/realms/kaopiz"</code> trong khi <code>hr-api</code> cấu hình <code>https://sso.kaopiz.local/realms/kaopiz</code> → sai issuer: cùng realm nhưng khác URL vẫn là issuer khác.</p>
+<span class="rule">401 → decode token, so <code>exp</code>, <code>aud</code>, <code>iss</code> với cấu hình API trước khi sửa bất cứ thứ gì.</span>
+</div>
+<p>Lỗi ở bước đăng nhập (trước khi có token) cũng hay bị nhầm: </p>
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: <code>redirect_uri</code> mismatch vs <code>invalid_client</code></span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th><code>redirect_uri</code> không khớp</th><th><code>invalid_client</code></th></tr></thead>
+<tbody>
+<tr><td>Xảy ra ở bước nào</td><td><code>/authorize</code> — trong browser, trước khi người dùng đăng nhập</td><td><code>/token</code> — server/app đổi code lấy token (back-channel)</td></tr>
+<tr><td>Bạn thấy ở đâu</td><td>Trang lỗi của IdP (vd Keycloak: “Invalid parameter: redirect_uri”); IdP <b>không</b> redirect về app</td><td>Response JSON <code>{"error":"invalid_client"}</code> (thường HTTP 401) trong log của app</td></tr>
+<tr><td>Nguyên nhân</td><td>URI gửi đi khác URI đã đăng ký (scheme, host, port, path, dấu <code>/</code> cuối)</td><td>Sai <code>client_id</code>/secret, secret hết hạn, sai phương thức xác thực client (vd client là public nhưng app gửi secret, hoặc ngược lại)</td></tr>
+<tr><td>Sửa ở đâu</td><td>Danh sách Redirect URI của client ở IdP, hoặc cấu hình callback của app</td><td>Secret trong secret store; loại client (public/confidential) ở IdP</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> deploy <code>hr-web</code> lên server mới sau reverse proxy. Lỗi “Invalid parameter: redirect_uri” → app đang tạo <code>http://hr.kaopiz.local/signin-oidc</code> (http) trong khi đăng ký <code>https://…</code>. Còn nếu đăng nhập xong, quay về app rồi mới lỗi <code>invalid_client</code> → secret trên server mới chưa được cấu hình hoặc đã rotate.</p>
+<span class="rule">Lỗi trước khi thấy form đăng nhập → redirect_uri. Lỗi sau khi đăng nhập xong, lúc đổi code → client credentials (hoặc <code>invalid_grant</code>).</span>
+</div>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Gặp 401 “audience is invalid” thì tắt <code>ValidateAudience</code> (hoặc thêm audience lạ vào <code>ValidAudiences</code>) cho chạy.</span><span class="f-label">Thực tế</span><span>Làm vậy là API chấp nhận cả token phát cho API khác và ID token của mọi client. Sửa ở phía <b>xin token</b>: client xin đúng scope/resource, IdP có audience mapper để token mang <code>aud</code> của API này.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Thấy 401 thì đi sửa policy/role.</span><span class="f-label">Thực tế</span><span>401 là lỗi <b>xác thực</b> (token thiếu, hết hạn, sai <code>aud</code>/<code>iss</code>/chữ ký); policy và role thuộc về 403. Đọc <code>WWW-Authenticate</code> trước khi sửa.</span></div>
+
+<h3 id="troubleshooting-table">Bảng triệu chứng → kiểm tra → cách sửa (deliverable 3)</h3>
+<p>Bảng tra cứu 22 lỗi thường gặp, chia theo nhóm (OIDC, OAuth, Browser, .NET, SAML, API authZ). Cách dùng: tìm dòng có <b>triệu chứng</b> giống bạn đang thấy, làm theo cột <b>Kiểm tra</b> trước, chỉ sửa khi đã xác nhận nguyên nhân.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>#</th><th>Nhóm</th><th>Triệu chứng</th><th>Kiểm tra</th><th>Cách sửa</th></tr></thead>
+<tbody>
+<tr><td>1</td><td>OIDC</td><td>IdP báo <code>invalid redirect_uri</code> / “Invalid parameter: redirect_uri”</td><td>So sánh từng ký tự: scheme, host, port, path, dấu <code>/</code> cuối</td><td>Đăng ký redirect URI khớp tuyệt đối; loopback dùng IP literal + port động nếu IdP hỗ trợ</td></tr>
+<tr><td>2</td><td>OIDC</td><td>Callback lỗi “state mismatch” / “Correlation failed” (ASP.NET Core)</td><td><code>state</code> có được lưu và gửi lại? Cookie correlation có bị chặn (SameSite, HTTP thay vì HTTPS, đổi domain)?</td><td>Chạy HTTPS; cùng host giữa request và callback; không tắt kiểm tra state</td></tr>
+<tr><td>3</td><td>OIDC</td><td>Token endpoint trả <code>invalid_grant</code> khi đổi code</td><td>PKCE verifier có khớp challenge? Code đã dùng rồi/hết hạn? <code>redirect_uri</code> ở /token giống /authorize?</td><td>Giữ đúng verifier của phiên; không gửi code hai lần; đồng nhất redirect_uri</td></tr>
+<tr><td>4</td><td>OIDC</td><td>API: “issuer is invalid”</td><td><code>iss</code> trong token vs <code>Authority</code>; tenant/realm; <code>localhost</code> vs hostname; http vs https</td><td>Dùng đúng issuer/tenant; IdP sau reverse proxy phải cấu hình hostname đúng</td></tr>
+<tr><td>5</td><td>OAuth</td><td>401 “token expired”</td><td><code>exp</code> (decode token), giờ hệ thống</td><td>Refresh token; đồng bộ NTP; clock skew nhỏ (mặc định .NET 5 phút)</td></tr>
+<tr><td>6</td><td>OAuth</td><td>401 “audience is invalid”</td><td><code>aud</code> trong token vs <code>Audience</code> của API</td><td>Xin token cho đúng API (scope/resource, audience mapper trong Keycloak); không nới ValidAudience</td></tr>
+<tr><td>7</td><td>OAuth</td><td>401 “signature key not found” (<code>kid</code> không có)</td><td>JWKS URI truy cập được? IdP vừa rotate key? Token từ IdP/realm khác?</td><td>Để handler tự refresh metadata; mở firewall tới JWKS; đúng Authority</td></tr>
+<tr><td>8</td><td>OAuth</td><td>403 dù token hợp lệ</td><td>Decode token: có scope API yêu cầu? Policy dùng tên scope nào?</td><td>Client xin scope; cấp scope cho client ở IdP; khớp tên scope</td></tr>
+<tr><td>9</td><td>OAuth</td><td>Lỗi chập chờn “token not yet valid” / “expired” giữa các máy</td><td>Clock giữa IdP, API, client lệch?</td><td>NTP; không đặt clock skew quá lớn</td></tr>
+<tr><td>10</td><td>Browser</td><td>Console: “blocked by CORS policy”</td><td>Có phải lỗi authN không? Preflight OPTIONS có bị authentication middleware chặn?</td><td>Cấu hình CORS đúng origin; đặt <code>UseCors</code> trước authN/authZ; nhớ CORS ≠ authentication</td></tr>
+<tr><td>11</td><td>OAuth</td><td>API từ chối token dù chữ ký hợp lệ</td><td>Có gửi nhầm <b>ID token</b>? (<code>aud</code> = client_id, có <code>nonce</code>, không có scope)</td><td>Gửi access token; API kiểm tra <code>aud</code> và token type</td></tr>
+<tr><td>12</td><td>OAuth</td><td>401 không rõ lý do</td><td>Đọc header <code>WWW-Authenticate</code> (<code>error</code>, <code>error_description</code>) và log <code>Microsoft.AspNetCore.Authentication</code></td><td>Bật log Debug cho authentication trong môi trường dev</td></tr>
+<tr><td>13</td><td>.NET</td><td>Policy theo <code>sub</code>/<code>role</code> không khớp; <code>FindFirst("sub")</code> trả null</td><td>Claim bị đổi tên do inbound claim mapping (<code>sub</code> → <code>.../nameidentifier</code>)?</td><td><code>MapInboundClaims = false</code>; đặt <code>NameClaimType</code>/<code>RoleClaimType</code> đúng</td></tr>
+<tr><td>14</td><td>.NET</td><td><code>User.IsInRole("Manager")</code> luôn false</td><td>Role nằm ở claim nào? (Keycloak: <code>realm_access.roles</code> lồng JSON; Entra: <code>roles</code>)</td><td>Mapper ở IdP tạo claim phẳng, hoặc <code>IClaimsTransformation</code>; cấu hình <code>RoleClaimType</code></td></tr>
+<tr><td>15</td><td>SAML</td><td>IdP báo “unknown SP” / không tìm thấy relying party</td><td>Entity ID / metadata khớp?</td><td>Đồng bộ metadata, Entity ID chính xác (<a href="m04-1-saml-components.html#saml-components">M04</a>)</td></tr>
+<tr><td>16</td><td>SAML</td><td>Response bị từ chối: sai Destination/Recipient</td><td>ACS URL có đúng (http vs https, sau reverse proxy)?</td><td>Sửa ACS URL ở cả SP và IdP</td></tr>
+<tr><td>17</td><td>SAML</td><td>“Signature validation failed”</td><td>Certificate ký còn hiệu lực? IdP đã rollover cert? Trust config đúng cert?</td><td>Cập nhật cert/metadata; theo dõi ngày hết hạn (<a href="m04-4-security.html#saml-validation">M04</a>)</td></tr>
+<tr><td>18</td><td>SAML</td><td>Assertion “expired” / “not yet valid”</td><td>Conditions <code>NotBefore</code>/<code>NotOnOrAfter</code>; đồng hồ hệ thống</td><td>NTP; clock skew nhỏ</td></tr>
+<tr><td>19</td><td>SAML</td><td>“InResponseTo không khớp”</td><td>Response thuộc request khác/hết hạn? Flow IdP-initiated (không có InResponseTo)?</td><td>Lưu request ID; quyết định chính sách cho IdP-initiated (<a href="m04-3-flows-bindings.html#idp-initiated">M04</a>)</td></tr>
+<tr><td>20</td><td>API authZ</td><td>Mọi request đều 401 dù có token hợp lệ</td><td>Authentication middleware đã chạy? Thứ tự <code>UseAuthentication()</code> trước <code>UseAuthorization()</code>? Default scheme?</td><td>Đăng ký scheme và middleware đúng thứ tự; policy chỉ định đúng scheme</td></tr>
+<tr><td>21</td><td>API authZ</td><td>User đọc được đơn của người khác</td><td>Có kiểm tra ownership/business rule (BOLA)?</td><td>Resource-based authorization (<a href="m06-2-api-authz.html#idor-bola">M06</a>)</td></tr>
+<tr><td>22</td><td>API authZ</td><td>Trả 401 cho user thiếu quyền (hoặc 403 cho token hết hạn)</td><td>Nhầm 401 (chưa xác thực/credential không hợp lệ) với 403 (đủ xác thực, thiếu quyền)?</td><td>401 = authN; 403 = authZ (<a href="m06-2-api-authz.html#401-vs-403">M06</a>)</td></tr>
+</tbody></table></div>
+<p>Bảng này mở rộng từ bảng lỗi ở <a href="lab-quiz.html#error-table">Lab — error table</a>.</p>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Console báo “blocked by CORS policy” thì đặt <code>Access-Control-Allow-Origin: *</code> là xong.</span><span class="f-label">Thực tế</span><span>Thông báo CORS thường che lỗi thật: preflight <code>OPTIONS</code> bị authentication middleware trả 401 (đặt <code>UseCors</code> sai chỗ), hoặc API lỗi 500 nên response thiếu header CORS. Xem tab Network và log API trước. <code>*</code> cũng không dùng được khi gửi kèm credentials.</span></div>
+
+<div class="callout tip"><span class="callout-title">✅ Tự kiểm tra nhanh</span><ul>
+<li>API trả 401. Bạn nên xem gì đầu tiên trước khi sửa code?</li>
+<li>Token có <code>"aud": "hr-web"</code> gửi tới <code>hr-api</code> bị từ chối. Nguyên nhân có thể là gì?</li>
+<li>IdP hiện trang lỗi ngay khi bấm “Đăng nhập”, chưa thấy form nhập mật khẩu. Lỗi này nhiều khả năng là <code>redirect_uri</code> hay <code>invalid_client</code>?</li>
+</ul></div>
+
+<h2 id="quiz-bai">Quiz nhanh — Bài 7.4</h2>
+<div id="quiz"></div>
+
+</main>
+<script>
+window.QUIZ = [
+  { q: "Team đổi tên API trong Keycloak từ <code>orders-api</code> thành <code>order-service</code> và sửa <code>Audience</code> trong appsettings của API thành <code>order-service</code>. Ngay sau deploy, WPF nhận 401: “The audience 'orders-api' is invalid”. Nguyên nhân và cách sửa đúng?",
+    tricky: true,
+    options: ["Token hết hạn — bảo WPF refresh là xong", "Token WPF gửi vẫn mang <code>aud</code> cũ (mapper/scope ở IdP vẫn thêm <code>orders-api</code>, hoặc WPF dùng token cũ trong cache) → cập nhật audience mapper ở Keycloak để token mang <code>order-service</code>, rồi lấy token mới", "Đổi tên API làm đổi khóa ký, nên chữ ký không khớp", "API cấu hình quá chặt — tắt <code>ValidateAudience</code> để hết lỗi"],
+    answer: 1,
+    why: ["Thông báo nói rõ là audience, không phải expired. Nếu mapper ở IdP chưa đổi, token mới lấy bằng refresh vẫn mang <code>aud</code> cũ và vẫn lỗi.", "API đã đổi tên chờ đợi, nhưng nơi <i>phát</i> token chưa đổi: <code>aud</code> do IdP ghi vào token lúc cấp. Sửa phía IdP (và cho client lấy token mới) thì <code>aud</code> mới khớp.", "Khóa ký thuộc realm/IdP, không thuộc từng API; lỗi chữ ký sẽ báo “signature” hoặc “key not found”, không phải audience.", "Tắt kiểm tra <code>aud</code> nghĩa là API nhận cả token cấp cho API khác và ID token — sửa triệu chứng bằng một lỗ hổng."],
+    explain: "401 → decode token, so <code>aud</code> với cấu hình API; sửa ở phía xin/phát token. Xem <a href='m07-4-cases-troubleshooting.html#similar-errors'>Các lỗi trông giống nhau</a>." },
+  { q: "<code>hr-api</code> trả <b>403</b> cho An dù token còn hạn. Bạn nên kiểm tra gì trước?",
+    options: ["Đồng bộ NTP và refresh token", "Token có scope/role API yêu cầu không, và policy có đọc đúng claim type (vd <code>scp</code> vs <code>scope</code>, <code>RoleClaimType</code>) không", "Danh sách redirect URI ở IdP", "<code>Authority</code> có khớp <code>iss</code> trong token không"],
+    answer: 1,
+    why: ["Hết hạn/lệch giờ gây 401, không phải 403.", "403 nghĩa là đã xác thực nhưng thiếu quyền: hoặc token thật sự thiếu scope/role, hoặc policy tìm claim sai tên.", "Redirect URI chỉ liên quan bước <code>/authorize</code> lúc đăng nhập, không ảnh hưởng việc gọi API.", "Sai issuer thì token bị từ chối ở bước xác thực → 401."],
+    explain: "401 = xác thực; 403 = phân quyền. Xem <a href='m07-4-cases-troubleshooting.html#troubleshooting'>sơ đồ chẩn đoán 401/403</a>." },
+  { q: "Deploy <code>hr-web</code> lên server mới. An nhập mật khẩu + MFA thành công, được chuyển về <code>/signin-oidc</code>, rồi log báo <code>{\"error\":\"invalid_client\"}</code>. Kiểm tra gì?",
+    options: ["Danh sách Redirect URI của client ở Keycloak", "Client secret trên server mới (chưa cấu hình, sai, đã rotate) và loại client (public/confidential) ở IdP", "Cấu hình CORS của <code>hr-web</code>", "Clock skew giữa server mới và IdP"],
+    answer: 1,
+    why: ["Sai redirect URI thì IdP báo lỗi ngay ở <code>/authorize</code>, An không thấy được form đăng nhập; ở đây đăng nhập đã xong.", "<code>invalid_client</code> đến từ token endpoint lúc backend đổi code: client không xác thực được — thường là secret của server mới.", "Đổi code là gọi back-channel từ server tới IdP, không qua browser nên CORS không liên quan.", "Lệch giờ gây lỗi khi kiểm tra <code>exp</code>/<code>iat</code> của token, không gây <code>invalid_client</code>."],
+    explain: "Lỗi trước form đăng nhập → redirect_uri; lỗi sau khi đăng nhập, lúc đổi code → client credentials. Xem <a href='m07-4-cases-troubleshooting.html#similar-errors'>redirect_uri vs invalid_client</a>." },
+  { q: "Shop B2C có account mật khẩu của <code>an@example.com</code>. Ai đó đăng nhập bằng Microsoft, ID token có <code>email</code> = <code>an@example.com</code>. Cách xử lý an toàn? (chọn nhiều)",
+    options: ["Tự gộp vào account cũ vì email trùng", "Lưu liên kết theo cặp <code>iss</code> + <code>sub</code>, email chỉ là thuộc tính", "Chỉ liên kết khi người đó đăng nhập bằng mật khẩu cũ trước rồi chủ động “liên kết thêm”", "Dùng email làm khóa chính cho mọi IdP để dễ tra cứu"],
+    answer: [1, 2],
+    why: ["Email từ IdP khác có thể chưa được xác minh; tự gộp mở đường chiếm tài khoản qua account linking.", "<code>iss</code> + <code>sub</code> là định danh ổn định và duy nhất của user ở mỗi IdP.", "Chứng minh quyền sở hữu account cũ trước khi liên kết chặn được kẻ chỉ biết email nạn nhân.", "Email đổi được và không được mọi IdP bảo đảm; làm khóa chính là tái tạo đúng lỗ hổng của phương án A."],
+    explain: "Xem <a href='m07-4-cases-troubleshooting.html#case-analysis'>Case 1 — B2C social login</a> và <a href='m03-7-user-identity.html#account-linking'>M03 — account linking</a>." },
+  { q: "SPA gọi <code>hr-api</code> kèm <code>Authorization</code> header thì console báo “blocked by CORS policy”. Log API cho thấy request <code>OPTIONS</code> bị trả 401. Sửa thế nào?",
+    options: ["Đặt <code>UseCors</code> trước authentication/authorization để preflight được trả lời trước khi bị đòi token", "Trả <code>Access-Control-Allow-Origin: *</code> kèm <code>Allow-Credentials: true</code>", "Bỏ xác thực ở <code>hr-api</code> cho SPA", "Gửi token qua query string để khỏi có preflight"],
+    answer: 0,
+    why: ["Preflight không mang token; nếu authentication chạy trước CORS, OPTIONS bị 401 và browser chặn request thật. Đổi thứ tự middleware là đủ.", "Browser không chấp nhận <code>*</code> đi cùng credentials; và vấn đề là preflight bị 401, không phải thiếu origin.", "Đây là lỗi thứ tự middleware, không phải lý do bỏ bảo mật.", "Token trong URL lọt vào log, lịch sử, header Referer — không bao giờ nên làm."],
+    explain: "“Blocked by CORS” thường che lỗi khác. Xem dòng 10 trong <a href='m07-4-cases-troubleshooting.html#troubleshooting-table'>bảng troubleshooting</a>." }
+];
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="assets/pages.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

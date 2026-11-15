@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M03 · Bài 3.6 · Discovery, JWKS &amp; Logout</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<main class="content">
+
+<div class="page-head">
+  <div class="breadcrumb"><a href="index.html">Lộ trình</a> / <a href="m03-oauth-oidc.html">Module 03</a> / Bài 3.6</div>
+  <h1>Bài 3.6 — Discovery, JWKS &amp; Logout</h1>
+  <p class="lead">Làm sao app biết OP có những endpoint nào và dùng khóa nào để kiểm tra chữ ký token (Discovery, JWKS, key rotation)? Và vì sao “bấm Đăng xuất” lại phức tạp hơn bạn nghĩ (RP-initiated, front-channel, back-channel logout)?</p>
+  <div class="meta-row">
+    <span class="chip">⏱ ~15 phút</span>
+    <span class="chip">📘 <a href="m03-oauth-oidc.html">Module 03 · OAuth 2.0 / 2.1 &amp; OpenID Connect</a></span>
+  </div>
+</div>
+
+<!-- ===================================================== -->
+<h2 id="discovery-jwks">E. OIDC Discovery và JWKS <span class="badge should">Should</span></h2>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span><b>Discovery</b> là “danh bạ” của OP: các cửa (endpoint) ở đâu, hỗ trợ gì. <b>JWKS</b> là “bảng mẫu con dấu” công khai: app so chữ ký trên token với mẫu dấu có cùng mã số (<code>kid</code>). Khi OP đổi dấu mới, nó treo mẫu dấu mới lên bảng trước.</div>
+
+<div class="terms"><span class="terms-title">📖 Thuật ngữ trong bài</span><dl>
+<dt>Discovery document</dt><dd>File JSON công khai của OP liệt kê địa chỉ các endpoint và tính năng hỗ trợ.</dd>
+<dt>JWKS</dt><dd>JSON Web Key Set — danh sách public key của OP để kiểm tra chữ ký token.</dd>
+<dt><code>kid</code></dt><dd>Key ID — “mã số con dấu” ghi trong header JWT, cho biết token được ký bằng key nào.</dd>
+<dt>Key rotation</dt><dd>Việc OP định kỳ thay cặp khóa ký mới, giữ key cũ thêm một thời gian.</dd>
+<dt>OP session</dt><dd>Phiên đăng nhập ở chính OP (cookie trên domain Keycloak) — thứ làm nên SSO.</dd>
+<dt>Local logout</dt><dd>Chỉ xóa session của app mình; phiên ở OP vẫn còn.</dd>
+<dt>RP-initiated logout</dt><dd>App chuyển trình duyệt tới OP để kết thúc cả phiên OP.</dd>
+<dt>Front-channel / back-channel</dt><dd>Front-channel: đi qua trình duyệt. Back-channel: server gọi thẳng server, trình duyệt không thấy.</dd>
+</dl></div>
+
+<p>Thay vì bắt bạn chép tay từng URL endpoint vào cấu hình, OP công bố tất cả trong một tài liệu tại <code>{issuer}/.well-known/openid-configuration</code>. Bạn chỉ cần cho thư viện biết <code>issuer</code> (trong .NET là <code>Authority</code>), nó tự tải tài liệu này. Bạn không cần thuộc từng trường — chỉ cần nhận ra vài trường quan trọng: <code>issuer</code>, <code>authorization_endpoint</code>, <code>token_endpoint</code>, <code>jwks_uri</code>, <code>end_session_endpoint</code>.</p>
+<pre data-title="GET http://localhost:8080/realms/demo/.well-known/openid-configuration (rút gọn)"><code class="language-json">{
+  "issuer": "http://localhost:8080/realms/demo",
+  "authorization_endpoint": "http://localhost:8080/realms/demo/protocol/openid-connect/auth",
+  "token_endpoint": "http://localhost:8080/realms/demo/protocol/openid-connect/token",
+  "userinfo_endpoint": "http://localhost:8080/realms/demo/protocol/openid-connect/userinfo",
+  "jwks_uri": "http://localhost:8080/realms/demo/protocol/openid-connect/certs",
+  "end_session_endpoint": "http://localhost:8080/realms/demo/protocol/openid-connect/logout",
+  "introspection_endpoint": "http://localhost:8080/realms/demo/protocol/openid-connect/token/introspect",
+  "revocation_endpoint": "http://localhost:8080/realms/demo/protocol/openid-connect/revoke",
+  "device_authorization_endpoint": "http://localhost:8080/realms/demo/protocol/openid-connect/auth/device",
+  "grant_types_supported": ["authorization_code", "client_credentials", "refresh_token",
+                            "urn:ietf:params:oauth:grant-type:device_code"],
+  "response_types_supported": ["code", "none", "id_token", "token", "id_token token", "code id_token"],
+  "response_modes_supported": ["query", "fragment", "form_post"],
+  "subject_types_supported": ["public", "pairwise"],
+  "id_token_signing_alg_values_supported": ["RS256", "ES256", "PS256"],
+  "scopes_supported": ["openid", "profile", "email", "offline_access"],
+  "code_challenge_methods_supported": ["plain", "S256"],
+  "backchannel_logout_supported": true,
+  "frontchannel_logout_supported": true
+}</code></pre>
+<p class="small muted">Danh sách thực tế dài hơn và tùy phiên bản Keycloak. Theo OIDC Discovery, các trường bắt buộc gồm <code>issuer</code>, <code>authorization_endpoint</code>, <code>token_endpoint</code>, <code>jwks_uri</code>, <code>response_types_supported</code>, <code>subject_types_supported</code>, <code>id_token_signing_alg_values_supported</code>. Giá trị <code>issuer</code> phải trùng URL bạn dùng để tải tài liệu (bỏ phần <code>/.well-known/…</code>).</p>
+
+<p>Trường <code>jwks_uri</code> trỏ tới JWKS. Mỗi phần tử trong <code>keys</code> là một public key (dạng JWK). Với RSA, <code>n</code> và <code>e</code> là hai thành phần của public key; <code>use: "sig"</code> nghĩa là key dùng để ký.</p>
+<pre data-title="GET …/protocol/openid-connect/certs (JWKS, rút gọn)"><code class="language-json">{
+  "keys": [
+    {
+      "kid": "kQ3x9vT2bL0mR7wN",
+      "kty": "RSA",
+      "alg": "RS256",
+      "use": "sig",
+      "n": "u1SU1LfVLPHCozMxH2Mo4lgOEePzNm0tRgeLezV6ffAt0gunVTLw7onLRnrq0_IzW7yWR7QkrmBL7jTKEn5u...",
+      "e": "AQAB"
+    },
+    {
+      "kid": "Zp7aL1cX0vQ9mN2r",
+      "kty": "RSA",
+      "alg": "RS256",
+      "use": "sig",
+      "n": "xjlCRBqkOK2wRA1e5Ex0bTr5Y5u0VmfN6fFQ8rN0h8yJ5Bf2Kp9nW3HzT1sZf8v0aQ...",
+      "e": "AQAB"
+    }
+  ]
+}</code></pre>
+<p>Cách chọn key: đọc <code>kid</code> trong <b>header</b> của JWT → tìm JWK có cùng <code>kid</code> trong JWKS → xác minh chữ ký bằng key đó (và <code>alg</code> đã được cho phép). JWKS thường có <b>nhiều key</b> cùng lúc trong giai đoạn chuyển đổi.</p>
+
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: Discovery document vs JWKS</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Discovery document</th><th>JWKS</th></tr></thead>
+<tbody>
+<tr><td>Trả lời câu hỏi</td><td>“OP này có những cửa nào, hỗ trợ gì?”</td><td>“Dùng public key nào để kiểm tra chữ ký?”</td></tr>
+<tr><td>Địa chỉ</td><td><code>{issuer}/.well-known/openid-configuration</code> (cố định theo chuẩn)</td><td>Giá trị của <code>jwks_uri</code> trong Discovery (Keycloak: <code>…/protocol/openid-connect/certs</code>)</td></tr>
+<tr><td>Chứa</td><td>URL endpoint, scope, thuật toán, tính năng hỗ trợ</td><td>Mảng <code>keys</code>: <code>kid</code>, <code>kty</code>, <code>alg</code>, <code>n</code>, <code>e</code>…</td></tr>
+<tr><td>Thay đổi khi</td><td>Hiếm — khi đổi cấu hình OP</td><td>Mỗi lần xoay khóa (key rotation)</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> <code>demo-api</code> khởi động → tải Discovery của realm <code>demo</code> → đọc <code>jwks_uri</code> → tải JWKS và cache. Từ đó mỗi access token đến, API chỉ tra key trong cache, không gọi Keycloak.</p>
+<span class="rule">Discovery là “danh bạ”, JWKS là “bảng mẫu con dấu” mà danh bạ chỉ tới.</span>
+</div>
+
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: <code>kid</code> vs <code>alg</code> trong header JWT</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th><code>kid</code></th><th><code>alg</code></th></tr></thead>
+<tbody>
+<tr><td>Cho biết</td><td>Ký bằng <b>key nào</b> (mã số key)</td><td>Ký bằng <b>thuật toán nào</b> (vd. <code>RS256</code>)</td></tr>
+<tr><td>Dùng để</td><td>Chọn đúng JWK trong JWKS</td><td>Biết cách kiểm tra chữ ký</td></tr>
+<tr><td>Bẫy bảo mật</td><td><code>kid</code> lạ → tải lại JWKS có giới hạn, không tin <code>jku</code> trong token</td><td>Không tin mù quáng: chỉ chấp nhận thuật toán trong danh sách cho phép; từ chối <code>none</code>, chặn đổi RS256 → HS256 (<a href="m02-3-token-jwt.html#jwt-validation">algorithm confusion</a>)</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> Header <code>{"alg":"RS256","kid":"kQ3x9vT2bL0mR7wN"}</code> → tìm key <code>kQ3x9vT2bL0mR7wN</code> trong JWKS ở trên, rồi kiểm tra chữ ký RSA-SHA256 bằng key đó.</p>
+<span class="rule"><code>kid</code> = dấu nào, <code>alg</code> = cách đóng dấu. Cả hai đều do token tự khai, nên server phải đối chiếu với thứ nó tin (JWKS, danh sách alg cho phép).</span>
+</div>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>JWKS công khai cho ai cũng tải được thì kẻ tấn công lấy key về tự ký token giả.</span><span class="f-label">Thực tế</span><span>JWKS chỉ chứa <b>public key</b> (<code>n</code>, <code>e</code>) — dùng để <b>kiểm tra</b> chữ ký, không ký được. Private key nằm trong OP và không bao giờ rời khỏi đó.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Token đã khai <code>kid</code> thì cứ tìm đúng key đó là xong, khỏi quan tâm <code>alg</code>.</span><span class="f-label">Thực tế</span><span>Cả <code>kid</code> lẫn <code>alg</code> đều do token tự khai. Server phải ép <code>alg</code> nằm trong danh sách cho phép, nếu không kẻ tấn công đổi sang <code>none</code> hoặc HS256 (<a href="m02-3-token-jwt.html#jwt-validation">algorithm confusion</a>).</span></div>
+
+<h3 id="key-rotation">Cache metadata/JWKS và key rotation</h3>
+<p>Tải JWKS ở mỗi request thì chậm; cache mãi mãi thì đến ngày OP đổi khóa, app sẽ không nhận ra token mới. Sơ đồ dưới là cách cân bằng hai điều đó: dùng cache, và chỉ tải lại khi gặp <code>kid</code> chưa biết.</p>
+<div class="diagram">
+<pre class="mermaid">
+flowchart TD
+  T["Nhận JWT, đọc kid trong header"] --> C{"kid có trong<br/>JWKS đã cache?"}
+  C -- "Có" --> V["Xác minh chữ ký bằng key đó"]
+  C -- "Không" --> R{"Lần refresh gần nhất<br/>đã quá vài phút?"}
+  R -- "Có" --> F["Tải lại Discovery + JWKS"]
+  R -- "Không: tránh bị spam" --> X["Từ chối token (401)"]
+  F --> C2{"Có kid sau khi tải lại?"}
+  C2 -- "Có" --> V
+  C2 -- "Không" --> X
+  V --> OK["Tiếp tục kiểm tra iss, aud, exp..."]
+</pre>
+<div class="caption">Thư viện .NET (<code>ConfigurationManager</code> trong Microsoft.IdentityModel) làm đúng việc này: cache metadata, tự refresh định kỳ và khi gặp <code>kid</code> lạ (có giới hạn tần suất).</div>
+</div>
+<div class="callout example"><span class="callout-title">🧪 Ví dụ: một lần xoay khóa ở realm <code>demo</code></span>
+<ol>
+<li>Admin Keycloak tạo key mới <code>Zp7aL1cX0vQ9mN2r</code>. JWKS lúc này có <b>cả hai</b> key (như JSON ở trên).</li>
+<li>Keycloak bắt đầu ký token mới bằng key mới. Token cũ ký bằng <code>kQ3x9vT2bL0mR7wN</code> vẫn còn hạn và vẫn verify được.</li>
+<li><code>demo-api</code> nhận token đầu tiên có <code>kid = Zp7aL1cX0vQ9mN2r</code> → không có trong cache → tải lại JWKS → tìm thấy → chấp nhận.</li>
+<li>Sau khi mọi token cũ đã hết hạn, admin gỡ key cũ khỏi JWKS.</li>
+</ol>
+Nếu <code>demo-api</code> hardcode public key cũ thì ở bước 3 mọi request đều bị 401.</div>
+<div class="dodont">
+<div class="do"><h5>✅ Nên</h5><ul>
+<li>Cấu hình <code>Authority</code> để thư viện tự đọc Discovery/JWKS.</li>
+<li>Cache có thời hạn; refresh khi gặp <code>kid</code> chưa biết (có rate limit).</li>
+<li>Phía OP: công bố key mới vào JWKS <b>trước</b> khi bắt đầu ký bằng nó, giữ key cũ đến khi token cũ hết hạn.</li>
+</ul></div>
+<div class="dont"><h5>❌ Không nên</h5><ul>
+<li><b>Hardcode</b> public key/certificate vĩnh viễn khi OP hỗ trợ rollover — đến ngày xoay key, toàn bộ hệ thống đồng loạt 401.</li>
+<li>Tải JWKS ở mỗi request (chậm, dễ bị chặn) hoặc cache vĩnh viễn.</li>
+<li>Tin URL JWKS lấy từ <b>chính token</b> (header <code>jku</code>/<code>x5u</code>) — kẻ tấn công tự trỏ tới key của họ.</li>
+</ul></div>
+</div>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Copy public key của Keycloak vào config là xong, khỏi cần JWKS.</span><span class="f-label">Thực tế</span><span>Đến ngày OP xoay khóa, mọi token mới có <code>kid</code> lạ → toàn hệ thống 401 (bước 3 ở ví dụ trên). Hãy để thư viện đọc Discovery/JWKS và tự refresh.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Gặp <code>kid</code> lạ thì cứ tải lại JWKS mỗi lần cho chắc.</span><span class="f-label">Thực tế</span><span>Kẻ tấn công chỉ cần gửi hàng loạt token với <code>kid</code> ngẫu nhiên là API của bạn “spam” OP. Refresh <b>có giới hạn tần suất</b> (vd. tối đa 1 lần mỗi vài phút); hết lượt mà vẫn không có <code>kid</code> → 401.</span></div>
+
+<!-- ===================================================== -->
+<h2 id="logout">F. Logout và session <span class="badge should">Should</span></h2>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>Bạn có <b>ba thứ</b> cần “trả lại” khi ra về: vòng tay vào khu vui chơi con (session của app), vé cổng chính của công viên (session ở OP), và các thẻ đã cấp cho máy bán hàng (token). Tháo vòng tay khu con không làm vé cổng chính hết hiệu lực — và ngược lại.</div>
+<p>Sau khi đăng nhập bằng OIDC, có <b>ba trạng thái</b> riêng biệt cùng tồn tại. Bảng dưới cho biết mỗi trạng thái nằm ở đâu và cách kết thúc nó:</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Trạng thái</th><th>Nằm ở đâu</th><th>Kết thúc bằng</th><th>Nếu chỉ làm cái này thì…</th></tr></thead>
+<tbody>
+<tr><td><b>Local application session</b></td><td>Cookie của RP (vd. <code>.AspNetCore.Cookies</code>)</td><td>Xóa cookie / session của app (<b>local logout</b>)</td><td>Bấm “Đăng nhập” lại sẽ vào ngay không hỏi mật khẩu — vì phiên OP còn (SSO).</td></tr>
+<tr><td><b>OP session</b></td><td>Cookie của OP trên domain OP</td><td><b>RP-initiated logout</b> tới <code>end_session_endpoint</code></td><td>Các app khác đang dùng SSO vẫn còn session riêng của chúng cho tới khi hết hạn hoặc nhận thông báo logout.</td></tr>
+<tr><td><b>Access/refresh token</b></td><td>Client / BFF / thiết bị</td><td><b>Revoke</b> (RFC 7009) — chủ yếu refresh token; access token JWT thường sống tới <code>exp</code></td><td>Token đã phát vẫn có thể dùng tới khi hết hạn nếu API chỉ validate cục bộ.</td></tr>
+</tbody></table></div>
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: Logout ở app vs Logout ở IdP (OP)</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Logout ở app (local)</th><th>Logout ở IdP (OP / SSO session)</th></tr></thead>
+<tbody>
+<tr><td>Xóa gì</td><td>Cookie session của riêng app, vd. <code>.AspNetCore.Cookies</code> của PrintNow</td><td>Cookie phiên của Keycloak trên domain <code>localhost:8080</code></td></tr>
+<tr><td>Ảnh hưởng app khác</td><td>Không</td><td>Không ai được đăng nhập “miễn phí” nữa; app khác chỉ bị đăng xuất nếu nhận thông báo logout</td></tr>
+<tr><td>Bấm “Đăng nhập” ngay sau đó</td><td>Vào lại ngay, không hỏi mật khẩu (SSO)</td><td>Phải nhập lại mật khẩu</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> An dùng máy chung ở phòng họp. An bấm “Đăng xuất” ở PrintNow nhưng PrintNow chỉ làm local logout. Đồng nghiệp ngồi vào, bấm “Đăng nhập” → Keycloak thấy phiên của An vẫn còn → vào thẳng tài khoản An. Muốn tránh, PrintNow phải làm thêm RP-initiated logout (mục dưới).</p>
+<span class="rule">Đăng xuất app = tháo vòng tay khu con. Đăng xuất OP = trả vé cổng chính.</span>
+</div>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Bấm Logout trong app là đã đăng xuất khỏi mọi nơi.</span><span class="f-label">Thực tế</span><span>Local session, OP session và token là ba trạng thái khác nhau. Chỉ xóa cookie của app thì bấm “Đăng nhập” lại sẽ vào ngay nhờ SSO (ví dụ máy chung ở trên).</span></div>
+
+<h3 id="rp-initiated-logout">RP-initiated logout</h3>
+<p>“RP-initiated” nghĩa là <b>app (RP) khởi xướng</b> việc đăng xuất ở OP. Đặc tả <b>OpenID Connect RP-Initiated Logout 1.0</b> (Final) quy định: RP chuyển trình duyệt tới <code>end_session_endpoint</code> (lấy từ Discovery) kèm các tham số dưới đây.</p>
+<pre data-title="RP-initiated logout request"><code class="language-plaintext">GET http://localhost:8080/realms/demo/protocol/openid-connect/logout
+    ?id_token_hint=eyJhbGciOiJSUzI1NiIsInR5cCI...
+    &amp;post_logout_redirect_uri=https%3A%2F%2Fprintnow.example%2Fsignout-callback-oidc
+    &amp;state=lg-7f2c9a</code></pre>
+<ul>
+<li><code>id_token_hint</code> (RECOMMENDED): ID token đã nhận trước đó → OP biết phiên nào, client nào.</li>
+<li><code>post_logout_redirect_uri</code> (OPTIONAL): nơi quay về sau logout — <b>phải đăng ký trước</b> và khớp chính xác (chống open redirect).</li>
+<li><code>client_id</code>, <code>logout_hint</code>, <code>state</code>, <code>ui_locales</code> (OPTIONAL). Keycloak yêu cầu <code>id_token_hint</code> hoặc <code>client_id</code> khi có <code>post_logout_redirect_uri</code>.</li>
+</ul>
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant B as Browser
+  participant RP as RP (PrintNow)
+  participant OP as OP (Keycloak)
+  participant RP2 as RP khác (Wiki)
+  B->>RP: POST /logout
+  RP->>RP: Xóa session cookie của app (local logout)
+  RP->>RP: Revoke refresh token (nếu có)
+  RP-->>B: 302 end_session_endpoint?id_token_hint=...&amp;post_logout_redirect_uri=...
+  B->>OP: GET /logout?...
+  OP->>OP: Kết thúc OP session
+  opt Back-channel logout
+    OP->>RP2: POST logout_token (JWT có sid/sub, events)
+    RP2->>RP2: Hủy session khớp sid
+  end
+  OP-->>B: 302 post_logout_redirect_uri?state=...
+  B->>RP: Trang đã đăng xuất
+</pre>
+<div class="caption">Logout đầy đủ = local session + OP session + (tùy) revoke token + (tùy) thông báo RP khác.</div>
+</div>
+<pre data-title="ASP.NET Core — đăng xuất cả app lẫn OP"><code class="language-csharp">app.MapPost("/logout", async (HttpContext ctx) =&gt;
+{
+    await ctx.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);   // local session
+    await ctx.SignOutAsync(OpenIdConnectDefaults.AuthenticationScheme,          // redirect tới end_session_endpoint
+        new AuthenticationProperties { RedirectUri = "/" });                     // kèm id_token_hint nếu SaveTokens = true
+});</code></pre>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span><code>post_logout_redirect_uri</code> là tham số tự do, app muốn quay về đâu thì ghi vào đó.</span><span class="f-label">Thực tế</span><span>Nó phải được <b>đăng ký trước</b> cho client và khớp chính xác. Nếu OP chấp nhận URI bất kỳ, kẻ tấn công tạo link logout trỏ về trang lừa đảo (open redirect) mang domain đáng tin của OP.</span></div>
+
+<h3 id="front-back-channel">Front-channel và back-channel logout (nhận biết)</h3>
+<p>RP-initiated logout kết thúc phiên ở OP. Nhưng các app khác (vd. Wiki) vẫn giữ session riêng của chúng. Để báo cho chúng “An đã đăng xuất rồi”, OP có hai cách: nhờ trình duyệt chuyển lời (front-channel) hoặc tự gọi thẳng server của app (back-channel).</p>
+<div class="grid cols-2">
+  <div class="card"><h4>Front-channel logout</h4><p>OP render trang chứa các <b>iframe</b> trỏ tới <code>frontchannel_logout_uri</code> của từng RP để chúng xóa cookie. Phụ thuộc trình duyệt; ngày càng kém tin cậy vì trình duyệt chặn cookie bên thứ ba trong iframe.</p></div>
+  <div class="card"><h4>Back-channel logout</h4><p>OP gửi <b>POST server-to-server</b> tới <code>backchannel_logout_uri</code> của RP, kèm <b>logout token</b> (JWT có <code>iss</code>, <code>aud</code>, <code>iat</code>, <code>exp</code>, <code>jti</code>, <code>events</code>, <code>sub</code> và/hoặc <code>sid</code>; <b>cấm</b> có <code>nonce</code>; header nên có <code>typ: logout+jwt</code>). Tin cậy hơn, nhưng RP phải lưu được map <code>sid</code> → session.</p></div>
+</div>
+<p>Một logout token mẫu (payload) mà Keycloak gửi tới Wiki khi An đăng xuất. Điểm cần nhận ra: không có <code>nonce</code>, và có claim <code>events</code> để đánh dấu đây là sự kiện logout chứ không phải ID token.</p>
+<pre data-title="POST https://wiki.example/backchannel-logout — body: logout_token=eyJ... (payload sau decode)"><code class="language-json">{
+  "iss": "http://localhost:8080/realms/demo",
+  "aud": "wiki-client",
+  "iat": 1794280800,
+  "exp": 1794280920,
+  "jti": "bWJq-7c1e-4f0a",
+  "sub": "f3b2c1d0-7a6e-4c2b-9d1a-5e8f7a6b4c3d",
+  "sid": "08a5019c-17e1-4977-8f42-65a12843ea02",
+  "events": { "http://schemas.openid.net/event/backchannel-logout": {} }
+}</code></pre>
+
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: RP-initiated vs Front-channel vs Back-channel logout</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>RP-initiated</th><th>Front-channel</th><th>Back-channel</th></tr></thead>
+<tbody>
+<tr><td>Chiều đi</td><td>App → OP</td><td>OP → các app khác</td><td>OP → các app khác</td></tr>
+<tr><td>Đi qua</td><td>Trình duyệt (redirect)</td><td>Trình duyệt (iframe)</td><td>Server gọi thẳng server (HTTP POST)</td></tr>
+<tr><td>Mục đích</td><td>Kết thúc <b>phiên OP</b></td><td>Báo các RP xóa session của chúng</td><td>Báo các RP xóa session của chúng</td></tr>
+<tr><td>App phải đăng ký</td><td><code>post_logout_redirect_uri</code></td><td><code>frontchannel_logout_uri</code></td><td><code>backchannel_logout_uri</code></td></tr>
+<tr><td>Điểm yếu</td><td>Chỉ lo phiên OP, không tự xóa session app khác</td><td>Trình duyệt chặn cookie bên thứ ba → hay hỏng</td><td>App phải lưu map <code>sid</code> → session; server phải gọi được tới app</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> An bấm “Đăng xuất” ở PrintNow → PrintNow làm <b>RP-initiated</b> logout tới Keycloak → Keycloak kết thúc phiên OP rồi gửi <b>back-channel</b> logout token cho Wiki → Wiki tìm session có <code>sid</code> khớp và xóa. Lần tới An mở Wiki sẽ phải đăng nhập lại.</p>
+<span class="rule">RP-initiated: app báo OP. Front/back-channel: OP báo các app còn lại — qua trình duyệt hoặc qua server.</span>
+</div>
+<div class="callout warn"><span class="callout-title">⚠️ Single Logout không bao giờ “tức thời và hoàn hảo”</span>
+RP có thể đang offline, không đăng ký logout URI, hoặc API vẫn nhận access token JWT cũ tới khi hết hạn. Thiết kế: access token ngắn hạn, refresh token revoke được, và chấp nhận rằng logout ở IdP <b>không</b> tự động xóa mọi thứ ở mọi nơi. (SAML SLO ở <a href="m04-saml.html">M04</a> có cùng vấn đề.)</div>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Đăng xuất ở OP thì access token JWT đã phát lập tức hết hiệu lực.</span><span class="f-label">Thực tế</span><span>API validate JWT cục bộ (chữ ký + <code>exp</code>) nên vẫn chấp nhận token đó tới khi hết hạn. Vì vậy access token phải ngắn hạn; muốn thu hồi tức thì thì dùng opaque token + introspection (<a href="m02-4-token-lifecycle.html#introspection-revocation">M02</a>).</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Logout token cũng là JWT do OP ký, nên validate y như ID token là đủ.</span><span class="f-label">Thực tế</span><span>Ngoài chữ ký, <code>iss</code>, <code>aud</code>, RP phải kiểm tra có claim <code>events</code> chứa sự kiện back-channel logout, có <code>sub</code> và/hoặc <code>sid</code>, và <b>không</b> có <code>nonce</code> — để không ai đem một ID token tới endpoint logout giả làm logout token.</span></div>
+
+<div class="callout tip"><span class="callout-title">✅ Tự kiểm tra nhanh</span><ul>
+<li>App nhận JWT có <code>kid</code> không có trong JWKS đã cache. Nên làm gì, và không nên làm gì?</li>
+<li>Chỉ xóa cookie của app khi logout — vì sao người dùng bấm “Đăng nhập” lại vào ngay?</li>
+<li>Back-channel logout khác front-channel ở điểm nào khiến nó tin cậy hơn?</li>
+</ul></div>
+
+<h2 id="quiz-bai">Quiz nhanh — Bài 3.6</h2>
+<div id="quiz"></div>
+
+</main>
+<script>
+window.QUIZ = [
+  { q: "<code>demo-api</code> chỉ cấu hình <code>Authority = http://localhost:8080/realms/demo</code>. Thư viện tìm ra địa chỉ JWKS bằng cách nào?",
+    options: ["Ghép cứng <code>/protocol/openid-connect/certs</code> vào Authority", "Tải Discovery tại <code>{issuer}/.well-known/openid-configuration</code> rồi đọc trường <code>jwks_uri</code>", "Đọc header <code>jku</code> trong từng token", "Gọi UserInfo endpoint để lấy key"],
+    answer: 1,
+    why: ["Đường dẫn <code>/certs</code> là chi tiết riêng của Keycloak; chuẩn không bắt OP nào đặt JWKS ở đó, nên thư viện không đoán mà đọc từ Discovery.", "Discovery có địa chỉ cố định theo chuẩn và chứa <code>jwks_uri</code>; đó là lý do chỉ cần cấu hình Authority.", "<code>jku</code> do token tự khai — tin nó là để kẻ tấn công tự chọn key kiểm tra chữ ký của họ.", "UserInfo trả claim về người dùng, không trả key."],
+    explain: "Discovery là danh bạ, JWKS là bảng mẫu con dấu mà danh bạ chỉ tới. Xem <a href='m03-6-discovery-logout.html#discovery-jwks'>Discovery &amp; JWKS</a>." },
+  { q: "Kẻ tấn công gửi tới <code>demo-api</code> hàng nghìn token mỗi giây, mỗi token mang một <code>kid</code> ngẫu nhiên chưa từng có. API nên xử lý thế nào?",
+    tricky: true,
+    options: ["Với mỗi token có <code>kid</code> lạ, tải lại JWKS ngay — đó là cách xử lý key rotation", "Chỉ refresh JWKS khi lần refresh trước đã cách đủ lâu; trong khoảng chờ, token có <code>kid</code> không có trong cache bị 401 ngay", "Lấy public key nhúng trong header <code>jwk</code> của token để kiểm tra chữ ký", "Tắt cache JWKS để luôn có key mới nhất"],
+    answer: 1,
+    why: ["Nghe đúng nhưng là bẫy: không giới hạn tần suất thì mỗi token rác kéo theo một lần gọi OP — API tự biến mình thành công cụ tấn công từ chối dịch vụ OP.", "“Refresh khi gặp kid lạ” phải đi kèm giới hạn tần suất; token hợp lệ sau xoay khóa vẫn được nhận khi tới lượt refresh kế tiếp, token rác bị loại rẻ.", "Key do token tự mang theo thì kẻ tấn công ký bằng private key của họ và gửi kèm public key tương ứng — chữ ký luôn “đúng”.", "Không cache nghĩa là gọi OP ở mọi request: chậm và còn tệ hơn phương án A."],
+    explain: "Bẫy ở chữ “luôn”: refresh JWKS khi gặp kid lạ là đúng, nhưng chỉ một lần trong một khoảng thời gian. Xem <a href='m03-6-discovery-logout.html#key-rotation'>sơ đồ key rotation</a>." },
+  { q: "Admin xoay khóa ở realm <code>demo</code> đúng quy trình. Những phát biểu nào đúng (chọn tất cả)?",
+    options: ["Trong giai đoạn chuyển đổi, JWKS chứa cả key cũ lẫn key mới", "Token cũ ký bằng key cũ vẫn verify được tới khi hết hạn", "Ngay khi xoay khóa, mọi token cũ bị vô hiệu", "OP công bố key mới vào JWKS trước khi bắt đầu ký bằng nó"],
+    answer: [0, 1, 3],
+    why: ["Đúng — nhờ vậy cả token cũ và mới đều tìm được key theo <code>kid</code>.", "Đúng — key cũ chỉ được gỡ sau khi mọi token ký bằng nó đã hết hạn.", "Sai — nếu vậy mọi người dùng bị đăng xuất/401 đồng loạt; quy trình đúng giữ key cũ một thời gian chính là để tránh điều đó.", "Đúng — để các RP/API kịp thấy key mới (khi refresh) trước khi token ký bằng nó xuất hiện."],
+    explain: "Xem <a href='m03-6-discovery-logout.html#key-rotation'>ví dụ xoay khóa</a>." },
+  { q: "An bấm “Đăng xuất” ở PrintNow; PrintNow làm RP-initiated logout đầy đủ và Keycloak kết thúc phiên OP. App Wiki (cùng realm) <b>không</b> đăng ký front-channel hay back-channel logout. An quay lại tab Wiki đang mở và bấm sang trang khác. Chuyện gì xảy ra?",
+    tricky: true,
+    options: ["Wiki tự đăng xuất vì phiên OP đã hết", "Wiki vẫn chạy như đang đăng nhập, vì session cookie riêng của Wiki còn nguyên", "Keycloak đã xóa cookie của Wiki khi kết thúc phiên OP", "Wiki báo lỗi 500 vì không liên lạc được OP"],
+    answer: 1,
+    why: ["Wiki không hỏi OP ở mỗi request; nó chỉ kiểm tra session cookie của chính nó. Không ai báo thì Wiki không biết phiên OP đã hết.", "Đúng: session của Wiki tồn tại độc lập cho tới khi hết hạn, hoặc tới khi OP báo qua front/back-channel logout — mà Wiki không đăng ký cái nào.", "Cookie của Wiki nằm trên domain của Wiki; Keycloak không đọc hay xóa được cookie của domain khác.", "Wiki không cần OP để phục vụ request khi đã có session; nó chỉ cần OP khi phải đăng nhập lại."],
+    explain: "Bẫy: “OP đã logout” không có nghĩa “mọi app đã logout”. RP-initiated logout chỉ kết thúc phiên OP; app khác cần front/back-channel logout. Xem <a href='m03-6-discovery-logout.html#front-back-channel'>front/back-channel</a>." },
+  { q: "Kẻ tấn công gửi cho An đường link: <code>…/logout?client_id=printnow&amp;post_logout_redirect_uri=https://evil.example/login</code>. Keycloak cấu hình đúng sẽ làm gì?",
+    options: ["Đăng xuất rồi chuyển An tới <code>evil.example</code>", "Không chuyển hướng tới URI đó vì nó không có trong danh sách đã đăng ký của client <code>printnow</code>", "Chặn vì thiếu <code>state</code>", "Chuyển tới URI đó nhưng xóa query string"],
+    answer: 1,
+    why: ["Đó chính là open redirect mà quy tắc đăng ký trước sinh ra để chặn.", "<code>post_logout_redirect_uri</code> phải khớp chính xác một URI đã đăng ký cho client; URI lạ bị từ chối.", "<code>state</code> là tùy chọn trong RP-initiated logout; thiếu nó không phải lý do chặn.", "Xóa query string không giải quyết được gì — domain vẫn là của kẻ tấn công."],
+    explain: "Xem <a href='m03-6-discovery-logout.html#rp-initiated-logout'>RP-initiated logout</a>." },
+  { q: "Wiki nhận POST tới <code>backchannel_logout_uri</code>. Những điểm nào phân biệt một logout token hợp lệ với ID token (chọn tất cả)?",
+    options: ["Có claim <code>events</code> chứa <code>http://schemas.openid.net/event/backchannel-logout</code>", "Không được có <code>nonce</code>", "Được gửi qua iframe trong trình duyệt của An", "Có <code>sub</code> và/hoặc <code>sid</code> để Wiki biết hủy session nào"],
+    answer: [0, 1, 3],
+    why: ["Đúng — <code>events</code> đánh dấu đây là sự kiện logout; ID token không có claim này.", "Đúng — đặc tả cấm <code>nonce</code> trong logout token, nhờ vậy không thể đem ID token (thường có nonce) giả làm logout token.", "Sai — đó là front-channel. Back-channel là server Keycloak POST thẳng tới server Wiki, trình duyệt không tham gia.", "Đúng — Wiki dùng <code>sid</code>/<code>sub</code> để tìm và hủy đúng session."],
+    explain: "Xem <a href='m03-6-discovery-logout.html#front-back-channel'>logout token mẫu</a>." }
+];
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="assets/pages.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

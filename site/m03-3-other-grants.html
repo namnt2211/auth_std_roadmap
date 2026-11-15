@@ -1,0 +1,381 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M03 · Bài 3.3 · Client Credentials, Device flow &amp; OAuth 2.1</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<main class="content">
+
+<div class="page-head">
+  <div class="breadcrumb"><a href="index.html">Lộ trình</a> / <a href="m03-oauth-oidc.html">Module 03</a> / Bài 3.3</div>
+  <h1>Bài 3.3 — Client Credentials, Device flow &amp; OAuth 2.1</h1>
+  <p class="lead">Authorization Code + PKCE (<a href="m03-2-auth-code-pkce.html#auth-code-pkce">Bài 3.2</a>) dành cho lúc có người dùng ngồi trước trình duyệt. Bài này xem các tình huống còn lại: <b>service gọi service</b> không có người dùng (Client Credentials), <b>TV/CLI</b> không gõ phím được (Device flow), <b>gia hạn</b> token (Refresh token) — rồi vì sao hai flow cũ ROPC/Implicit bị bỏ và OAuth 2.1 thay đổi gì.</p>
+  <div class="meta-row">
+    <span class="chip">⏱ ~30 phút</span>
+    <span class="chip">📘 <a href="m03-oauth-oidc.html">Module 03 · OAuth 2.0 / 2.1 &amp; OpenID Connect</a></span>
+  </div>
+</div>
+
+<div class="terms"><span class="terms-title">📖 Thuật ngữ trong bài</span><dl>
+<dt>Machine-to-machine (M2M)</dt><dd>Một chương trình gọi một chương trình khác, không có người nào bấm nút.</dd>
+<dt>Client Credentials</dt><dd>Grant cho M2M: service tự xác thực bằng secret của nó và nhận token cho <b>chính nó</b>.</dd>
+<dt>Service account</dt><dd>“Tài khoản” đại diện cho một ứng dụng chứ không phải một người (vd. <code>service-account-worker</code>).</dd>
+<dt>Device flow</dt><dd>Đăng nhập cho TV/CLI: thiết bị hiện mã, bạn nhập mã trên điện thoại.</dd>
+<dt>Polling</dt><dd>Hỏi đi hỏi lại theo chu kỳ (“xong chưa?”) cho tới khi có kết quả.</dd>
+<dt>Refresh token</dt><dd>Credential sống lâu hơn, dùng để xin access token mới mà không bắt đăng nhập lại.</dd>
+<dt>ROPC / Implicit</dt><dd>Hai grant cũ đã bị loại bỏ vì không an toàn — chỉ cần nhận biết.</dd>
+<dt>OAuth 2.1</dt><dd>Bản hợp nhất OAuth 2.0 + các best practice bảo mật (vẫn là draft).</dd>
+</dl></div>
+
+<!-- ======== Client Credentials ======== -->
+<h3 id="client-credentials">3. Client Credentials <span class="badge must">Must</span></h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>Xe tải giao hàng của công ty vào kho lúc 2 giờ sáng: không có “người dùng” nào bấm đồng ý cả. Tài xế trình <b>giấy phép của chính công ty</b> và nhận thẻ vào kho. Token này đại diện cho <b>service</b>, không đại diện cho người nào.</div>
+<p>Dùng cho <b>machine-to-machine</b> (M2M): một service (job đồng bộ, worker, daemon) gọi API bằng <b>danh tính của chính nó</b>.</p>
+<ul>
+<li>Không có người dùng, không có trình duyệt, không có redirect, không có consent — chỉ <b>một</b> request tới token endpoint.</li>
+<li>Vì AS phải xác thực client nên chỉ <b>confidential client</b> được dùng grant này.</li>
+</ul>
+
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: Client Credentials vs Authorization Code</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Client Credentials</th><th>Authorization Code (+ PKCE)</th></tr></thead>
+<tbody>
+<tr><td>Có người dùng?</td><td><b>Không</b></td><td><b>Có</b> — người dùng đăng nhập và đồng ý</td></tr>
+<tr><td>Token đại diện cho</td><td>Ứng dụng (service account)</td><td>Người dùng, thông qua ứng dụng</td></tr>
+<tr><td>Trình duyệt / redirect</td><td>Không</td><td>Có (front-channel + back-channel)</td></tr>
+<tr><td>Số request lấy token</td><td>1 (POST token endpoint)</td><td>2 bước: xin code qua trình duyệt, rồi đổi code</td></tr>
+<tr><td>Loại client</td><td>Chỉ confidential</td><td>Public hoặc confidential</td></tr>
+<tr><td>Refresh token</td><td>Thường không có — hết hạn thì xin lại</td><td>Thường có</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> job <code>worker</code> chạy 02:00 tổng hợp đơn hàng → Client Credentials. An mở app WPF <code>demo-client</code> xem đơn <b>của mình</b> → Authorization Code + PKCE. Trong token của worker, <code>sub</code> là service account; trong token của An, <code>sub</code> là An.</p>
+<span class="rule">Có người bấm “Đăng nhập” → Authorization Code. Không ai bấm gì cả → Client Credentials.</span>
+</div>
+
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant W as Worker service (client worker)
+  participant AZ as Authorization Server (Keycloak)
+  participant API as Resource Server (demo-api)
+  Note over W: Job chạy lúc 02:00, không có user
+  W->>AZ: POST /token grant_type=client_credentials, scope=orders.read<br/>+ xác thực client (secret, private_key_jwt hoặc mTLS)
+  AZ->>AZ: Xác thực client, kiểm tra scope được phép
+  AZ-->>W: access_token (sub = service account), expires_in=300
+  W->>W: Cache token đến gần hết hạn
+  W->>API: GET /orders (Bearer access_token)
+  API->>API: Validate chữ ký, iss, aud, exp, scope
+  API-->>W: 200 OK
+  Note over W,AZ: Hết hạn thì xin token mới bằng client credentials,<br/>thường KHÔNG có refresh token
+</pre>
+<div class="caption">Client Credentials cho service-to-service (Deliverable 2). Thực hành ở <a href="lab-4-client-credentials.html#lab4">Lab 4</a>; kiến trúc ở <a href="m07-2-native-s2s.html#s2s">M07</a>.</div>
+</div>
+
+<pre data-title="Token request — client_secret_basic"><code class="language-plaintext">POST /realms/demo/protocol/openid-connect/token HTTP/1.1
+Host: localhost:8080
+Authorization: Basic d29ya2VyOldvcmtlclNlY3JldDEyMw==
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=client_credentials&amp;scope=orders.read</code></pre>
+<pre data-title="Token response"><code class="language-json">{
+  "access_token": "eyJhbGciOiJSUzI1NiIsInR5cCI...",
+  "expires_in": 300,
+  "token_type": "Bearer",
+  "scope": "orders.read"
+}</code></pre>
+<ul class="small">
+<li><code>Authorization: Basic …</code> — base64 của <code>worker:WorkerSecret123</code> (cách xác thực <code>client_secret_basic</code>). Production nên cân nhắc <code>private_key_jwt</code> hoặc mTLS thay vì secret dùng chung.</li>
+<li><code>grant_type=client_credentials</code> — “cho tôi token của chính tôi”. Không có <code>code</code>, <code>redirect_uri</code>, <code>state</code>.</li>
+<li><code>scope=orders.read</code> — chỉ được cấp nếu admin đã cho phép client <code>worker</code> dùng scope này.</li>
+<li>Response không có <code>refresh_token</code> — hết 300 giây thì xin token mới bằng chính request này.</li>
+</ul>
+<p>Giải mã access token này bạn sẽ thấy <code>sub</code> là ID của <b>service account</b> (Keycloak đặt <code>preferred_username</code> dạng <code>service-account-worker</code>) và <code>azp</code> = <code>worker</code> — không có thông tin của người dùng thật nào.</p>
+
+<pre data-title="Worker .NET — gọi token endpoint bằng HttpClient"><code class="language-csharp">using var http = new HttpClient();
+var basic = Convert.ToBase64String(Encoding.UTF8.GetBytes("worker:" + secretFromVault));
+http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", basic);
+
+var resp = await http.PostAsync(
+    "http://localhost:8080/realms/demo/protocol/openid-connect/token",
+    new FormUrlEncodedContent(new Dictionary&lt;string, string&gt;
+    {
+        ["grant_type"] = "client_credentials",
+        ["scope"]      = "orders.read"
+    }));
+resp.EnsureSuccessStatusCode();
+using var json = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+var accessToken = json.RootElement.GetProperty("access_token").GetString();
+// Cache token tới (expires_in - vài giây) rồi mới xin lại — đừng xin token mới cho MỖI request.</code></pre>
+<div class="callout danger"><span class="callout-title">🚫 Client Credentials không phải để đăng nhập người dùng</span>
+Token này đại diện cho <b>ứng dụng</b>. Nếu API cần biết “user nào”, Client Credentials là sai flow. Nếu API A cần gọi API B <i>thay mặt người dùng</i>, dùng Token Exchange / On-Behalf-Of (<a href="m03-7-user-identity.html#obo">xem cuối trang</a>), đừng dùng token “service” với quyền tối cao rồi tự truyền <code>userId</code> trong body.</div>
+
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Client Credentials thiếu refresh token là cấu hình sai, phải bật lên.</span><span class="f-label">Thực tế</span><span>Không cần: client vẫn giữ credential của chính nó, hết hạn thì xin token mới bằng đúng request cũ. RFC 6749 §4.4.3 nói AS <b>không nên</b> (SHOULD NOT) cấp refresh token cho grant này. Việc cần làm là <b>cache</b> access token đến gần hết hạn.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>SPA cũng dùng Client Credentials được, chỉ cần để secret trong file <code>.env</code>.</span><span class="f-label">Thực tế</span><span>Biến <code>.env</code> của SPA bị nhúng vào bundle JavaScript — ai mở DevTools cũng thấy. Client Credentials chỉ dành cho <b>confidential client</b>; và token của nó đại diện cho app, không phải người dùng đang ngồi trước SPA.</span></div>
+
+<!-- ======== Device flow ======== -->
+<h3 id="device-flow">4. Device Authorization Grant (RFC 8628) <span class="badge should">Should</span></h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>Smart TV không có bàn phím tử tế. TV hiện: “Mở điện thoại, vào trang X, nhập mã <b>WDJB-MJHT</b>”. Bạn đăng nhập trên điện thoại; trong lúc đó TV cứ vài giây lại hỏi AS “xong chưa?”. Xong thì TV nhận token.</div>
+<p>Cho thiết bị <b>có input hạn chế hoặc không có trình duyệt</b>: Smart TV, CLI (vd. <code>az login --use-device-code</code>, <code>gh auth login</code>), thiết bị IoT. Mục tiêu khóa học: hiểu use case và các tham số, <b>không cần triển khai</b>.</p>
+
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: Device flow vs Authorization Code</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Device Authorization Grant</th><th>Authorization Code + PKCE</th></tr></thead>
+<tbody>
+<tr><td>Người dùng đăng nhập ở đâu</td><td>Trên <b>thiết bị thứ hai</b> (điện thoại/PC)</td><td>Trên <b>cùng thiết bị</b> chạy app (qua trình duyệt)</td></tr>
+<tr><td>App biết khi nào xong bằng cách</td><td><b>Polling</b> token endpoint mỗi vài giây</td><td>Nhận <b>redirect</b> về <code>redirect_uri</code></td></tr>
+<tr><td>Có <code>redirect_uri</code>?</td><td>Không</td><td>Có, bắt buộc</td></tr>
+<tr><td>Thứ người dùng phải nhập</td><td><code>user_code</code> ngắn (vd. <code>WDJB-MJHT</code>)</td><td>Không cần nhập mã</td></tr>
+<tr><td>Rủi ro đặc thù</td><td>Device code phishing (xem cảnh báo dưới)</td><td>Code interception (PKCE chặn)</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> chạy <code>gh auth login</code> trên server SSH không có giao diện → CLI in mã, bạn mở github.com/login/device trên laptop. Còn app WPF <code>demo-client</code> trên máy có trình duyệt → dùng Authorization Code + PKCE.</p>
+<span class="rule">Thiết bị mở được trình duyệt → Authorization Code. Không mở được → Device flow.</span>
+</div>
+
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant D as 📺 Thiết bị (TV/CLI)
+  participant AZ as Authorization Server
+  participant U as 👤 Người dùng
+  participant P as 📱 Điện thoại/PC
+  D->>AZ: POST /auth/device (client_id, scope)
+  AZ-->>D: device_code, user_code, verification_uri, expires_in, interval
+  D->>U: Hiển thị: vào verification_uri, nhập user_code (hoặc QR)
+  loop Polling mỗi interval giây
+    D->>AZ: POST /token grant_type=device_code, device_code
+    AZ-->>D: 400 authorization_pending (hoặc slow_down: tăng interval thêm 5s)
+  end
+  U->>P: Mở verification_uri, nhập user_code
+  P->>AZ: Đăng nhập + consent
+  D->>AZ: POST /token (lần poll tiếp theo)
+  AZ-->>D: 200 access_token (+ refresh_token, id_token)
+</pre>
+<div class="caption">Device flow: xác thực xảy ra trên <b>thiết bị khác</b>; thiết bị gốc chỉ polling.</div>
+</div>
+
+<pre data-title="1. Device authorization request &amp; response"><code class="language-plaintext">POST /realms/demo/protocol/openid-connect/auth/device HTTP/1.1
+Host: localhost:8080
+Content-Type: application/x-www-form-urlencoded
+
+client_id=tv-app&amp;scope=openid%20orders.read
+
+HTTP/1.1 200 OK
+Content-Type: application/json
+
+{
+  "device_code": "GmRhmhcxhwAzkoEqiMEg_DnyEysNkuNhszIySk9eS",
+  "user_code": "WDJB-MJHT",
+  "verification_uri": "http://localhost:8080/realms/demo/device",
+  "verification_uri_complete": "http://localhost:8080/realms/demo/device?user_code=WDJB-MJHT",
+  "expires_in": 600,
+  "interval": 5
+}</code></pre>
+<pre data-title="2. Polling token endpoint"><code class="language-plaintext">POST /realms/demo/protocol/openid-connect/token HTTP/1.1
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Adevice_code
+&amp;device_code=GmRhmhcxhwAzkoEqiMEg_DnyEysNkuNhszIySk9eS
+&amp;client_id=tv-app
+
+HTTP/1.1 400 Bad Request
+{ "error": "authorization_pending" }</code></pre>
+<div class="table-wrap"><table>
+<thead><tr><th>Trường / lỗi</th><th>Ý nghĩa (RFC 8628)</th></tr></thead>
+<tbody>
+<tr><td><code>device_code</code></td><td>Mã bí mật thiết bị dùng khi polling — không hiển thị cho người dùng.</td></tr>
+<tr><td><code>user_code</code></td><td>Mã ngắn người dùng gõ tay. Nên dễ đọc, không phân biệt hoa thường.</td></tr>
+<tr><td><code>verification_uri</code> / <code>verification_uri_complete</code></td><td>Trang người dùng mở; bản <i>complete</i> đã kèm sẵn user_code (dùng cho QR code).</td></tr>
+<tr><td><code>expires_in</code>, <code>interval</code></td><td>Thời gian sống của mã; số giây tối thiểu giữa hai lần poll (<b>mặc định 5</b> nếu AS không gửi).</td></tr>
+<tr><td><code>authorization_pending</code></td><td>Người dùng chưa xong → tiếp tục poll.</td></tr>
+<tr><td><code>slow_down</code></td><td>Poll quá nhanh → <b>tăng interval thêm 5 giây</b> cho lần này và mọi lần sau.</td></tr>
+<tr><td><code>access_denied</code> / <code>expired_token</code></td><td>Người dùng từ chối / mã hết hạn → dừng poll.</td></tr>
+</tbody></table></div>
+<div class="callout warn"><span class="callout-title">⚠️ Device code phishing</span>
+Kẻ tấn công có thể tự bắt đầu device flow rồi gửi <code>user_code</code> cho nạn nhân kèm lời dụ “nhập mã này để xác minh tài khoản”. Nạn nhân đăng nhập → kẻ tấn công nhận token. Chỉ bật device flow cho client thực sự cần; màn hình xác nhận phải nói rõ thiết bị nào đang xin quyền. Liên hệ <a href="m06-3-web-threats.html#threats">M06 — Threats</a>.</div>
+
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Trong Device flow, người dùng nhập mã (và mật khẩu) ngay trên TV.</span><span class="f-label">Thực tế</span><span>TV chỉ <b>hiển thị</b> <code>user_code</code> và polling. Người dùng nhập mã, đăng nhập, MFA trên <b>thiết bị khác</b> (điện thoại/PC) có trình duyệt đầy đủ. Mật khẩu không bao giờ đi qua TV.</span></div>
+<!-- ======== Refresh token ======== -->
+<h3 id="refresh-token">Refresh token grant (gia hạn access token)</h3>
+<p>Access token sống ngắn để giảm thiệt hại khi bị lộ. Khi hết hạn, client dùng <b>refresh token</b> xin access token mới mà không làm phiền người dùng:</p>
+<pre data-title="Refresh token request"><code class="language-plaintext">POST /realms/demo/protocol/openid-connect/token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=refresh_token&amp;refresh_token=eyJhbGciOiJIUzUxMiIs...&amp;client_id=demo-client</code></pre>
+<ul class="small">
+<li><code>grant_type=refresh_token</code> — “đổi refresh token lấy access token mới”.</li>
+<li><code>refresh_token</code> — giá trị nhận được ở lần đổi code trước đó.</li>
+<li><code>client_id=demo-client</code> — public client nên không có secret; confidential client thì kèm xác thực client như khi đổi code.</li>
+<li>Không có trình duyệt, không có màn hình đăng nhập — người dùng không thấy gì.</li>
+</ul>
+<p>Với <b>refresh token rotation</b>, mỗi lần dùng AS trả về refresh token <b>mới</b> và vô hiệu cái cũ; nếu cái cũ bị dùng lại (dấu hiệu bị trộm) AS thu hồi cả chuỗi (reuse detection — thử ở <a href="lab-4-client-credentials.html#lab4">Lab 4</a>). Chi tiết vòng đời token ở <a href="m02-4-token-lifecycle.html#token-lifecycle">M02</a>.</p>
+
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Access token hết hạn thì gửi refresh token lên API để API tự gia hạn.</span><span class="f-label">Thực tế</span><span>Refresh token chỉ gửi tới <b>token endpoint của AS</b>, không bao giờ gửi tới API. API nhận refresh token là dấu hiệu client đang làm lộ credential sống lâu nhất của người dùng.</span></div>
+
+<!-- ======== ROPC & Implicit ======== -->
+<h3 id="ropc-implicit">5. ROPC và Implicit — vì sao KHÔNG dùng <span class="badge nice">Nice</span></h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span><b>ROPC</b> = quay lại chuyện “đưa mật khẩu cho app khác”, chỉ là có giấy tờ hợp thức. <b>Implicit</b> = phòng cấp phép đưa thẳng thẻ ra vào qua cửa sổ ra đường (URL trình duyệt) thay vì đưa phiếu số — ai đi ngang cũng có thể nhìn thấy.</div>
+
+<h4 id="ropc">Resource Owner Password Credentials (ROPC)</h4>
+<p>Người dùng gõ username/password <b>vào chính client</b>; client gửi thẳng tới token endpoint với <code>grant_type=password</code>.</p>
+<pre data-title="ROPC — CHỈ để nhận biết, KHÔNG dùng"><code class="language-plaintext">POST /token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=password&amp;username=an&amp;password=P%40ssw0rd&amp;client_id=legacy-app</code></pre>
+<ul>
+<li>Client <b>thấy và xử lý mật khẩu</b> → đúng cái password anti-pattern OAuth muốn loại bỏ; tăng bề mặt tấn công, “dạy” người dùng gõ mật khẩu vào bất kỳ app nào.</li>
+<li>Không hỗ trợ được <b>MFA</b>, passkey, federation/SSO, consent, các bước đăng nhập có điều kiện — vì AS không có màn hình đăng nhập của riêng nó.</li>
+<li>RFC 9700: ROPC <b>MUST NOT</b> be used. OAuth 2.1 <b>loại bỏ</b> grant này.</li>
+<li><b>Không</b> coi ROPC là lựa chọn tương đương Authorization Code + PKCE, kể cả cho app “first-party”.</li>
+</ul>
+
+<h4 id="implicit">Implicit grant</h4>
+<p>Thiết kế cho SPA thời chưa có CORS: authorization endpoint trả <b>access token trực tiếp</b> trong <b>URL fragment</b> (<code>response_type=token</code>), không có bước đổi code.</p>
+<pre data-title="Implicit response — CHỈ để nhận biết"><code class="language-plaintext">HTTP/1.1 302 Found
+Location: https://spa.example/callback#access_token=eyJhbGciOi...&amp;token_type=Bearer&amp;expires_in=3600&amp;state=xyz</code></pre>
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant B as Browser
+  participant AZ as Authorization Server
+  participant SPA as SPA (JavaScript)
+  participant X as 😈 Nơi rò rỉ
+  B->>AZ: GET /authorize?response_type=token&amp;...
+  AZ-->>B: 302 callback, access_token nằm trong fragment
+  B->>SPA: JS đọc token từ location.hash
+  B-->>X: Lộ qua history, extension, script bên thứ ba (XSS)
+  SPA-->>X: Redirect tiếp hoặc lỗi mở có thể làm rò rỉ URL qua Referer
+  Note over AZ,SPA: Không có bước back-channel, không có PKCE<br/>AS không biết token tới đúng client hay không
+</pre>
+<div class="caption">Implicit: token đi qua front-channel và nằm trong URL — nhiều đường rò rỉ, không có ràng buộc client.</div>
+</div>
+<ul>
+<li><b>Token trong URL</b>: nằm trong lịch sử trình duyệt, có thể bị extension/script bên thứ ba đọc, và rò rỉ qua redirect/Referer trong một số tình huống.</li>
+<li><b>Không có client binding</b>: không có bước đổi code nên không xác thực client, không PKCE → token injection (kẻ tấn công nhét token của mình/của app khác vào) khó phát hiện.</li>
+<li><b>Không có refresh token an toàn</b> → SPA phải dùng iframe “silent renew” dựa trên cookie bên thứ ba, đang bị trình duyệt chặn dần.</li>
+<li>Thay thế: <b>Authorization Code + PKCE</b> cho SPA (CORS đã phổ biến), hoặc tốt hơn nữa là kiến trúc <b>BFF</b> (<a href="m07-1-design-web.html#bff">M07</a>) để token không nằm trong browser (<a href="m06-5-password-token-storage.html#token-storage">M06 — token storage</a>).</li>
+</ul>
+
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: ROPC / Implicit vs Authorization Code + PKCE</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>ROPC</th><th>Implicit</th><th>Code + PKCE</th></tr></thead>
+<tbody>
+<tr><td>Ai thấy mật khẩu</td><td>❌ Client</td><td>✅ Chỉ AS</td><td>✅ Chỉ AS</td></tr>
+<tr><td>Token đi qua</td><td>Back-channel</td><td>❌ URL trình duyệt (front-channel)</td><td>✅ Back-channel</td></tr>
+<tr><td>MFA / passkey / SSO</td><td>❌ Không</td><td>✅ Có</td><td>✅ Có</td></tr>
+<tr><td>Ràng buộc token với client</td><td>Chỉ khi là confidential client</td><td>❌ Không</td><td>✅ PKCE (+ xác thực client nếu confidential)</td></tr>
+<tr><td>Trạng thái</td><td>RFC 9700: MUST NOT; bỏ trong 2.1</td><td>RFC 9700: SHOULD NOT; bỏ trong 2.1</td><td>Mặc định</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> SPA cũ dùng <code>response_type=token</code> → chuyển sang <code>response_type=code</code> + PKCE (hoặc BFF). App nội bộ có form “Username/Password” tự gọi <code>grant_type=password</code> → thay bằng mở trang đăng nhập Keycloak qua Authorization Code + PKCE.</p>
+<span class="rule">Hai flow cũ mỗi cái phạm một lỗi: ROPC để client thấy mật khẩu; Implicit đưa token lên URL. Code + PKCE tránh cả hai.</span>
+</div>
+
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>App do chính công ty viết (first-party) thì dùng ROPC vẫn ổn.</span><span class="f-label">Thực tế</span><span>Vấn đề không nằm ở “ai viết app” mà ở chỗ app <b>thấy mật khẩu</b> và AS mất màn hình đăng nhập của mình → không MFA, không passkey, không SSO. RFC 9700 nói MUST NOT, không có ngoại lệ first-party.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Implicit an toàn vì token nằm sau dấu <code>#</code>, fragment không gửi lên server.</span><span class="f-label">Thực tế</span><span>Fragment không lên server, nhưng vẫn nằm trong <b>history</b>, đọc được bởi mọi script trên trang (XSS, thư viện bên thứ ba) và extension. Và Implicit vẫn thiếu ràng buộc token với client.</span></div>
+
+<!-- ===================================================== -->
+<h2 id="oauth21">D.1. OAuth 2.1 thay đổi gì so với OAuth 2.0? <span class="badge should">Should</span></h2>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>OAuth 2.0 (2012) là bộ luật gốc; sau đó có hàng chục “thông tư bổ sung” (PKCE, best practice bảo mật…). OAuth 2.1 là bản <b>hợp nhất</b>: gộp các thông tư vào luật gốc và <b>xóa các điều khoản nguy hiểm</b>. Nó gần như không thêm cơ chế mới.</div>
+
+<div class="callout info"><span class="callout-title">📌 Trạng thái tại 11/2026 (đã kiểm tra trên IETF Datatracker)</span>
+<ul>
+<li><b>OAuth 2.1</b> vẫn là <b>Internet-Draft</b>: <code>draft-ietf-oauth-v2-1-17</code> (31/10/2026), nhóm OAuth WG, <b>chưa có số RFC</b>. Có thể trích dẫn như “bản nháp đang hoàn thiện”, không phải chuẩn chính thức. Nếu thành RFC, nó sẽ thay thế RFC 6749 và RFC 6750.</li>
+<li><b>RFC 9700</b> — <i>Best Current Practice for OAuth 2.0 Security</i> (BCP 240) — đã ban hành <b>tháng 1/2025</b>. Đây là văn bản chính thức bạn có thể viện dẫn ngay hôm nay cho hầu hết các yêu cầu bên dưới.</li>
+<li><b>RFC 10017</b> — <i>OAuth 2.0 for Browser-Based Applications</i> — đã ban hành <b>08/2026</b>, thuộc <b>BCP 212</b> (cùng nhóm BCP với RFC 8252 <i>OAuth 2.0 for Native Apps</i>), hướng dẫn riêng cho SPA (liên quan <a href="m07-1-design-web.html#spa">M07 — SPA/BFF</a>).</li>
+</ul></div>
+
+<div class="table-wrap"><table>
+<thead><tr><th>#</th><th>Thay đổi trong OAuth 2.1 (draft -17, mục “Differences from OAuth 2.0”)</th><th>Vì sao</th></tr></thead>
+<tbody>
+<tr><td>1</td><td><b>PKCE là mặc định/bắt buộc</b> cho Authorization Code — kể cả confidential client. (Ngoại lệ hẹp ở §7.5.1 của draft: confidential client mà AS có cơ sở tin chắc dùng đúng <code>nonce</code> của OIDC — dù vậy PKCE vẫn RECOMMENDED.)</td><td>Chặn code interception &amp; code injection (<a href="m03-2-auth-code-pkce.html#pkce-attack">xem trên</a>).</td></tr>
+<tr><td>2</td><td><b>Bỏ phương thức PKCE <code>plain</code></b>, chỉ còn <code>S256</code>.</td><td><code>plain</code> để lộ verifier trên front-channel.</td></tr>
+<tr><td>3</td><td><b>Loại bỏ Implicit grant</b> (<code>response_type=token</code>).</td><td>Token trong URL, không client binding.</td></tr>
+<tr><td>4</td><td><b>Loại bỏ ROPC</b> (<code>grant_type=password</code>).</td><td>Client xử lý mật khẩu, không MFA/federation.</td></tr>
+<tr><td>5</td><td><b>Redirect URI so khớp chuỗi chính xác</b> (exact string matching). Ngoại lệ: với loopback IP của native app (<code>http://127.0.0.1:{port}/</code>) AS phải chấp nhận <b>port bất kỳ</b> lúc request.</td><td>Wildcard/so khớp lỏng từng gây ra hàng loạt vụ trộm code/token.</td></tr>
+<tr><td>6</td><td><b>Không gửi bearer token trong query string</b> (<code>?access_token=…</code>).</td><td>URL bị ghi vào log, history, Referer.</td></tr>
+<tr><td>7</td><td><b>Refresh token của public client</b> phải <b>sender-constrained</b> (vd. DPoP) <b>hoặc dùng một lần</b> (rotation).</td><td>Refresh token sống lâu, nằm trên thiết bị người dùng → giảm thiệt hại khi bị trộm.</td></tr>
+<tr><td>8</td><td>Refresh token cấp cho ứng dụng chạy trong browser có thêm ràng buộc về thời gian sống.</td><td>Theo RFC 10017.</td></tr>
+<tr><td>9</td><td>Token request đổi authorization code <b>không còn tham số <code>redirect_uri</code></b>.</td><td>Vai trò chống injection đã do PKCE đảm nhận. (Chi tiết của draft; AS hiện nay vẫn chấp nhận/yêu cầu tham số này theo OAuth 2.0.)</td></tr>
+<tr><td>10</td><td>AS phải hỗ trợ client credentials gửi trong body request.</td><td>Thống nhất cách xác thực client.</td></tr>
+</tbody></table></div>
+<div class="callout warn"><span class="callout-title">📝 Ghi chú so với roadmap</span>
+Roadmap liệt kê đúng 5 thay đổi cốt lõi (PKCE bắt buộc, bỏ Implicit/ROPC, exact redirect URI, không token trong query, refresh token của public client). Bản draft hiện hành còn thêm: <b>bỏ <code>plain</code></b>, <b>bỏ <code>redirect_uri</code> ở token request</b>, ràng buộc refresh token cho browser-based app. Draft vẫn có thể thay đổi trước khi thành RFC — kiểm tra lại khi trích dẫn.</div>
+<p><b>Kết luận thực tế:</b> hầu hết IdP hiện đại (Keycloak, Entra ID, Okta, Auth0…) đã áp dụng các khuyến nghị này. Thiết kế mới nên tuân theo OAuth 2.1 + RFC 9700 ngay từ đầu.</p>
+
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: OAuth 2.0 vs OAuth 2.1</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>OAuth 2.0</th><th>OAuth 2.1</th></tr></thead>
+<tbody>
+<tr><td>Trạng thái</td><td>Chuẩn chính thức (RFC 6749, 6750 — 2012) + nhiều RFC bổ sung</td><td>Internet-Draft, chưa có số RFC</td></tr>
+<tr><td>Bản chất</td><td>Khung linh hoạt, cho phép cả cách làm nay đã biết là nguy hiểm</td><td>Cùng giao thức, đã gộp best practice và <b>bỏ</b> phần nguy hiểm</td></tr>
+<tr><td>Grant cho người dùng</td><td>Code (PKCE tùy chọn), Implicit, ROPC</td><td>Chỉ Code + PKCE</td></tr>
+<tr><td>Code hiện có có phải viết lại?</td><td colspan="2">Không, nếu bạn đã dùng Code + PKCE, redirect URI chính xác và không đặt token trên URL — đó đã là “OAuth 2.1” trên thực tế.</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> client <code>demo-client</code> trong Lab (Code + PKCE S256, loopback redirect, token chỉ đi qua back-channel) đã theo đúng tinh thần của OAuth 2.1 dù Keycloak vẫn công bố là “OAuth 2.0”.</p>
+<span class="rule">OAuth 2.1 không phải giao thức mới — là OAuth 2.0 “đã dọn dẹp”.</span>
+</div>
+
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>OAuth 2.1 là chuẩn mới với nhiều cơ chế mới.</span><span class="f-label">Thực tế</span><span>Nó là bản <b>hợp nhất</b> các best practice đã có (PKCE, RFC 9700…) và xóa phần nguy hiểm; tại 11/2026 vẫn là Internet-Draft. Client Credentials, Refresh Token, Device flow vẫn còn nguyên.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>“Redirect URI so khớp chính xác” nghĩa là app desktop không dùng port động được nữa.</span><span class="f-label">Thực tế</span><span>Có ngoại lệ cho loopback IP của native app: đăng ký <code>http://127.0.0.1/</code>, lúc chạy dùng <code>http://127.0.0.1:51234/</code> — AS phải chấp nhận port bất kỳ (RFC 8252 §7.3). Ngoài port ra, phần còn lại vẫn phải khớp chính xác.</span></div>
+
+<div class="callout tip"><span class="callout-title">✅ Tự kiểm tra nhanh</span><ul>
+<li>Job đồng bộ dữ liệu ban đêm cần gọi <code>demo-api</code>: dùng grant nào? Có refresh token không?</li>
+<li>Vì sao device flow cần polling, còn Authorization Code thì không?</li>
+<li>Implicit và ROPC mỗi cái sai ở điểm nào?</li>
+</ul></div>
+
+<h2 id="quiz-bai">Quiz nhanh — Bài 3.3</h2>
+<div id="quiz"></div>
+
+</main>
+<script>
+window.QUIZ = [
+  { q: "Job <code>worker</code> gọi Client Credentials và nhận token <code>expires_in: 300</code>, không có <code>refresh_token</code>. Một dev mở ticket “Keycloak cấu hình thiếu refresh token cho worker”. Đánh giá thế nào?", tricky: true,
+    options: ["Đúng là lỗi, phải bật refresh token cho client <code>worker</code>", "Không phải lỗi: Client Credentials không cần refresh token vì client tự xin lại bằng chính credential; chỉ cần cache token đến gần hết hạn", "Phải chuyển worker sang Authorization Code để có refresh token", "Không phải lỗi, nhưng worker phải xin token mới cho mỗi request"],
+    answer: 1,
+    why: ["RFC 6749 §4.4.3: AS không nên cấp refresh token cho Client Credentials; thiếu nó là hành vi mong đợi.", "Refresh token sinh ra để khỏi bắt <i>người dùng</i> đăng nhập lại; ở đây không có người dùng, client đã có sẵn credential.", "Authorization Code cần người dùng đăng nhập qua trình duyệt — job 2 giờ sáng không có ai bấm.", "Xin token cho mỗi request làm tải AS vô ích; cache token tới gần <code>expires_in</code> rồi mới xin lại."],
+    explain: "Bẫy: “token nào cũng phải có refresh token”. Với M2M, “gia hạn” = xin lại bằng client credentials. Xem <a href='m03-3-other-grants.html#client-credentials'>Client Credentials</a>." },
+  { q: "Smart TV hiện: “Vào <code>localhost:8080/realms/demo/device</code>, nhập mã <b>WDJB-MJHT</b>”. Những phát biểu nào đúng?",
+    options: ["Người dùng nhập mã và đăng nhập trên một thiết bị khác (điện thoại/PC)", "Người dùng nhập mật khẩu trên TV, TV gửi kèm <code>user_code</code> lên AS", "Trong lúc chờ, TV polling token endpoint bằng <code>device_code</code>", "Khi xong, TV nhận token qua redirect về <code>redirect_uri</code>"],
+    answer: [0, 2],
+    why: ["Đúng: đó là lý do Device flow tồn tại — TV không gõ phím tiện, việc đăng nhập chuyển sang thiết bị có trình duyệt.", "TV không bao giờ nhận mật khẩu; nó chỉ hiển thị mã.", "TV dùng <code>device_code</code> (bí mật, không hiển thị) để hỏi “xong chưa?” theo <code>interval</code>.", "Device flow không có <code>redirect_uri</code>; TV biết kết quả nhờ polling."],
+    explain: "Hiển thị <code>user_code</code> cho người, giữ <code>device_code</code> để poll. Xem <a href='m03-3-other-grants.html#device-flow'>Device flow</a>." },
+  { q: "Team frontend muốn SPA React gọi thẳng <code>demo-api</code> bằng Client Credentials, secret để trong <code>.env</code> lúc build. Nhận xét đúng?",
+    options: ["Ổn, vì <code>.env</code> không được commit lên Git", "Không được: SPA là public client, secret bị nhúng vào bundle; token còn đại diện app chứ không phải người dùng. Dùng Code + PKCE hoặc BFF", "Ổn nếu bundle được minify", "Ổn nếu chạy qua HTTPS"],
+    answer: 1,
+    why: ["Không commit lên Git không giúp gì: giá trị đã nằm trong file JavaScript gửi xuống mọi trình duyệt.", "Hai lỗi cùng lúc: lộ secret và mất danh tính người dùng (API không biết ai đang gọi).", "Minify chỉ làm code khó đọc hơn, chuỗi secret vẫn nguyên vẹn.", "HTTPS bảo vệ đường truyền, không bảo vệ bundle khi đã về trình duyệt."],
+    explain: "Client Credentials chỉ cho confidential client và tình huống không có người dùng. Xem <a href='m03-3-other-grants.html#client-credentials'>so sánh</a>." },
+  { q: "An nhận email: “Tài khoản của bạn cần xác minh. Vào trang đăng nhập thiết bị chính thức của công ty và nhập mã <b>KQXP-RTLM</b>”. Trang đó đúng là trang thật. Nếu An làm theo thì sao?",
+    options: ["Không sao, vì trang và đăng nhập đều thật", "Kẻ tấn công lấy được mật khẩu của An", "Kẻ tấn công đã tự khởi tạo device flow; An đăng nhập xong thì token về thiết bị của kẻ tấn công", "Chỉ lộ <code>user_code</code>, mà mã này vô hại"],
+    answer: 2,
+    why: ["Trang thật không cứu được: An đang cấp quyền cho phiên device flow của người khác.", "Mật khẩu nhập trên trang thật nên kẻ tấn công không thấy — hắn nhận <b>token</b>, còn nguy hiểm hơn vì vượt qua cả MFA.", "Đó là device code phishing: kẻ tấn công giữ <code>device_code</code> và đang polling.", "<code>user_code</code> chính là thứ liên kết đăng nhập của An với phiên của kẻ tấn công."],
+    explain: "Chỉ nhập mã đang hiện trên thiết bị của chính mình. Xem <a href='m03-3-other-grants.html#device-flow'>cảnh báo device code phishing</a>." },
+  { q: "Bật refresh token rotation: RT1 đã được đổi lấy access token mới + RT2. Sau đó ai đó gửi lại RT1. AS có reuse detection sẽ làm gì?",
+    options: ["Cấp access token mới vì RT1 chưa hết hạn", "Từ chối RT1 và thu hồi cả chuỗi (gồm RT2), buộc người dùng đăng nhập lại", "Trả lại RT2 cho bên gửi", "Bỏ qua, không làm gì"],
+    answer: 1,
+    why: ["Với rotation, RT1 đã vô hiệu ngay khi được dùng lần đầu.", "RT cũ bị dùng lại = dấu hiệu bị trộm; AS không biết bên nào là thật nên thu hồi tất cả.", "Đưa RT2 cho bên gửi RT1 chính là đưa token cho kẻ trộm.", "Bỏ qua thì mất ý nghĩa của reuse detection."],
+    explain: "Rotation + reuse detection biến refresh token bị trộm thành “chuông báo động”. Xem <a href='m03-3-other-grants.html#refresh-token'>Refresh token</a>." },
+  { q: "App WPF đăng ký redirect URI <code>http://127.0.0.1/</code>; lúc chạy nó mở listener ở port ngẫu nhiên và gửi <code>redirect_uri=http://127.0.0.1:51234/</code>. Theo RFC 8252 / OAuth 2.1, AS nên làm gì?",
+    options: ["Từ chối, vì redirect URI phải khớp chính xác từng ký tự", "Chấp nhận: với loopback IP, AS phải cho phép port bất kỳ lúc request", "Chỉ chấp nhận nếu đăng ký dạng wildcard <code>http://127.0.0.1:*/</code>", "Từ chối vì native app phải dùng <code>localhost</code> thay cho <code>127.0.0.1</code>"],
+    answer: 1,
+    why: ["So khớp chính xác có một ngoại lệ được nêu rõ: port của loopback IP cho native app.", "RFC 8252 §7.3 và OAuth 2.1: port động là bình thường vì app không biết trước port nào trống.", "Không cần (và không nên) wildcard; ngoại lệ chỉ áp dụng cho port.", "Ngược lại: RFC 8252 khuyến nghị dùng IP literal <code>127.0.0.1</code> hơn là <code>localhost</code>."],
+    explain: "Ngoài port, mọi phần khác vẫn phải khớp. Xem <a href='m03-3-other-grants.html#oauth21'>OAuth 2.1</a>." }
+];
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="assets/pages.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

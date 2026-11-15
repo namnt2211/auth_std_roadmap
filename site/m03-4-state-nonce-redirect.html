@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M03 · Bài 3.4 · state, nonce &amp; redirect URI</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<main class="content">
+
+<div class="page-head">
+  <div class="breadcrumb"><a href="index.html">Lộ trình</a> / <a href="m03-oauth-oidc.html">Module 03</a> / Bài 3.4</div>
+  <h1>Bài 3.4 — state, nonce &amp; redirect URI</h1>
+  <p class="lead">Flow OAuth đi vòng qua trình duyệt nên có nhiều chỗ kẻ tấn công chen vào được. Bài này giải thích bốn “ổ khóa” nhỏ — <code>state</code>, <code>nonce</code>, PKCE và kiểm tra redirect URI: mỗi cái khóa cửa nào, chặn tấn công gì, và vì sao <b>không được bỏ cái nào</b>.</p>
+  <div class="meta-row">
+    <span class="chip">⏱ ~10 phút</span>
+    <span class="chip">📘 <a href="m03-oauth-oidc.html">Module 03 · OAuth 2.0 / 2.1 &amp; OpenID Connect</a></span>
+  </div>
+</div>
+
+<div class="terms"><span class="terms-title">📖 Thuật ngữ trong bài</span><dl>
+<dt><code>state</code></dt><dd>Số ngẫu nhiên client gửi đi và nhận lại ở callback — để chắc callback là của chính phiên đăng nhập này.</dd>
+<dt><code>nonce</code></dt><dd>(OIDC) Số ngẫu nhiên được AS chép vào ID token — để chắc ID token sinh ra cho chính request này.</dd>
+<dt>PKCE</dt><dd>Cặp verifier/challenge — để chỉ client đã xin code mới đổi được code (<a href="m03-2-auth-code-pkce.html#pkce">Bài 3.2</a>).</dd>
+<dt>CSRF</dt><dd>Cross-Site Request Forgery: trang lạ khiến trình duyệt của nạn nhân gửi request mà nạn nhân không chủ ý.</dd>
+<dt>Login CSRF</dt><dd>Biến thể CSRF ép nạn nhân bị đăng nhập vào <b>tài khoản của kẻ tấn công</b>.</dd>
+<dt>Replay</dt><dd>Lấy một token/thông điệp hợp lệ cũ và “phát lại” ở nơi khác.</dd>
+<dt>Open redirect</dt><dd>Trang nhận tham số URL rồi redirect tới bất kỳ đâu — kẻ tấn công lợi dụng để đẩy code ra ngoài.</dd>
+<dt>Mix-up attack</dt><dd>Client làm việc với nhiều AS bị lừa gửi code của AS này sang AS khác.</dd>
+</dl></div>
+
+<!-- ===================================================== -->
+<h2 id="state-nonce">E. PKCE, state, nonce và redirect URI <span class="badge must">Must</span></h2>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>Bốn “ổ khóa” cho bốn cánh cửa khác nhau. <b>state</b> = số thứ tự bạn bấm ở quầy: kết quả trả về phải đúng số của bạn. <b>nonce</b> = mã đơn hàng in lên hóa đơn: hóa đơn (ID token) phải ghi đúng mã đơn bạn vừa đặt. <b>PKCE</b> = nửa vé xé đôi: chỉ người giữ nửa vé mới đổi được phiếu. <b>Redirect URI chính xác</b> = địa chỉ giao hàng cố định đã đăng ký: không ai đổi được nơi nhận.</div>
+<p>Mỗi cơ chế bảo vệ <b>một thứ khác nhau</b> trong flow. Nói bằng một câu cho từng cái:</p>
+<ul>
+<li><b><code>state</code></b> bảo vệ <b>callback</b>: “callback này có đúng là kết quả của lần đăng nhập mà <i>trình duyệt này</i> vừa bắt đầu không?”</li>
+<li><b><code>nonce</code></b> bảo vệ <b>ID token</b>: “ID token này có được tạo cho <i>đúng request</i> của tôi không, hay là token cũ bị đem dùng lại?”</li>
+<li><b>PKCE</b> bảo vệ <b>authorization code</b>: “người đang đổi code có phải <i>đúng app</i> đã xin code không?”</li>
+<li><b>Redirect URI validation</b> bảo vệ <b>đích đến</b>: “AS có đang gửi code tới <i>đúng địa chỉ</i> đã đăng ký không?”</li>
+</ul>
+<p>Bốn cơ chế này <b>liên quan nhưng không thay thế nhau</b>. Bảng chi tiết dưới đây là <b>Deliverable 5</b>:</p>
+
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: state vs nonce vs PKCE vs redirect URI validation</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Cơ chế</th><th>Ai tạo / ai kiểm tra</th><th>Ràng buộc cái gì</th><th>Chống tấn công nào</th><th>Không chống được</th></tr></thead>
+<tbody>
+<tr><td><b><code>state</code></b></td><td>Client tạo ngẫu nhiên, lưu trong session/cookie của user-agent; client so khớp khi nhận callback.</td><td>Authorization <b>response</b> ↔ request do chính phiên trình duyệt này khởi tạo.</td><td><b>CSRF tại redirect URI</b> — gồm <b>login CSRF</b> và <b>authorization response injection</b> (kẻ tấn công ép trình duyệt nạn nhân mang code của <i>kẻ tấn công</i> tới callback). Cũng dùng để correlation/khôi phục trang đích.</td><td>Code bị chặn rồi đổi ở nơi khác; ID token replay.</td></tr>
+<tr><td><b><code>nonce</code></b> (OIDC)</td><td>Client tạo, gửi trong authentication request; OP chép vào <b>ID token</b>; client so khớp khi validate ID token.</td><td><b>ID token</b> ↔ authentication request/phiên của client.</td><td><b>ID token replay</b> và <b>ID token injection</b> (đem ID token cũ/của phiên khác dùng lại). RFC 9700 cho phép confidential OIDC client dùng nonce thay PKCE để chống code injection (với điều kiện bổ sung).</td><td>Không bảo vệ access token; không thay state trong OAuth thuần (không có ID token).</td></tr>
+<tr><td><b>PKCE</b></td><td>Client tạo verifier/challenge; <b>AS</b> kiểm tra ở token endpoint.</td><td>Authorization <b>code</b> ↔ client instance đã gửi request.</td><td><b>Authorization code interception</b> (app độc, log, Referer) và <b>authorization code injection</b>. RFC 9700: PKCE cũng chống được CSRF <i>nếu</i> client chắc chắn AS hỗ trợ PKCE.</td><td>Không chống token bị trộm <i>sau khi</i> đã cấp; không thay redirect URI validation.</td></tr>
+<tr><td><b>Redirect URI validation</b></td><td>Client đăng ký trước; <b>AS</b> so khớp chính xác mỗi request.</td><td>Nơi nhận code/token ↔ URI đã đăng ký.</td><td><b>Open redirect</b> và <b>code/token theft</b>: kẻ tấn công sửa <code>redirect_uri</code> trỏ tới domain của mình để nhận code.</td><td>Không chống code bị lộ <i>tại</i> URI hợp lệ (đó là việc của PKCE).</td></tr>
+<tr><td><code>iss</code> trong response (RFC 9207)</td><td>AS gửi; client so với AS nó đã gọi.</td><td>Response ↔ đúng Authorization Server.</td><td><b>Mix-up attack</b> khi client làm việc với nhiều AS.</td><td>—</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> trong một lần đăng nhập của app <code>demo-client</code>: <code>state=af0ifjsldkj</code> được so khi listener nhận callback; <code>code_verifier</code> được Keycloak so ở token endpoint; <code>nonce=n-0S6_WzA2Mj</code> được so với claim <code>nonce</code> trong ID token; còn <code>http://127.0.0.1:7890/</code> được Keycloak so với danh sách redirect URI đã đăng ký <b>trước khi</b> hiện trang đăng nhập. Bốn lần kiểm tra, ở bốn thời điểm khác nhau.</p>
+<span class="rule">state → callback · nonce → ID token · PKCE → code · redirect URI → nơi nhận. Client kiểm tra state &amp; nonce; AS kiểm tra PKCE &amp; redirect URI.</span>
+</div>
+
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>state và nonce là một, dùng cái nào cũng được.</span><span class="f-label">Thực tế</span><span>state bảo vệ <b>authorization response</b> (CSRF), client so ở callback; nonce bảo vệ <b>ID token</b> (replay), client so khi validate ID token. Khác đối tượng, khác nơi kiểm tra. OAuth thuần không có ID token nên nonce không thay được state.</span></div>
+
+<h3 id="login-csrf">Ví dụ: login CSRF khi thiếu state</h3>
+<p>Tấn công này nghe ngược đời: kẻ tấn công <b>không</b> lấy tài khoản của nạn nhân, mà ép nạn nhân dùng <b>tài khoản của kẻ tấn công</b> — để mọi thứ nạn nhân tải lên rơi vào tay hắn. Đọc sơ đồ theo các bước:</p>
+<ol>
+<li>Kẻ tấn công tự đăng nhập PhotoCloud bằng tài khoản của <b>chính hắn</b>, lấy được một <code>code</code> hợp lệ nhưng không dùng.</li>
+<li>Hắn gửi cho nạn nhân một link (hoặc ảnh ẩn) trỏ tới callback của PrintNow kèm code đó.</li>
+<li>Nếu PrintNow không kiểm tra <code>state</code>, nó đổi code và liên kết phiên của nạn nhân với tài khoản PhotoCloud của kẻ tấn công.</li>
+</ol>
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant A as 😈 Kẻ tấn công
+  participant V as 👤 Nạn nhân (Browser)
+  participant C as Client (PrintNow)
+  participant AZ as Authorization Server
+  A->>AZ: Tự đăng nhập bằng tài khoản CỦA KẺ TẤN CÔNG
+  AZ-->>A: code_A (kẻ tấn công dừng lại, không dùng code)
+  A->>V: Gửi link hoặc ảnh ẩn trỏ tới /callback?code=code_A
+  V->>C: GET /callback?code=code_A
+  alt Client không kiểm tra state
+    C->>AZ: Đổi code_A lấy token
+    C-->>V: Nạn nhân bị đăng nhập/liên kết vào tài khoản của kẻ tấn công
+    Note over V,C: Ảnh nạn nhân tải lên hoặc thẻ thanh toán nạn nhân nhập<br/>rơi vào tài khoản kẻ tấn công
+  else Client kiểm tra state
+    C-->>V: ❌ Từ chối: không có state khớp trong session của trình duyệt này
+  end
+</pre>
+<div class="caption">state phải ngẫu nhiên, gắn với phiên trình duyệt, dùng một lần. Liên hệ <a href="m06-3-web-threats.html#csrf">M06 — CSRF</a>.</div>
+</div>
+
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Đã có PKCE thì bỏ state, bỏ nonce.</span><span class="f-label">Thực tế</span><span>PKCE bảo vệ <b>code</b>. nonce bảo vệ <b>ID token</b>. state vẫn hữu ích cho correlation và là lớp chống CSRF khi không chắc AS thực thi PKCE. Thư viện chuẩn (ASP.NET Core OIDC handler, OidcClient, MSAL) dùng <b>cả ba</b> — đừng tắt.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Có gửi tham số <code>state</code> là được, giá trị gì cũng xong (vd. <code>state=printnow</code>).</span><span class="f-label">Thực tế</span><span>state phải <b>ngẫu nhiên, khó đoán</b>, gắn với phiên trình duyệt và dùng một lần. Giá trị cố định thì kẻ tấn công cũng biết và tự gắn vào link callback giả — coi như không có state.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Login CSRF vô hại vì kẻ tấn công không lấy được tài khoản của nạn nhân.</span><span class="f-label">Thực tế</span><span>Hắn không cần: nạn nhân làm việc trong <b>tài khoản của hắn</b>, nên ảnh tải lên, địa chỉ, thẻ thanh toán nạn nhân nhập đều rơi vào tay hắn.</span></div>
+
+<h3 id="redirect-uri">Redirect URI validation</h3>
+<p>Authorization Server chỉ được gửi code tới URI <b>đã đăng ký trước</b>, so khớp <b>chính xác từng ký tự</b> (scheme, host, port, path, cả dấu <code>/</code> cuối).</p>
+<div class="callout example"><span class="callout-title">🧪 Ví dụ: kẻ tấn công sửa redirect_uri</span>
+Kẻ tấn công gửi cho An link đăng nhập PhotoCloud “thật”, nhưng sửa một tham số:
+<pre><code class="language-plaintext">https://auth.photocloud.example/authorize?response_type=code&amp;client_id=printnow-web
+    &amp;redirect_uri=https%3A%2F%2Fevil.example%2Fsteal&amp;scope=photos.read</code></pre>
+An thấy trang đăng nhập PhotoCloud thật nên yên tâm đăng nhập. Nếu AS không kiểm tra redirect URI, nó sẽ gửi <code>code</code> tới <code>evil.example</code>. AS làm đúng sẽ thấy <code>https://evil.example/steal</code> không nằm trong danh sách đã đăng ký của <code>printnow-web</code> → hiện lỗi, <b>không</b> redirect.</div>
+<div class="dodont">
+<div class="do"><h5>✅ Nên</h5><ul>
+<li>Đăng ký URI đầy đủ: <code>https://printnow.example/signin-oidc</code>.</li>
+<li>Native/desktop: loopback IP <code>http://127.0.0.1:{port}/</code> (port động được phép) hoặc claimed HTTPS scheme / private-use scheme dạng reverse-domain (RFC 8252).</li>
+<li>Tách URI theo môi trường (dev/staging/prod), xóa URI không dùng.</li>
+<li>Callback page không nhúng script/ảnh bên thứ ba, đặt <code>Referrer-Policy</code> chặt.</li>
+</ul></div>
+<div class="dont"><h5>❌ Không nên</h5><ul>
+<li>Wildcard: <code>https://*.printnow.example/*</code> — một subdomain bị chiếm (subdomain takeover) là mất code.</li>
+<li>So khớp tiền tố: <code>https://printnow.example/</code> cho phép <code>…/open-redirect?to=evil.com</code>.</li>
+<li>Endpoint trên client nhận tham số <code>returnUrl</code> rồi redirect bừa (open redirect) — biến thành “cầu” đẩy code ra ngoài.</li>
+<li>Dùng <code>http://</code> cho domain thật (chỉ loopback mới được HTTP).</li>
+</ul></div>
+</div>
+
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Cùng domain là đủ: đăng ký <code>https://printnow.example/callback</code> thì <code>…/callback/</code> hay <code>…/callback?next=/orders</code> cũng phải được nhận.</span><span class="f-label">Thực tế</span><span>OAuth 2.1 / RFC 9700 yêu cầu so khớp <b>chuỗi chính xác</b> — không prefix, không wildcard. Thêm dấu <code>/</code> hay query là một URI khác → AS báo lỗi. Muốn quay về trang cũ thì lưu trang đích trong session (gắn với <code>state</code>), đừng nhét vào redirect URI.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Client tự kiểm tra redirect URI ở callback là đủ.</span><span class="f-label">Thực tế</span><span>Lúc callback tới client thì đã muộn — code đã được gửi đi. Phải là <b>AS</b> kiểm tra <code>redirect_uri</code> với danh sách đăng ký <b>trước</b> khi hiện trang đăng nhập và trước khi gửi code.</span></div>
+
+<div class="callout tip"><span class="callout-title">✅ Tự kiểm tra nhanh</span><ul>
+<li>Client OAuth thuần (không dùng OIDC, không có ID token) có cần <code>nonce</code> không?</li>
+<li>Ai kiểm tra PKCE: client hay Authorization Server? Còn <code>state</code>?</li>
+<li>Vì sao đăng ký redirect URI dạng <code>https://*.printnow.example/*</code> là nguy hiểm?</li>
+</ul></div>
+
+<h2 id="quiz-bai">Quiz nhanh — Bài 3.4</h2>
+<div id="quiz"></div>
+
+</main>
+<script>
+window.QUIZ = [
+  { q: "Team đã bật PKCE S256 với Keycloak cho web đăng nhập OIDC, và đề xuất bỏ <code>state</code> và <code>nonce</code> “cho gọn”. Những nhận xét nào đúng?", tricky: true,
+    options: ["Đúng hoàn toàn: PKCE thay thế được cả state lẫn nonce", "nonce vẫn cần: nó ràng buộc <b>ID token</b> với request, PKCE không kiểm tra gì trong ID token", "state vẫn nên giữ: dùng để ghép response với request, khôi phục trang đích, và là lớp chống CSRF khi không chắc AS thực thi PKCE", "Chỉ cần giữ state; nonce vô dụng khi đã có PKCE"],
+    answer: [1, 2],
+    why: ["PKCE chỉ bảo vệ bước đổi code tại AS; nó không chạm tới callback ở client hay nội dung ID token.", "PKCE do AS kiểm tra ở token endpoint; nonce do client so với claim trong ID token — hai đối tượng khác nhau.", "RFC 9700 chỉ coi PKCE thay state cho mục đích chống CSRF khi client <i>chắc chắn</i> AS hỗ trợ PKCE; các thư viện chuẩn vẫn dùng cả ba.", "nonce là thứ duy nhất trong bộ bốn liên kết ID token với đúng lần đăng nhập."],
+    explain: "Bẫy: “PKCE mạnh nhất nên bao trọn”. Bốn ổ khóa, bốn cánh cửa. Xem <a href='m03-4-state-nonce-redirect.html#state-nonce'>bảng so sánh</a>." },
+  { q: "Client đăng ký đúng một redirect URI: <code>https://printnow.example/callback</code>. Theo OAuth 2.1 / RFC 9700, AS chấp nhận <code>redirect_uri</code> nào trong request?", tricky: true,
+    options: ["<code>https://printnow.example/callback</code>", "<code>https://printnow.example/callback/</code>", "<code>https://printnow.example/callback?next=/orders</code>", "<code>http://printnow.example/callback</code>"],
+    answer: 0,
+    why: ["Khớp từng ký tự với URI đã đăng ký.", "Thêm dấu <code>/</code> cuối là chuỗi khác — so khớp chính xác không bỏ qua chi tiết này.", "Thêm query là chuỗi khác; muốn nhớ trang đích hãy lưu trong session gắn với <code>state</code>.", "Khác scheme (<code>http</code> vs <code>https</code>); ngoài loopback, HTTP cũng không được phép."],
+    explain: "Bẫy: ba phương án sai trông “gần như giống hệt” và nhiều web framework coi chúng là cùng một trang, nhưng AS so <b>chuỗi</b>, không so “ý nghĩa”. So khớp chính xác = không prefix, không wildcard, không “gần giống”. Ngoại lệ duy nhất là port của loopback IP. Xem <a href='m03-4-state-nonce-redirect.html#redirect-uri'>redirect URI validation</a>." },
+  { q: "Ghép đúng “ai kiểm tra cái gì” trong một lần đăng nhập của <code>demo-client</code>. Những phát biểu nào đúng?",
+    options: ["Client so <code>state</code> khi nhận callback", "AS kiểm tra <code>code_verifier</code> ở token endpoint", "AS so <code>nonce</code> trong ID token trước khi trả về", "Client so <code>redirect_uri</code> với danh sách đã đăng ký"],
+    answer: [0, 1],
+    why: ["state do client tạo và lưu, nên client là bên so khớp.", "Chỉ AS có challenge đã lưu để so với SHA256(verifier).", "AS chỉ <i>chép</i> nonce vào ID token; người so khớp là client khi validate ID token.", "Danh sách redirect URI đăng ký nằm ở AS; AS kiểm tra trước khi gửi code."],
+    explain: "Client kiểm tra state &amp; nonce; AS kiểm tra PKCE &amp; redirect URI. Xem <a href='m03-4-state-nonce-redirect.html#state-nonce'>câu mẹo</a>." },
+  { q: "PrintNow luôn gửi <code>state=printnow</code> (giá trị cố định) và so khớp ở callback. Hệ quả là gì?",
+    options: ["An toàn, vì callback vẫn kiểm tra state", "Gần như không chống được login CSRF: kẻ tấn công biết trước giá trị và tự gắn <code>state=printnow</code> vào link callback chứa code của hắn", "AS từ chối vì state phải là JWT", "Chỉ ảnh hưởng hiệu năng, không ảnh hưởng bảo mật"],
+    answer: 1,
+    why: ["So khớp một giá trị ai cũng biết thì không chứng minh được callback thuộc phiên trình duyệt này.", "state phải ngẫu nhiên, gắn với phiên và dùng một lần; giá trị cố định biến nó thành vô nghĩa.", "AS coi state là chuỗi mờ (opaque) và trả lại nguyên vẹn; không có yêu cầu định dạng JWT.", "Đây là lỗi bảo mật, không phải hiệu năng."],
+    explain: "Xem <a href='m03-4-state-nonce-redirect.html#login-csrf'>ví dụ login CSRF</a>." },
+  { q: "<code>demo-client</code> nhận ID token có chữ ký hợp lệ, đúng <code>iss</code>, đúng <code>aud</code>, nhưng claim <code>nonce</code> khác giá trị nó đã gửi. Nên làm gì?",
+    options: ["Chấp nhận vì chữ ký hợp lệ", "Từ chối: ID token không thuộc request này (có thể là token cũ bị phát lại hoặc bị nhét vào)", "Cập nhật nonce trong session theo giá trị trong token", "Bỏ qua nonce vì state ở callback đã khớp"],
+    answer: 1,
+    why: ["Chữ ký chỉ chứng minh token do OP phát và không bị sửa — không chứng minh nó dành cho lần đăng nhập này.", "Đúng mục đích của nonce: chống replay và injection ID token.", "Làm vậy là chấp nhận chính token của kẻ tấn công.", "state bảo vệ callback, không bảo vệ nội dung ID token; hai kiểm tra độc lập."],
+    explain: "Xem <a href='m03-4-state-nonce-redirect.html#state-nonce'>nonce</a> và <a href='m03-5-oidc.html#oidc'>Bài 3.5 — OIDC</a>." },
+  { q: "Redirect URI đã đăng ký chính xác, nhưng trang callback (URL chứa <code>?code=…</code>) nhúng ảnh từ CDN bên thứ ba và đặt <code>Referrer-Policy: unsafe-url</code>. Nhận định nào đúng?",
+    options: ["Không rủi ro gì vì redirect URI đã khớp chính xác", "Code có thể lộ qua header <code>Referer</code> gửi tới CDN; redirect URI chính xác không chống lộ <i>tại</i> URI hợp lệ — PKCE mới làm code lộ trở nên vô dụng", "AS sẽ tự phát hiện và chặn CDN", "Chỉ <code>state</code> bị lộ, code thì không"],
+    answer: 1,
+    why: ["Redirect URI validation chỉ đảm bảo code tới đúng địa chỉ; sau đó trang làm lộ URL thì nó không can thiệp được.", "<code>unsafe-url</code> gửi nguyên URL (cả query) trong Referer; vì vậy cần PKCE, Referrer-Policy chặt và không nhúng tài nguyên bên thứ ba ở callback.", "AS không biết trang callback tải tài nguyên gì.", "Referer chứa cả URL nên lộ cả <code>code</code> lẫn <code>state</code>."],
+    explain: "Mỗi cơ chế có giới hạn của nó — xem cột “Không chống được” trong <a href='m03-4-state-nonce-redirect.html#state-nonce'>bảng</a> và mục <a href='m03-4-state-nonce-redirect.html#redirect-uri'>Nên/Không nên</a>." }
+];
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="assets/pages.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

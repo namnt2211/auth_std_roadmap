@@ -1,0 +1,362 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M07 · Bài 7.1 · Quy trình thiết kế, Web, SPA &amp; BFF</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<main class="content">
+
+<div class="page-head">
+  <div class="breadcrumb"><a href="index.html">Lộ trình</a> / <a href="m07-architecture.html">Module 07</a> / Bài 7.1</div>
+  <h1>Bài 7.1 — Quy trình thiết kế, Web, SPA &amp; BFF</h1>
+  <p class="lead">Trước khi chọn giao thức, hãy trả lời 10 câu hỏi thiết kế. Sau đó xem ba kiến trúc web phổ biến — server-side web, SPA và SPA + BFF — khác nhau ở đâu: <b>token nằm ở đâu</b> và <b>ai giữ bí mật</b>.</p>
+  <div class="meta-row">
+    <span class="chip">⏱ ~25 phút</span>
+    <span class="chip">📘 <a href="m07-architecture.html">Module 07 · Architecture &amp; Practical Cases</a></span>
+  </div>
+</div>
+
+<!-- ===================================================== -->
+<h2 id="design-process">A. Quy trình thiết kế: 10 câu hỏi <span class="badge must">Must</span></h2>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Trước khi mua khóa, hỏi: <b>ai</b> cần vào (nhân viên, khách, xe giao hàng)? Vào <b>bằng cửa nào</b>? Cửa đó bảo vệ <b>cái gì</b>? Có cần dùng chung thẻ với tòa nhà bên cạnh không? Mất thẻ thì sao? Trả lời đủ các câu đó, việc chọn khóa gần như tự hiện ra.</div>
+<div class="terms"><span class="terms-title">📖 Thuật ngữ trong bài</span><dl>
+<dt>Subject</dt><dd>“Ai” cần được xác thực: một người, một service, một thiết bị.</dd>
+<dt>Workload identity</dt><dd>Danh tính do nền tảng (cloud, Kubernetes) cấp cho một service đang chạy, không cần secret do người quản lý.</dd>
+<dt>Public / confidential client</dt><dd>App không giữ được bí mật (chạy trên máy người dùng) / app giữ được bí mật (chạy trên server).</dd>
+<dt>Delegated access</dt><dd>App gọi API <i>thay mặt</i> người dùng, chỉ trong phạm vi (scope) người dùng cho phép.</dd>
+<dt>Server-side web app</dt><dd>Web mà HTML được tạo ở server (ASP.NET MVC, Razor Pages…); browser chỉ hiển thị.</dd>
+<dt>SPA</dt><dd>Single-Page Application: web viết bằng JavaScript (React, Angular…) chạy hoàn toàn trong browser, tự gọi API.</dd>
+<dt>BFF</dt><dd>Backend for Frontend: backend nhỏ đi kèm SPA, giữ token thay SPA; browser chỉ cầm cookie.</dd>
+<dt>CORS</dt><dd>Luật của browser cho phép trang ở domain A đọc response từ domain B. Không phải cơ chế bảo mật của server.</dd>
+</dl></div>
+<p>Bảng dưới là 10 câu hỏi theo thứ tự nên hỏi. Cột cuối là câu trả lời mẫu cho ví dụ <b>WPF + Order API</b> — bạn thử tự trả lời cho hệ thống của team mình.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>#</th><th>Câu hỏi</th><th>Vì sao quan trọng</th><th>Ví dụ trả lời (WPF + Order API)</th></tr></thead>
+<tbody>
+<tr><td>1</td><td>Ai là <b>subject</b> cần xác thực: user, administrator, service, device hay workload?</td><td>User → OIDC; service không có user → Client Credentials/workload identity; device → certificate/RADIUS.</td><td>Nhân viên (user) + service <code>worker</code> đồng bộ dữ liệu.</td></tr>
+<tr><td>2</td><td><b>Client</b> là gì: server-side web, SPA, desktop, mobile, CLI hay service?</td><td>Quyết định public/confidential, có giữ được secret không, redirect URI kiểu gì.</td><td>WPF desktop → public client.</td></tr>
+<tr><td>3</td><td><b>Resource</b> nào cần bảo vệ: web app, REST API, database, network hay thiết bị?</td><td>REST API → access token; network → RADIUS/802.1X; DB → identity riêng của service.</td><td>Order API (REST) + SQL Server.</td></tr>
+<tr><td>4</td><td>Có cần <b>SSO/federation</b> với tổ chức khác không?</td><td>Cần → IdP hỗ trợ federation (OIDC/SAML), xử lý nhiều issuer.</td><td>SSO với Entra ID của công ty; chưa cần đối tác.</td></tr>
+<tr><td>5</td><td>Có yêu cầu <b>MFA, passwordless, phishing resistance</b>?</td><td>Ảnh hưởng chọn IdP và authenticator (passkey, Windows Hello).</td><td>MFA bắt buộc; passkey cho admin.</td></tr>
+<tr><td>6</td><td>Có cần <b>delegated access</b> tới API thay mặt user?</td><td>Có → OAuth access token có scope; không → chỉ cần OIDC login.</td><td>Có: WPF gọi API thay user, scope <code>orders.read</code>.</td></tr>
+<tr><td>7</td><td><b>Token/session</b> lưu ở đâu, vòng đời ra sao?</td><td>Rủi ro bị đánh cắp; trải nghiệm đăng nhập lại.</td><td>Token cache mã hóa DPAPI; access token 5–15 phút; refresh token rotation.</td></tr>
+<tr><td>8</td><td><b>Authorization</b> được quyết định ở đâu?</td><td>Tránh tin UI; chọn RBAC/ABAC/ReBAC (<a href="m06-1-authz-models.html#authz-models">M06</a>).</td><td>Tại Order API: policy scope + role + resource-based.</td></tr>
+<tr><td>9</td><td>Cần <b>audit, provisioning, deprovisioning, account recovery</b> thế nào?</td><td>Offboarding chậm = lỗ hổng; audit cho compliance.</td><td>Entra ID → SCIM; audit log ở API.</td></tr>
+<tr><td>10</td><td>Xử lý <b>logout, revoke, key rotation, incident</b> ra sao?</td><td>Kịch bản khẩn cấp phải được chuẩn bị trước.</td><td>Revoke refresh token khi logout; JWKS tự cập nhật; runbook khi lộ secret.</td></tr>
+</tbody></table></div>
+
+<p>Hai câu đầu (<b>subject</b> và <b>client</b>) quyết định gần hết việc chọn flow. Hai cây quyết định dưới đây tóm tắt điều đó: đi từ trên xuống, dừng ở ô phù hợp với hệ thống của bạn.</p>
+<div class="diagram">
+<pre class="mermaid">
+flowchart TD
+  S{"Subject là ai?"}
+  S -- "Service / workload<br/>không có user" --> W["Client Credentials<br/>hoặc workload identity<br/>(+ mTLS tùy chọn)"]
+  S -- "Thiết bị / user<br/>vào Wi-Fi, VPN" --> N["RADIUS / 802.1X / EAP"]
+  S -- "User" --> C["Xem cây 2:<br/>Client là gì?"]
+</pre>
+<div class="caption">Cây 1: bắt đầu từ <b>subject</b> (ai cần xác thực).</div>
+</div>
+<div class="diagram">
+<pre class="mermaid">
+flowchart LR
+  C{"Client là gì?"}
+  C --> SW["Server-side web:<br/>OIDC Code Flow + cookie"]
+  C --> SPA{"SPA: dữ liệu<br/>nhạy cảm?"}
+  SPA -- "Có" --> BFF["BFF + cookie"]
+  SPA -- "Không" --> PK["Code + PKCE,<br/>token trong memory"]
+  C --> NAT["Desktop / Mobile / CLI:<br/>Code + PKCE, system browser"]
+  C --> DF["Không browser/bàn phím:<br/>Device Authorization flow"]
+  C --> K["Máy Windows domain:<br/>Kerberos / IWA"]
+  C --> SAML["SaaS chỉ hỗ trợ SAML:<br/>SAML 2.0 SP-initiated"]
+</pre>
+<div class="caption">Cây 2: khi subject là user, chọn flow theo loại client. Sau khi chọn flow, vẫn phải trả lời câu 7–10 (lưu trữ, authorization, vòng đời, sự cố).</div>
+</div>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Chọn xong flow đăng nhập (vd “dùng OIDC”) là xong phần thiết kế auth.</span><span class="f-label">Thực tế</span><span>Flow chỉ trả lời câu 1–6. Câu 7–10 (token cất ở đâu, ai phân quyền, nhân viên nghỉ thì sao, lộ secret thì làm gì) mới là chỗ hệ thống hay hỏng. Ví dụ: Kaopiz HR đăng nhập OIDC rất chuẩn, nhưng không ai nghĩ tới offboarding → người nghỉ việc vẫn còn account “active” trong app.</span></div>
+
+<!-- ===================================================== -->
+<h2 id="app-architectures">B. Kiến trúc theo loại ứng dụng</h2>
+<p>Cả ba kiến trúc web dưới đây đều dùng <b>Authorization Code flow</b> để đăng nhập. Điều làm chúng khác nhau là: sau khi đăng nhập, <b>token nằm ở đâu</b> và <b>ai giữ client secret</b>. Đọc bảng này trước, rồi đi vào từng kiến trúc.</p>
+<div class="compare" id="web-spa-bff-compare"><span class="compare-title">Phân biệt dễ nhầm: Server-side web vs SPA thuần vs SPA + BFF</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Server-side web</th><th>SPA thuần (gọi API trực tiếp)</th><th>SPA + BFF</th></tr></thead>
+<tbody>
+<tr><td>Ai đổi code lấy token?</td><td>Backend của web app</td><td>JavaScript trong browser</td><td>BFF (backend đi kèm SPA)</td></tr>
+<tr><td>Loại client</td><td>Confidential</td><td>Public</td><td>Confidential (BFF)</td></tr>
+<tr><td>Ai giữ client secret?</td><td>Backend (trong secret store)</td><td>Không ai — SPA không thể giữ secret, chỉ dùng PKCE</td><td>BFF</td></tr>
+<tr><td>Access/refresh token nằm ở đâu?</td><td>Server (session/ticket)</td><td><b>Trong browser</b> (memory, có thể cả refresh token)</td><td>Server (BFF)</td></tr>
+<tr><td>Browser cầm gì?</td><td>Session cookie</td><td>Access token (gửi kèm header <code>Authorization: Bearer</code>)</td><td>Session cookie</td></tr>
+<tr><td>Rủi ro chính cần chống</td><td>CSRF, session hijacking</td><td>XSS đánh cắp token</td><td>CSRF; XSS vẫn gọi được API qua BFF khi tab mở</td></tr>
+<tr><td>Ví dụ trong Kaopiz HR</td><td><code>hr-web</code> viết bằng Razor Pages</td><td>Bản React của <code>hr-web</code> gọi thẳng <code>hr-api</code></td><td>Bản React + endpoint <code>/bff</code> cùng domain, gọi <code>hr-api</code> hộ</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> kẻ tấn công chèn được script độc (XSS) vào trang HR. Với SPA thuần, script đọc được access token trong memory và gửi về máy kẻ tấn công — dùng tiếp được từ bất kỳ đâu đến khi token hết hạn. Với server-side web hoặc BFF, script không đọc được token (không có trong browser) và cookie <code>HttpOnly</code> cũng không đọc được bằng JavaScript; nó chỉ có thể gửi request <i>từ chính tab đó</i> khi nạn nhân còn mở trang.</p>
+<span class="rule">Token ở server + browser cầm cookie = server-side web hoặc BFF. Token ở browser = SPA thuần.</span>
+</div>
+
+<h3 id="server-web">B.1. Server-side Web Application <span class="badge should">Should</span></h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Web server giống <b>quầy lễ tân có két sắt</b>: lễ tân (backend) tự đi đổi “phiếu” (authorization code) lấy “chìa khóa” (token) ở IdP và cất trong két. Khách (browser) chỉ nhận một <b>vé gửi đồ</b> (session cookie) — không bao giờ cầm chìa thật.</div>
+<ul>
+<li>Dùng <b>OIDC Authorization Code Flow</b>; backend đổi code lấy token, giữ <b>client secret</b> ở server (confidential client). Vẫn nên bật PKCE — OAuth 2.1 và <a href="https://www.rfc-editor.org/rfc/rfc9700">RFC 9700</a> khuyến nghị PKCE cho cả confidential client.</li>
+<li>Backend tạo <b>application session</b> (phiên đăng nhập riêng của app, tách khỏi phiên ở IdP) và bảo vệ bằng cookie (<code>HttpOnly</code>, <code>Secure</code>, <code>SameSite</code>).</li>
+<li>Cần <b>CSRF protection</b> (chống trang lạ lợi dụng cookie của bạn để gửi request), cookie settings và <b>session lifecycle</b> (idle/absolute timeout, logout) — xem <a href="m06-3-web-threats.html#csrf">M06 — CSRF</a>, <a href="m02-2-session-cookie.html#session-management">M02 — session management</a>.</li>
+<li>Nếu gọi API downstream, dùng <b>access token riêng</b> cho API đó (đúng <code>aud</code>), không chuyển tiếp ID token.</li>
+</ul>
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  participant B as Browser
+  participant W as Web app (backend)
+  participant I as IdP
+  participant A as Order API
+  B->>W: GET /orders (chưa có cookie)
+  W-->>B: 302 tới IdP /authorize (code, PKCE, state, nonce)
+  B->>I: Đăng nhập + MFA
+  I-->>B: 302 về /signin-oidc?code=...&amp;state=...
+  B->>W: Gửi code + state
+  W->>I: Đổi code + client_secret + code_verifier
+  I-->>W: ID token + access token + refresh token
+  W->>W: Kiểm tra ID token, tạo session
+  W-->>B: Set-Cookie session (HttpOnly, Secure)
+  B->>W: GET /orders + cookie
+  W->>A: GET /orders + Bearer access token
+  A-->>W: 200 JSON
+  W-->>B: Trang HTML
+</pre>
+<div class="caption">Token chỉ nằm ở backend. Browser chỉ có cookie phiên của web app.</div>
+</div>
+<div class="callout example"><span class="callout-title">🧪 Ví dụ: <code>hr-web</code> của Kaopiz HR là server-side web</span>
+<ol>
+<li>An mở <code>https://hr.kaopiz.local/payroll</code>. <code>hr-web</code> thấy chưa có cookie → chuyển An tới Keycloak (<code>https://sso.kaopiz.local/realms/kaopiz</code>).</li>
+<li>An đăng nhập. Keycloak trả <code>code</code> về <code>/signin-oidc</code> của <code>hr-web</code>.</li>
+<li><code>hr-web</code> (backend) đổi code + client secret lấy token, cất token ở server, gửi cho browser một cookie phiên.</li>
+<li>Khi An xem bảng lương, <code>hr-web</code> tự gắn access token gọi <code>hr-api</code> rồi trả HTML. Browser của An không bao giờ thấy access token.</li>
+</ol></div>
+<p>Đoạn code dưới cấu hình đúng luồng trên trong ASP.NET Core: <b>cookie</b> giữ phiên của app, <b>OpenIdConnect</b> lo việc chuyển hướng tới IdP và đổi code. Chú ý các dòng có comment.</p>
+<pre data-title="Program.cs — ASP.NET Core web app (OIDC + Cookie)"><code class="language-csharp">using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+using Microsoft.IdentityModel.Protocols.OpenIdConnect;
+
+builder.Services
+    .AddAuthentication(o =&gt;
+    {
+        o.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;          // đọc session
+        o.DefaultChallengeScheme = OpenIdConnectDefaults.AuthenticationScheme;        // chưa login → IdP
+    })
+    .AddCookie(o =&gt;
+    {
+        o.Cookie.Name = "__Host-orders";
+        o.Cookie.HttpOnly = true;
+        o.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+        o.Cookie.SameSite = SameSiteMode.Lax;
+        o.ExpireTimeSpan = TimeSpan.FromHours(8);
+        o.SlidingExpiration = true;
+    })
+    .AddOpenIdConnect(o =&gt;
+    {
+        o.Authority = "https://idp.example.com/realms/demo";
+        o.ClientId = "orders-web";
+        o.ClientSecret = builder.Configuration["Oidc:ClientSecret"];   // từ secret store, KHÔNG commit
+        o.ResponseType = OpenIdConnectResponseType.Code;               // Authorization Code flow
+        o.UsePkce = true;
+        o.SaveTokens = true;              // lưu token vào authentication ticket (cookie đã mã hóa)
+        o.MapInboundClaims = false;
+        o.GetClaimsFromUserInfoEndpoint = true;
+        o.Scope.Add("orders.read");
+        o.TokenValidationParameters.NameClaimType = "preferred_username";
+    });
+
+builder.Services.AddAuthorization(o =&gt;
+    o.FallbackPolicy = new Microsoft.AspNetCore.Authorization.AuthorizationPolicyBuilder()
+        .RequireAuthenticatedUser().Build());</code></pre>
+<div class="callout info"><span class="callout-title">ℹ️ Lưu ý về <code>SaveTokens</code></span>
+<code>SaveTokens = true</code> lưu token trong authentication ticket — mặc định nằm <b>trong cookie</b> (được Data Protection mã hóa). Cookie sẽ to ra; khi có nhiều token hoặc nhiều claim, cân nhắc lưu ticket phía server (<code>ITicketStore</code>) hoặc token cache phân tán. Nếu chạy nhiều instance, cấu hình <b>Data Protection key ring</b> dùng chung.</div>
+<h4>Checklist server-side web</h4>
+<ul class="checklist">
+<li><span>Code flow (+ PKCE), client secret/khóa trong secret store.</span></li>
+<li><span>Cookie <code>__Host-</code>, <code>HttpOnly</code>, <code>Secure</code>, <code>SameSite</code>; idle + absolute timeout.</span></li>
+<li><span>Antiforgery cho form/POST; GET không đổi trạng thái.</span></li>
+<li><span>Callback path (<code>/signin-oidc</code>) đăng ký đúng redirect URI.</span></li>
+<li><span>Logout: xóa cookie app + RP-initiated logout ở IdP (<a href="m03-6-discovery-logout.html#logout">M03</a>).</span></li>
+<li><span>Data Protection key ring dùng chung khi scale-out.</span></li>
+</ul>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Server-side web đã có client secret nên không cần PKCE.</span><span class="f-label">Thực tế</span><span>Client secret chứng minh <i>app nào</i> đổi code; PKCE gắn code với <i>đúng phiên đăng nhập</i> đã tạo ra nó, chống authorization code injection. OAuth 2.1 và RFC 9700 khuyến nghị PKCE cho mọi client — trong ASP.NET Core chỉ là <code>UsePkce = true</code>.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span><code>SaveTokens = true</code> nghĩa là token được lưu trong database của server.</span><span class="f-label">Thực tế</span><span>Mặc định token nằm <b>trong cookie phiên</b> (đã mã hóa bằng Data Protection) và đi theo mọi request của browser. Muốn token thật sự ở server thì phải cấu hình <code>ITicketStore</code> hoặc token cache phía server.</span></div>
+
+<h3 id="spa">B.2. SPA (Single-Page Application) <span class="badge must">Must</span></h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+SPA là JavaScript chạy hoàn toàn trong browser — giống <b>một quầy hàng đặt ngoài vỉa hè</b>: ai đi qua cũng nhìn thấy mọi thứ trên quầy. Không thể giấu “mật khẩu của ứng dụng” (client secret) ở đó. Vì vậy SPA hoặc dùng PKCE và giữ token thật cẩn thận, hoặc <b>gửi chìa khóa vào trong cửa hàng</b> (BFF) và chỉ cầm vé.</div>
+<ul>
+<li><b>Authorization Code + PKCE</b> (<a href="m03-2-auth-code-pkce.html#auth-code-pkce">M03</a>). Không có client secret nào giữ bí mật được.</li>
+<li>Cân nhắc <b>BFF</b> để token không vào browser, browser chỉ có cookie phiên.</li>
+<li>Nếu SPA gọi API trực tiếp: phải thiết kế cẩn thận <b>token storage</b> (cất token ở đâu trong browser) (<a href="m06-5-password-token-storage.html#token-storage">M06</a>), <b>CORS</b>, chống <b>XSS</b>, và <b>refresh token policy</b> (rotation, lifetime ngắn).</li>
+<li><b>CORS không phải cơ chế authentication hay authorization</b> (xem <a href="#cors">bên dưới</a>).</li>
+</ul>
+<p><a href="https://www.rfc-editor.org/rfc/rfc10017">RFC 10017 — OAuth 2.0 for Browser-Based Applications</a> (BCP 212, phát hành 8/2026, trước đây là draft-ietf-oauth-browser-based-apps) mô tả ba pattern, xếp theo mức an toàn giảm dần. Điểm cần rút ra: <b>càng ít token nằm trong browser càng an toàn</b>.</p>
+<div class="diagram">
+<pre class="mermaid">
+flowchart TD
+  subgraph P1["① BFF — an toàn nhất"]
+    direction LR
+    B1["Browser<br/>chỉ có cookie"] --> F1["BFF<br/>giữ token"] --> A1["API"]
+  end
+  subgraph P2["② Token-Mediating Backend"]
+    direction LR
+    B2["Browser<br/>nhận access token"] --> A2["API"]
+    B2 -.-> F2["Backend<br/>giữ refresh token"]
+  end
+  subgraph P3["③ Browser-based OAuth client"]
+    direction LR
+    B3["Browser<br/>tự giữ mọi token"] --> A3["API"]
+  end
+</pre>
+<div class="caption">Ba pattern cho SPA theo RFC 10017. Càng ít token trong browser, thiệt hại khi có XSS càng nhỏ.</div>
+</div>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Để client secret trong file <code>.env</code> lúc build React là giấu được, vì <code>.env</code> không commit lên git.</span><span class="f-label">Thực tế</span><span>Biến môi trường lúc build được <b>chép thẳng vào file JS</b> gửi cho browser; ai mở DevTools cũng đọc được. SPA phải đăng ký là public client và dùng PKCE, hoặc chuyển sang BFF.</span></div>
+
+<h3 id="bff">B.3. BFF — Backend for Frontend</h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+BFF giống <b>quầy gửi đồ</b> của siêu thị: chìa khóa thật (token) nằm trong tủ của quầy, bạn (browser) chỉ cầm <b>phiếu gửi đồ</b> (session cookie). Mất phiếu ở ngoài thì kẻ gian khó dùng lâu dài — nhưng nếu kẻ gian đứng ngay cạnh bạn (XSS), hắn vẫn có thể bắt bạn đưa phiếu ra quầy lấy đồ hộ.</div>
+<p><b>BFF</b> là một backend nhỏ, đi cùng SPA (thường cùng domain), đóng vai <b>confidential client</b>. Nó làm bốn việc:</p>
+<ol>
+<li>Thực hiện OIDC code flow thay cho SPA.</li>
+<li>Giữ access/refresh token ở server.</li>
+<li>Cấp cho browser một <b>session cookie</b>.</li>
+<li><b>Proxy</b> (chuyển tiếp hộ) các lời gọi API: nhận request từ SPA kèm cookie, gắn access token vào rồi gửi tới API.</li>
+</ol>
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  participant S as SPA (browser)
+  participant F as BFF
+  participant I as IdP
+  participant A as Order API
+  S->>F: GET /bff/login
+  F-->>S: 302 tới IdP (code + PKCE)
+  S->>I: Đăng nhập + MFA
+  I-->>S: 302 về BFF với code
+  S->>F: code + state
+  F->>I: Đổi code + client secret
+  I-->>F: access + refresh token
+  F-->>S: Set-Cookie __Host-bff (HttpOnly)
+  Note over S,F: Token KHÔNG bao giờ tới browser
+  S->>F: GET /bff/api/orders + cookie + X-CSRF
+  F->>A: GET /orders + Bearer token
+  A-->>F: 200 JSON
+  F-->>S: 200 JSON
+</pre>
+<div class="caption">BFF: browser ↔ BFF dùng cookie; BFF ↔ API dùng Bearer token.</div>
+</div>
+<div class="grid cols-2">
+<div class="card ok"><h4>👍 Được gì</h4><p>XSS không đánh cắp được token để dùng lâu dài; refresh token an toàn ở server; có thể dùng client secret/khóa; logout và revoke tập trung.</p></div>
+<div class="card bad"><h4>👎 Phải trả gì</h4><p>Thêm một thành phần phải vận hành; cookie → phải <b>chống CSRF</b>; XSS vẫn gọi API qua BFF khi tab đang mở; thêm độ trễ do proxy.</p></div>
+</div>
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: SPA thuần vs SPA + BFF — request trông khác nhau thế nào?</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>SPA thuần</th><th>SPA + BFF</th></tr></thead>
+<tbody>
+<tr><td>SPA gọi tới đâu?</td><td>Thẳng API: <code>GET https://hr-api.kaopiz.local/payroll</code></td><td>BFF cùng domain: <code>GET https://hr.kaopiz.local/bff/api/payroll</code></td></tr>
+<tr><td>Request mang gì?</td><td><code>Authorization: Bearer eyJ...</code></td><td>Cookie <code>__Host-bff</code> + header chống CSRF (vd <code>X-CSRF: 1</code>)</td></tr>
+<tr><td>Đăng ký ở IdP</td><td>Public client, chỉ PKCE</td><td>Confidential client, có secret/khóa + PKCE</td></tr>
+<tr><td>CORS</td><td>API phải cho phép origin của SPA</td><td>Thường không cần (cùng origin)</td></tr>
+<tr><td>Logout / thu hồi</td><td>Mỗi tab tự xóa token; revoke phải gọi từ browser</td><td>BFF xóa session + revoke refresh token tập trung</td></tr>
+<tr><td>Chi phí</td><td>Không cần thêm server</td><td>Thêm một backend phải deploy, scale, theo dõi</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> trang bảng lương của Kaopiz HR chứa dữ liệu nhạy cảm → chọn SPA + BFF. Một trang tra cứu lịch nghỉ lễ công khai, không có dữ liệu cá nhân → SPA thuần là đủ.</p>
+<span class="rule">Dữ liệu nhạy cảm → để token ở BFF. Thấy <code>Bearer</code> đi ra từ browser = SPA thuần.</span>
+</div>
+<p>Cách dựng BFF trong .NET: tự dựng (ASP.NET Core + <code>AddOpenIdConnect</code> + reverse proxy như YARP) hoặc dùng thư viện chuyên dụng (vd Duende BFF — kiểm tra điều khoản license).</p>
+<p>Yêu cầu cookie theo RFC 10017:</p>
+<ul>
+<li>Phải có <code>HttpOnly</code> + <code>Secure</code>.</li>
+<li>Nên dùng tiền tố <code>__Host-Http-</code> (báo hiệu cookie chỉ được đặt qua HTTP và không chia sẻ với subdomain); trình duyệt/framework chưa hỗ trợ thì tối thiểu dùng <code>__Host-</code>.</li>
+<li>Nên đặt <code>SameSite=Strict</code>.</li>
+<li>BFF phải có biện pháp chống CSRF, vd yêu cầu custom header để buộc browser gửi <b>CORS preflight</b> (request <code>OPTIONS</code> hỏi trước xem có được phép không).</li>
+</ul>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Dùng BFF thì browser không có token, nên hết lo cả CSRF lẫn XSS.</span><span class="f-label">Thực tế</span><span>Browser giờ cầm <b>cookie</b> — mà cookie tự gửi kèm request, nên BFF <b>bắt buộc</b> chống CSRF. Còn XSS: script độc không lấy được token, nhưng vẫn gọi được <code>/bff/api/...</code> từ chính tab đó khi nạn nhân đang mở trang. BFF giảm thiệt hại, không thay CSP và việc chống XSS.</span></div>
+
+<h4 id="cors">CORS không phải authentication/authorization</h4>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+<b>CORS</b> (Cross-Origin Resource Sharing) là luật của <b>trình duyệt</b>: “trang web A có được <i>đọc</i> câu trả lời từ server B không?”. Nó giống <b>người gác cổng của browser</b>, không phải bảo vệ của server. curl, Postman, một server khác… chẳng hề quan tâm CORS.</div>
+<ul>
+<li>CORS <b>nới lỏng</b> Same-Origin Policy (luật mặc định: trang ở origin này không đọc được response của origin khác) cho browser; nó không xác minh người gọi là ai.</li>
+<li>Request “đơn giản” (form POST) vẫn <b>được gửi tới server</b> kể cả khi CORS chặn đọc response → CORS không chống được CSRF một mình.</li>
+<li><code>Access-Control-Allow-Origin: *</code> kết hợp credentials là cấu hình sai (browser không cho phép); phản chiếu mọi <code>Origin</code> kèm <code>Allow-Credentials: true</code> là lỗ hổng.</li>
+<li>API vẫn phải xác minh token và phân quyền cho mọi request, bất kể CORS.</li>
+</ul>
+<div class="callout example"><span class="callout-title">🧪 Ví dụ: CORS chặn browser, không chặn curl</span>
+<code>hr-api</code> chỉ cho phép origin <code>https://hr.kaopiz.local</code>. Một trang lạ gọi <code>fetch("https://hr-api.kaopiz.local/payroll")</code> → browser chặn đọc response. Nhưng ai đó chạy <code>curl https://hr-api.kaopiz.local/payroll</code> từ terminal thì request đi thẳng tới server, không có CORS nào can thiệp. Thứ duy nhất chặn được curl là <code>hr-api</code> kiểm tra access token và trả <code>401</code>.</div>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Bật CORS đúng là API đã được bảo vệ.</span><span class="f-label">Thực tế</span><span>CORS là luật của browser về việc <i>đọc</i> response; nó không xác thực, không phân quyền. curl, Postman hay một server khác gọi thẳng API mà không hề bị CORS cản.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Console báo “blocked by CORS policy” nghĩa là server chưa nhận request.</span><span class="f-label">Thực tế</span><span>Với request “đơn giản” (không cần preflight, vd form POST), request <b>đã tới server và có thể đã được xử lý</b>; browser chỉ không cho JavaScript đọc response. Chỉ request cần preflight mới bị chặn trước khi gửi. Vì vậy endpoint đổi dữ liệu không được trông chờ CORS để chống CSRF.</span></div>
+<h4>Checklist SPA / BFF</h4>
+<ul class="checklist">
+<li><span>Code + PKCE (S256); không client secret trong bundle JS.</span></li>
+<li><span>Dữ liệu nhạy cảm → BFF; nếu không, access token trong memory, refresh token rotation + lifetime ngắn.</span></li>
+<li><span>Không lưu refresh token trong <code>localStorage</code>.</span></li>
+<li><span>CSP chặt; không <code>innerHTML</code> với dữ liệu người dùng.</span></li>
+<li><span>CORS allowlist origin cụ thể; không coi CORS là bảo mật.</span></li>
+<li><span>BFF: cookie <code>__Host-</code> HttpOnly Secure SameSite + chống CSRF (custom header/antiforgery).</span></li>
+</ul>
+
+<div class="callout tip"><span class="callout-title">✅ Tự kiểm tra nhanh</span><ul>
+<li>Trong server-side web app, browser có nhìn thấy access token không? Còn SPA thuần?</li>
+<li>Vì sao SPA không thể giữ client secret, còn BFF thì có?</li>
+<li>Bật CORS chỉ cho một origin có ngăn được kẻ tấn công gọi API bằng curl không? Vậy cái gì ngăn?</li>
+</ul></div>
+
+<h2 id="quiz-bai">Quiz nhanh — Bài 7.1</h2>
+<div id="quiz"></div>
+
+</main>
+<script>
+window.QUIZ = [
+  { q: "Team Kaopiz HR chỉ tranh luận “dùng OIDC hay SAML?”. Theo quy trình 10 câu hỏi, hai câu nào quyết định gần hết việc chọn flow?",
+    options: ["Có cần MFA không, và audit log lưu ở đâu", "Subject là ai (user, service, thiết bị) và client là loại gì (web, SPA, desktop…)", "Logout thế nào, và key rotation ra sao", "Database là gì, và mạng nội bộ hay Internet"],
+    answer: 1,
+    why: ["MFA và audit ảnh hưởng chọn IdP/authenticator và vận hành, không quyết định flow (code flow, Client Credentials…).", "Subject quyết định có user hay không (OIDC vs Client Credentials vs RADIUS); client quyết định public/confidential, PKCE, kiểu redirect.", "Logout và key rotation là câu 10 — phải trả lời, nhưng sau khi đã chọn flow.", "Database là resource phía sau API; mạng nội bộ không phải trust boundary để chọn flow."],
+    explain: "Hai câu đầu (subject, client) chọn flow; câu 7–10 lo phần lưu trữ, phân quyền, vòng đời. Xem <a href='m07-1-design-web.html#design-process'>A. Quy trình thiết kế</a>." },
+  { q: "Team React đặt <code>REACT_APP_CLIENT_SECRET</code> trong file <code>.env</code> (không commit) rồi build SPA. Nhận định nào đúng?",
+    options: ["An toàn, vì file <code>.env</code> không nằm trên git", "An toàn nếu bundle được minify", "Không an toàn: giá trị được chép vào file JS gửi cho mọi browser; SPA nên là public client + PKCE (hoặc dùng BFF)", "An toàn nếu trang chạy HTTPS"],
+    answer: 2,
+    why: ["Không commit chỉ giấu khỏi git; lúc build, giá trị đã được nhúng vào bundle JS mà ai tải trang cũng đọc được.", "Minify chỉ đổi tên biến và bỏ khoảng trắng; chuỗi secret vẫn nằm nguyên trong file.", "Mọi thứ trong bundle là công khai, nên SPA không giữ được secret: đăng ký public client và dùng PKCE, hoặc để BFF giữ secret.", "HTTPS bảo vệ đường truyền, nhưng chính người dùng (hoặc kẻ tấn công mở trang) vẫn nhận được file JS chứa secret."],
+    explain: "Code chạy trong browser là public client. Xem <a href='m07-1-design-web.html#spa'>B.2. SPA</a>." },
+  { q: "<code>hr-web</code> (Razor Pages) cấu hình <code>SaveTokens = true</code>, không cấu hình gì thêm. Access token của An nằm ở đâu?",
+    options: ["Trong bảng <code>Tokens</code> của SQL Server", "Trong <code>localStorage</code> của browser", "Không được lưu ở đâu, mỗi request lại xin token mới", "Trong cookie phiên của <code>hr-web</code>, được Data Protection mã hóa, gửi kèm mỗi request"],
+    answer: 3,
+    why: ["ASP.NET Core không tự tạo bảng lưu token; muốn lưu phía server phải tự cấu hình <code>ITicketStore</code>/token cache.", "Handler cookie của server-side web không ghi gì vào <code>localStorage</code>; JavaScript không tham gia.", "<code>SaveTokens</code> chính là để lưu lại token sau khi đổi code; nếu không lưu, app không gọi được API downstream.", "Token nằm trong authentication ticket, mặc định được serialize vào cookie đã mã hóa — vì vậy cookie to lên và cần key ring dùng chung khi scale-out."],
+    explain: "Browser cầm cookie nhưng không đọc được token bên trong (mã hóa + HttpOnly). Xem <a href='m07-1-design-web.html#server-web'>B.1</a>." },
+  { q: "Kaopiz HR chuyển trang bảng lương sang SPA + BFF. Hôm sau phát hiện một lỗ hổng XSS trên trang. Script độc làm được gì?",
+    tricky: true,
+    options: ["Đọc access token rồi gửi về máy kẻ tấn công để dùng tiếp", "Gọi <code>fetch('/bff/api/payroll')</code> từ chính tab của nạn nhân — cookie tự gắn — và đọc kết quả", "Đọc cookie <code>__Host-bff</code> qua <code>document.cookie</code> rồi dùng ở máy khác", "Không làm được gì, vì BFF giữ hết token"],
+    answer: 1,
+    why: ["Với BFF, access token chỉ nằm ở server; trong browser không có token nào để đọc.", "Script chạy cùng origin nên gửi request tới BFF như chính SPA, browser tự gắn cookie; BFF không phân biệt được — đây là rủi ro còn lại của BFF.", "Cookie <code>HttpOnly</code> không hiện trong <code>document.cookie</code>, nên script không lấy cookie mang đi được.", "Đây là cái bẫy: BFF chặn việc đánh cắp token để dùng lâu dài, nhưng không chặn script gọi API qua BFF trong lúc tab đang mở."],
+    explain: "BFF giảm thiệt hại của XSS (không lấy được token), không loại bỏ XSS — vẫn cần CSP và escape output. Xem <a href='m07-1-design-web.html#bff'>B.3. BFF</a>." },
+  { q: "<code>hr-api</code> chỉ cho phép CORS từ origin <code>https://hr.kaopiz.local</code>. Ai vẫn <b>gửi request và đọc response</b> từ <code>hr-api</code> được (nếu có token hợp lệ)? (chọn nhiều)",
+    options: ["Người dùng chạy <code>curl</code> trong terminal", "Postman", "Một backend service khác (vd job .NET chạy trên server)", "JavaScript trên trang <code>https://evil.example</code> chạy trong browser của nạn nhân"],
+    answer: [0, 1, 2],
+    why: ["curl không phải browser, không áp dụng CORS; chỉ việc kiểm tra token ở <code>hr-api</code> mới chặn được nó.", "Postman cũng là HTTP client ngoài browser, không quan tâm tới header CORS.", "Service gọi service qua HTTP client của .NET không có Same-Origin Policy, nên CORS không ảnh hưởng.", "Đây là trường hợp duy nhất CORS chặn: browser không cho trang khác origin đọc response vì origin đó không nằm trong allowlist."],
+    explain: "CORS chỉ ràng buộc browser. API vẫn phải xác minh token và phân quyền cho mọi request. Xem <a href='m07-1-design-web.html#cors'>CORS không phải authN/authZ</a>." },
+  { q: "SPA gửi <code>POST</code> dạng form (request “đơn giản”, không cần preflight) tới một API khác origin chưa cấu hình CORS. Console báo “blocked by CORS policy”. Điều nào đúng?",
+    tricky: true,
+    options: ["Request chưa hề tới server, nên dữ liệu không bị thay đổi", "API đã từ chối request vì không xác thực được người gọi", "Request có thể đã tới server và được xử lý; browser chỉ chặn JavaScript đọc response", "Lỗi này nghĩa là access token sai audience"],
+    answer: 2,
+    why: ["Bẫy ở đây: chỉ request cần preflight mới bị chặn trước khi gửi. Request đơn giản được gửi luôn, CORS chỉ áp dụng khi đọc response.", "CORS không liên quan tới xác thực; thông báo này do browser tạo ra, không phải do API từ chối.", "Đúng: server có thể đã ghi dữ liệu xong; browser chỉ giấu response khỏi script. Vì vậy CORS không thay được chống CSRF.", "Sai audience là lỗi 401 do API trả về (trong <code>WWW-Authenticate</code>), không phải thông báo CORS của browser."],
+    explain: "CORS bảo vệ việc đọc response, không ngăn request đi tới server. Xem <a href='m07-1-design-web.html#cors'>CORS</a> và <a href='m06-3-web-threats.html#csrf'>M06 — CSRF</a>." }
+];
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="assets/pages.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

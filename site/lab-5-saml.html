@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LAB · Lab 5 — Đọc SAML Response</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<main class="content">
+
+<div class="page-head">
+  <div class="breadcrumb"><a href="index.html">Lộ trình</a> / <a href="lab.html">Lab</a> / L5</div>
+  <h1>Lab 5 — Đọc SAML Response</h1>
+  <p class="lead">Bạn cho Keycloak đóng cả hai vai — một realm làm IdP SAML, một realm làm SP — rồi dùng extension SAML-tracer bắt và đọc AuthnRequest và SAML Response thật, chỉ ra từng trường mà SP phải kiểm tra.</p>
+  <div class="meta-row">
+    <span class="chip">⏱ ~20 phút</span>
+    <span class="chip">📘 <a href="lab.html">Lab · Hands-on OAuth/OIDC với ASP.NET Core</a></span>
+  </div>
+</div>
+
+<div class="terms"><span class="terms-title">📖 Thuật ngữ trong bài</span><dl>
+<dt>IdP / SP</dt><dd>IdP (Identity Provider) xác thực người dùng và phát hành assertion; SP (Service Provider) là ứng dụng tin assertion đó. Ở lab: realm <code>demo</code> = IdP, realm <code>sp-realm</code> = SP.</dd>
+<dt>Entity ID</dt><dd>“Tên định danh” duy nhất của một IdP/SP trong SAML, thường có dạng URL nhưng không nhất thiết mở được.</dd>
+<dt>ACS URL</dt><dd>Assertion Consumer Service — địa chỉ của SP nơi trình duyệt POST SAML Response tới.</dd>
+<dt>Metadata</dt><dd>File XML mô tả entity ID, endpoint và certificate của một bên; dùng để thiết lập tin cậy.</dd>
+<dt>AuthnRequest</dt><dd>“Phiếu yêu cầu đăng nhập” SP gửi sang IdP (qua trình duyệt).</dd>
+<dt>SAML Response / Assertion</dt><dd>Response là “phong bì” trả về; Assertion bên trong là “giấy chứng nhận” ghi ai, do ai cấp, cho ai, hiệu lực bao lâu.</dd>
+<dt>Binding</dt><dd>Cách chuyển message SAML qua trình duyệt: HTTP-Redirect (trên URL) hoặc HTTP-POST (form tự submit).</dd>
+<dt>Identity brokering</dt><dd>Tính năng Keycloak cho một realm “đăng nhập nhờ” IdP bên ngoài — ở đây <code>sp-realm</code> nhờ realm <code>demo</code>.</dd>
+<dt>SAML-tracer</dt><dd>Extension trình duyệt bắt và decode các message SAML đi qua.</dd>
+</dl></div>
+
+<!-- ===================================================== -->
+<div class="lab-task" id="lab5-box">
+<div class="lab-head"><h3 id="lab5">Lab 5 — Đọc SAML Response</h3><span class="badge nice">Nice</span><span class="chip">⏱ 20 phút</span></div>
+<div class="lab-body">
+
+<h4>(a) Mục tiêu</h4>
+<p>Nhìn tận mắt một <b>SAML AuthnRequest</b> và <b>SAML Response</b> thật, chú giải các trường bảo mật quan trọng. Lý thuyết ở <a href="m04-saml.html">Module 04</a> (<a href="m04-2-assertion.html#response-vs-assertion">Response vs Assertion</a>, <a href="m04-4-security.html#saml-validation">kiểm tra bảo mật SAML</a>).</p>
+
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+SAML giống một <b>lá thư giới thiệu có đóng dấu</b> (XML ký số). App (SP) viết “phiếu yêu cầu” (AuthnRequest) gửi qua tay người dùng tới IdP; IdP gửi lại lá thư (Response) qua tay người dùng, trong đó có “giấy chứng nhận” (Assertion) ghi: ai (NameID), do ai cấp (Issuer), cho ai đọc (Audience), có hiệu lực tới khi nào (Conditions), trả lời phiếu nào (InResponseTo). Người dùng chỉ là “người đưa thư” — nên app phải kiểm tra con dấu và từng dòng.</div>
+
+<h4>(b) Yêu cầu / đề bài</h4>
+<ol>
+<li>Dựng một luồng SAML SP-initiated chạy được (khuyến nghị: hoàn toàn local bằng hai realm Keycloak).</li>
+<li>Dùng SAML-tracer bắt AuthnRequest và Response.</li>
+<li><b>Nộp:</b> bản XML (đã che thông tin cá nhân) có chú giải Issuer, NameID, Audience, Conditions, <code>InResponseTo</code>, Destination; ghi rõ binding đã dùng.</li>
+</ol>
+
+<h4>(c) Hướng dẫn từng bước — phương án local: Keycloak đóng cả hai vai</h4>
+<p>Realm <code>demo</code> = <b>SAML IdP</b>. Realm mới <code>sp-realm</code> = <b>SP</b> (dùng tính năng <i>Identity Brokering</i> của Keycloak: realm này tin tưởng realm demo qua SAML). Không phụ thuộc dịch vụ ngoài.</p>
+<ol class="steps">
+<li><b>Cài SAML-tracer</b> — extension mã nguồn mở của dự án SimpleSAMLphp, có trên Firefox Add-ons và Chrome Web Store (chú ý có các extension trùng tên của nhà phát triển khác; chọn bản của SimpleSAMLphp).</li>
+<li><b>Tạo realm <code>sp-realm</code></b> (giống bước 3 Lab 1).</li>
+<li><b>Trong <code>sp-realm</code>, thêm SAML Identity Provider.</b> Menu <b>Identity providers</b> → chọn <b>SAML v2.0</b> → Alias <code>demo-saml</code> → ô <b>SAML entity descriptor</b> nhập <code>http://localhost:8080/realms/demo/protocol/saml/descriptor</code> (Keycloak tự đọc metadata của IdP) → ghi lại <b>Service provider entity ID</b> (mặc định thường là <code>http://localhost:8080/realms/sp-realm</code>) và <b>Redirect URI</b> hiển thị (dạng <code>http://localhost:8080/realms/sp-realm/broker/demo-saml/endpoint</code> — đây là <b>ACS URL</b>) → <b>Add/Save</b>.
+<ul><li><i>Vì sao:</i> metadata chứa entity ID, endpoint SSO và certificate của IdP — đây là cách thiết lập trust trong SAML.</li>
+<li><i>Kiểm tra:</i> mở URL descriptor trên bằng trình duyệt — phải thấy XML <code>EntityDescriptor</code> có <code>entityID="http://localhost:8080/realms/demo"</code>.</li></ul>
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: Entity ID vs ACS URL</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Service provider entity ID</th><th>ACS URL (Redirect URI)</th></tr></thead>
+<tbody>
+<tr><td>Là gì</td><td><b>Tên</b> của SP</td><td><b>Địa chỉ nhận</b> Response của SP</td></tr>
+<tr><td>Giá trị trong lab</td><td><code>http://localhost:8080/realms/sp-realm</code></td><td><code>http://localhost:8080/realms/sp-realm/broker/demo-saml/endpoint</code></td></tr>
+<tr><td>Khai báo ở IdP (realm demo) vào ô</td><td><b>Client ID</b> của SAML client</td><td><b>Valid redirect URIs</b> (hoặc ACS POST Binding URL)</td></tr>
+<tr><td>Xuất hiện trong Response ở</td><td><code>&lt;saml:Audience&gt;</code></td><td><code>Destination</code>, <code>Recipient</code></td></tr>
+<tr><td>Tương đương OIDC</td><td><code>client_id</code> / <code>aud</code></td><td><code>redirect_uri</code></td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> nếu bạn dán nhầm ACS URL vào ô Client ID, IdP sẽ không tìm thấy client khớp với Issuer của AuthnRequest và báo lỗi kiểu “Invalid requester”.</p>
+<span class="rule">Entity ID = “tôi là ai”; ACS URL = “gửi thư về đâu”.</span>
+</div>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Entity ID có dạng URL thì phải mở được trên trình duyệt.</span><span class="f-label">Thực tế</span><span>Entity ID chỉ là <b>tên</b> duy nhất; dạng URL cho dễ tránh trùng. <code>http://localhost:8080/realms/sp-realm</code> là tên của SP, còn nơi nhận Response là ACS URL.</span></div></li>
+<li><b>Trong realm <code>demo</code>, tạo SAML client cho SP.</b> <b>Clients</b> → <b>Create client</b> → Client type <b>SAML</b> → Client ID = <b>đúng</b> Service provider entity ID ở bước trên → Next → <b>Valid redirect URIs</b> = ACS URL ở bước trên → Save. Trong tab <b>Keys</b>, tắt <b>Client signature required</b> (vì SP lab không ký AuthnRequest). NameID format để mặc định hoặc chọn <code>email</code>/<code>username</code>.
+<ul><li><i>Vì sao:</i> trong SAML, Client ID của SP <b>chính là</b> entity ID — IdP dùng nó để biết đặt gì vào Audience.</li>
+<li><i>Kiểm tra:</i> tên trường có thể khác chút tùy phiên bản (ví dụ “Assertion Consumer Service POST Binding URL” ở tab Advanced). Nếu IdP báo lỗi về ACS, khai báo URL này ở đó.</li></ul>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Client ID của SAML client đặt tên gì cũng được, như <code>sp-app</code>.</span><span class="f-label">Thực tế</span><span>Trong SAML, Client ID <b>chính là</b> entity ID của SP. Đặt khác → IdP không khớp Issuer của AuthnRequest → “Invalid requester”.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Tắt “Client signature required” nghĩa là Response/Assertion không còn được ký.</span><span class="f-label">Thực tế</span><span>Công tắc đó chỉ nói IdP không đòi <b>AuthnRequest</b> của SP phải ký. Chữ ký của IdP trên Response/Assertion là chuyện khác — vẫn thấy <code>&lt;ds:Signature&gt;</code> trong XML.</span></div></li>
+<li><b>Chạy luồng.</b> Mở SAML-tracer → cửa sổ ẩn danh mở <code>http://localhost:8080/realms/sp-realm/account</code> → trên trang login chọn nút <b>demo-saml</b> → đăng nhập alice ở realm demo → quay về sp-realm (lần đầu có thể có màn hình “first broker login” để hoàn tất hồ sơ).
+<ul><li><i>Kiểm tra:</i> SAML-tracer đánh dấu (nhãn SAML) ít nhất 2 request: một request tới <code>/realms/demo/protocol/saml</code> chứa <code>SAMLRequest</code>, và một POST tới <code>/realms/sp-realm/broker/demo-saml/endpoint</code> chứa <code>SAMLResponse</code>. Tab “SAML” của tracer hiện XML đã decode.</li></ul></li>
+</ol>
+
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant B as Browser + SAML-tracer
+  participant SP as SP - realm sp-realm (broker)
+  participant IdP as IdP - realm demo (SAML client)
+  B->>SP: Mở account console, chọn demo-saml
+  SP-->>B: Chuyển hướng kèm SAMLRequest (AuthnRequest ID=_a1b2)
+  B->>IdP: AuthnRequest tới SSO endpoint
+  IdP-->>B: Form đăng nhập
+  B->>IdP: Gửi username/password của alice
+  IdP-->>B: Trang HTML tự POST SAMLResponse
+  B->>SP: POST ACS /broker/demo-saml/endpoint (InResponseTo=_a1b2)
+  SP->>SP: Kiểm tra chữ ký, Issuer, Destination, Audience, Conditions, InResponseTo
+  SP-->>B: Tạo phiên tại sp-realm
+</pre>
+<div class="caption">SP-initiated SSO trong Lab 5 (<a href="m04-3-flows-bindings.html#sp-initiated">M04 — SP-initiated</a>). Response đi qua browser bằng HTTP-POST binding.</div>
+</div>
+
+<div class="callout tip"><span class="callout-title">🔁 Phương án thay thế (công khai)</span>
+<b>Mock SAML</b> (<code>https://mocksaml.com</code>, mã nguồn <code>boxyhq/mock-saml</code>) là IdP thử nghiệm miễn phí, metadata ở <code>/api/saml/metadata</code>; ghi rõ “Not for production use”. Bạn có thể dùng nó làm IdP cho <code>sp-realm</code> thay vì realm demo. Lưu ý: dịch vụ công khai có thể thay đổi/ngừng; các dịch vụ cũ như samltest.id không còn hoạt động. Phương án local ở trên luôn chạy được.</div>
+
+<h4>(d) Kết quả mong đợi — SAML Response có chú giải (rút gọn, ví dụ)</h4>
+<p>Đừng cố đọc hết XML. Hãy tìm 7 chỗ được đánh số ①–⑦ trong XML của bạn và đối chiếu với bảng ngay bên dưới — đó chính là phần “chú giải” cần nộp. Giá trị ID và thời gian trên máy bạn sẽ khác.</p>
+<pre data-title="SAMLResponse (decode từ SAML-tracer)"><code class="language-xml">&lt;samlp:Response
+    ID="ID_7c1f..."
+    InResponseTo="ID_a1b2..."                 &lt;!-- ① phải = ID của AuthnRequest SP đã gửi --&gt;
+    Destination="http://localhost:8080/realms/sp-realm/broker/demo-saml/endpoint"  &lt;!-- ② phải = ACS URL của SP --&gt;
+    IssueInstant="2026-11-10T08:30:01Z" Version="2.0"&gt;
+  &lt;saml:Issuer&gt;http://localhost:8080/realms/demo&lt;/saml:Issuer&gt;   &lt;!-- ③ phải = IdP đã tin cậy --&gt;
+  &lt;samlp:Status&gt;&lt;samlp:StatusCode Value="urn:oasis:names:tc:SAML:2.0:status:Success"/&gt;&lt;/samlp:Status&gt;
+  &lt;saml:Assertion ID="ID_9d3e..." IssueInstant="2026-11-10T08:30:01Z" Version="2.0"&gt;
+    &lt;saml:Issuer&gt;http://localhost:8080/realms/demo&lt;/saml:Issuer&gt;
+    &lt;ds:Signature&gt;...&lt;/ds:Signature&gt;          &lt;!-- ④ chữ ký: kiểm tra bằng cert trong metadata --&gt;
+    &lt;saml:Subject&gt;
+      &lt;saml:NameID Format="urn:oasis:names:tc:SAML:1.1:nameid-format:unspecified"&gt;alice&lt;/saml:NameID&gt;  &lt;!-- ⑤ ai --&gt;
+      &lt;saml:SubjectConfirmation Method="urn:oasis:names:tc:SAML:2.0:cm:bearer"&gt;
+        &lt;saml:SubjectConfirmationData InResponseTo="ID_a1b2..."
+            NotOnOrAfter="2026-11-10T08:35:01Z"
+            Recipient="http://localhost:8080/realms/sp-realm/broker/demo-saml/endpoint"/&gt;
+      &lt;/saml:SubjectConfirmation&gt;
+    &lt;/saml:Subject&gt;
+    &lt;saml:Conditions NotBefore="2026-11-10T08:30:00Z" NotOnOrAfter="2026-11-10T08:31:00Z"&gt;  &lt;!-- ⑥ thời hạn --&gt;
+      &lt;saml:AudienceRestriction&gt;
+        &lt;saml:Audience&gt;http://localhost:8080/realms/sp-realm&lt;/saml:Audience&gt;  &lt;!-- ⑦ phải = entity ID của SP --&gt;
+      &lt;/saml:AudienceRestriction&gt;
+    &lt;/saml:Conditions&gt;
+    &lt;saml:AuthnStatement AuthnInstant="2026-11-10T08:30:01Z" SessionIndex="..."/&gt;
+    &lt;saml:AttributeStatement&gt;...&lt;/saml:AttributeStatement&gt;
+  &lt;/saml:Assertion&gt;
+&lt;/samlp:Response&gt;</code></pre>
+<div class="table-wrap"><table>
+<thead><tr><th>Trường</th><th>Ý nghĩa</th><th>SP phải kiểm tra</th><th>Tương đương OIDC</th></tr></thead>
+<tbody>
+<tr><td><b>Issuer</b></td><td>Ai phát hành</td><td>= entity ID IdP đã cấu hình trust</td><td><code>iss</code></td></tr>
+<tr><td><b>NameID</b></td><td>Định danh subject theo format</td><td>Dùng làm khóa liên kết account (ổn định, không đổi)</td><td><code>sub</code></td></tr>
+<tr><td><b>Audience</b></td><td>Assertion dành cho SP nào</td><td>= entity ID của chính mình</td><td><code>aud</code></td></tr>
+<tr><td><b>Conditions</b> (NotBefore/NotOnOrAfter)</td><td>Cửa sổ hiệu lực</td><td>Thời gian hiện tại nằm trong cửa sổ (có clock skew nhỏ)</td><td><code>nbf</code>/<code>exp</code></td></tr>
+<tr><td><b>InResponseTo</b></td><td>Trả lời AuthnRequest nào</td><td>= ID request đã gửi (SP-initiated); chống unsolicited/replay</td><td>~ <code>state</code>/<code>nonce</code></td></tr>
+<tr><td><b>Destination</b> / Recipient</td><td>Endpoint nhận</td><td>= ACS URL của mình</td><td>~ <code>redirect_uri</code></td></tr>
+</tbody></table></div>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Response đi qua HTTPS và do IdP tạo ra, nên SP chỉ cần đọc NameID là xong.</span><span class="f-label">Thực tế</span><span>Response đi <b>qua tay trình duyệt</b> (HTTP-POST binding) — người dùng hoặc mã độc có thể sửa hoặc gửi lại. SP phải kiểm chữ ký, Issuer, Audience, Destination, Conditions, InResponseTo như bảng trên.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Chữ ký luôn nằm ở <code>&lt;samlp:Response&gt;</code>.</span><span class="f-label">Thực tế</span><span>Có thể ký Response, ký Assertion, hoặc cả hai. Trong XML mẫu, <code>&lt;ds:Signature&gt;</code> nằm <b>trong</b> Assertion. SP phải biết phần nào được ký và chỉ tin phần đã ký.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>NameID luôn là email.</span><span class="f-label">Thực tế</span><span>NameID có nhiều format (unspecified, email, persistent, transient…). XML mẫu dùng <code>unspecified</code> với giá trị <code>alice</code>.</span></div>
+
+<h4>(e) Lỗi thường gặp &amp; cách xử lý</h4>
+<div class="table-wrap"><table>
+<thead><tr><th>Hiện tượng</th><th>Nguyên nhân</th><th>Cách xử lý</th></tr></thead>
+<tbody>
+<tr><td>IdP báo “Invalid requester” / client not found</td><td>Client ID của SAML client ≠ entity ID mà SP gửi trong AuthnRequest.</td><td>Copy đúng Service provider entity ID.</td></tr>
+<tr><td>IdP báo lỗi chữ ký request</td><td>“Client signature required” bật nhưng SP không ký.</td><td>Tắt (lab) hoặc bật ký AuthnRequest ở SP.</td></tr>
+<tr><td>SP báo “Invalid destination”/redirect URI</td><td>ACS URL khai báo ở IdP sai.</td><td>Dùng đúng URL <code>/broker/demo-saml/endpoint</code>.</td></tr>
+<tr><td>SAML-tracer không hiện gì</td><td>Mở tracer sau khi bắt đầu luồng.</td><td>Mở tracer trước, làm lại trong cửa sổ mới.</td></tr>
+</tbody></table></div>
+
+<h4>(f) Câu hỏi tự kiểm tra</h4>
+<details><summary>SAML Response và Assertion khác nhau thế nào trong XML vừa bắt?</summary><p><code>&lt;samlp:Response&gt;</code> là message bao ngoài (Destination, InResponseTo, Status). <code>&lt;saml:Assertion&gt;</code> nằm bên trong, chứa tuyên bố về subject (NameID, Conditions, AuthnStatement, Attributes). Chữ ký có thể ở Response, ở Assertion, hoặc cả hai.</p></details>
+<details><summary>Vì sao không tự viết code parse XML để kiểm tra chữ ký?</summary><p>Rủi ro XML Signature Wrapping, XXE, canonicalization sai. Dùng thư viện SAML trưởng thành (<a href="m04-4-security.html#saml-validation">M04</a>).</p></details>
+
+</div></div>
+
+<h2 id="quiz-bai">Quiz nhanh — Lab 5</h2>
+<div id="quiz"></div>
+
+</main>
+<script>
+window.QUIZ = [
+  { q: "Bạn chọn nút <b>demo-saml</b> và realm demo báo “Invalid requester”. Ở realm demo, SAML client có Client ID = <code>http://localhost:8080/realms/sp-realm/broker/demo-saml/endpoint</code>. Sửa thế nào?",
+    options: ["Bật “Client signature required”", "Đổi Client ID thành Service provider entity ID (<code>http://localhost:8080/realms/sp-realm</code>)", "Xóa Valid redirect URIs", "Đổi NameID format sang email"],
+    answer: 1,
+    why: ["Bật công tắc này còn làm IdP đòi AuthnRequest có chữ ký — SP lab không ký nên lỗi thêm.", "Client ID đang là ACS URL; IdP tìm client theo Issuer (entity ID) của AuthnRequest nên không thấy. Client ID phải bằng entity ID.", "Valid redirect URIs là nơi khai ACS URL; xóa đi thì IdP không biết gửi Response về đâu.", "NameID format chỉ ảnh hưởng nội dung assertion, không ảnh hưởng việc IdP nhận ra SP."],
+    explain: "Entity ID = “tôi là ai” → Client ID; ACS URL = “gửi về đâu” → Valid redirect URIs. Xem <a href='lab-5-saml.html#lab5'>bước 3–4</a>." },
+  { q: "Trong XML mẫu của lab, những phần nào nằm <b>bên trong</b> <code>&lt;saml:Assertion&gt;</code>?",
+    options: ["<code>&lt;saml:Subject&gt;</code> với NameID", "<code>&lt;saml:Conditions&gt;</code> với Audience", "Thuộc tính <code>Destination</code>", "<code>&lt;samlp:Status&gt;</code>"],
+    answer: [0, 1],
+    why: ["Subject/NameID là tuyên bố “người này là ai” — phần cốt lõi của Assertion.", "Conditions (thời hạn, Audience) thuộc Assertion vì nó giới hạn nơi và lúc assertion có hiệu lực.", "<code>Destination</code> là thuộc tính của <code>&lt;samlp:Response&gt;</code> bao ngoài.", "<code>Status</code> nằm ở Response, báo kết quả của cả message (Success hay lỗi)."],
+    explain: "Response = phong bì (Destination, InResponseTo, Status); Assertion = giấy chứng nhận (Subject, Conditions, AuthnStatement, Attributes). Xem <a href='m04-2-assertion.html#response-vs-assertion'>M04 — Response vs Assertion</a>." },
+  { q: "Dùng đúng thời gian trong XML mẫu: <code>Conditions NotOnOrAfter = 08:31:00</code>, <code>SubjectConfirmationData NotOnOrAfter = 08:35:01</code>. SP nhận Response lúc <b>08:33</b> (giờ đồng bộ, clock skew nhỏ). SP nên làm gì?",
+    tricky: true,
+    options: ["Chấp nhận, vì SubjectConfirmationData còn hạn tới 08:35", "Từ chối, vì Conditions đã hết hạn — mọi điều kiện thời gian đều phải thỏa", "Chấp nhận, vì chữ ký vẫn hợp lệ", "Chấp nhận, vì InResponseTo khớp"],
+    answer: 1,
+    why: ["Hai mốc thời gian là hai kiểm tra riêng; một cái còn hạn không “bù” cho cái đã hết.", "Assertion chỉ hợp lệ trong cửa sổ Conditions; 08:33 đã qua 08:31 (vượt xa clock skew nhỏ) nên phải từ chối.", "Chữ ký chứng minh nguồn gốc, không chứng minh còn hạn — giống JWT ký đúng nhưng hết <code>exp</code>.", "InResponseTo chỉ chứng minh đây là trả lời cho request của mình, không thay thế kiểm tra thời gian."],
+    explain: "Bẫy ở chỗ có <b>hai</b> NotOnOrAfter; lấy cái “dễ dãi” là sai. Mọi kiểm tra phải đạt. Xem <a href='m04-4-security.html#saml-validation'>M04 — kiểm tra bảo mật</a>." },
+  { q: "SAMLResponse đến SP (sp-realm) bằng cách nào trong lab?",
+    options: ["Keycloak demo gọi thẳng server sp-realm (back channel)", "Trình duyệt tự POST form chứa <code>SAMLResponse</code> tới ACS URL (HTTP-POST binding)", "Nằm trong query string của redirect 302", "Qua WebSocket"],
+    answer: 1,
+    why: ["Trong SSO trình duyệt của lab, IdP không gọi thẳng SP; mọi message đi qua trình duyệt.", "IdP trả trang HTML tự submit; SAML-tracer thấy POST tới <code>/broker/demo-saml/endpoint</code> có <code>SAMLResponse</code>.", "Response có chữ ký XML khá lớn nên thường dùng HTTP-POST; SAML-tracer của lab ghi nhận Response là một request POST, không phải tham số trên URL redirect.", "SAML không dùng WebSocket."],
+    explain: "Vì đi qua trình duyệt, SP phải coi Response là dữ liệu không tin cậy cho tới khi kiểm xong. Xem <a href='m04-3-flows-bindings.html#sp-initiated'>M04 — SP-initiated</a>." }
+];
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="assets/pages.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M04 · Bài 4.1 · SAML là gì &amp; các thành phần</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<main class="content">
+
+<div class="page-head">
+  <div class="breadcrumb"><a href="index.html">Lộ trình</a> / <a href="m04-saml.html">Module 04</a> / Bài 4.1</div>
+  <h1>Bài 4.1 — SAML là gì &amp; các thành phần</h1>
+  <p class="lead">SAML giải quyết bài toán gì, và “ai là ai” trong một lần đăng nhập SAML: IdP, SP, metadata, NameID, các trường địa chỉ (Destination/Recipient/ACS URL/Audience) và thời hạn hiệu lực (Conditions).</p>
+  <div class="meta-row">
+    <span class="chip">⏱ ~20 phút</span>
+    <span class="chip">📘 <a href="m04-saml.html">Module 04 · SAML 2.0 &amp; Enterprise SSO</a></span>
+  </div>
+</div>
+
+<div class="terms"><span class="terms-title">📖 Thuật ngữ trong bài</span><dl>
+<dt>IdP (Identity Provider)</dt><dd>Nơi người dùng thật sự đăng nhập (nhập mật khẩu, MFA) rồi viết “giấy xác nhận” — ở đây là Keycloak của công ty.</dd>
+<dt>SP (Service Provider)</dt><dd>Ứng dụng cần biết người dùng là ai nhưng không tự giữ mật khẩu — ở đây là ứng dụng Expense.</dd>
+<dt>Assertion</dt><dd>“Giấy xác nhận” bằng XML có chữ ký của IdP: người này là ai, đăng nhập lúc nào, có thuộc tính gì.</dd>
+<dt>Entity ID</dt><dd>Tên định danh duy nhất của một IdP hoặc SP, thường viết dạng URL (vd. <code>https://expense.example.com/saml</code>).</dd>
+<dt>Metadata</dt><dd>File XML “danh thiếp” mỗi bên đưa cho bên kia một lần khi cấu hình: tên, địa chỉ nhận message, certificate.</dd>
+<dt>NameID</dt><dd>Giá trị định danh người dùng ghi trong assertion (mã cố định, mã tạm hoặc email).</dd>
+<dt>ACS (Assertion Consumer Service)</dt><dd>URL của SP chuyên nhận SAML Response — “quầy tiếp nhận giấy xác nhận”.</dd>
+<dt>Audience</dt><dd>Entity ID của ứng dụng được phép dùng assertion — “giấy này gửi cho ai”.</dd>
+<dt>Conditions</dt><dd>Phần trong assertion ghi thời hạn hiệu lực (<code>NotBefore</code>, <code>NotOnOrAfter</code>) và Audience.</dd>
+</dl></div>
+
+<!-- ===================================================== -->
+<h2 id="saml-intro">A. SAML là gì? <span class="badge must">Must</span></h2>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Bạn là nhân viên công ty, muốn vào một tòa nhà đối tác. Bảo vệ tòa nhà đối tác không quen bạn, nên yêu cầu bạn quay về phòng nhân sự công ty mình xin <b>giấy giới thiệu có đóng dấu</b>. Bạn mang giấy đó tới, bảo vệ nhận ra con dấu (đã được công ty bạn gửi mẫu từ trước), đọc tên bạn và cho vào. Trong SAML: phòng nhân sự = <b>IdP</b>, tòa nhà đối tác = <b>SP</b>, giấy giới thiệu = <b>assertion</b>, con dấu = <b>chữ ký số</b>, mẫu dấu gửi trước = <b>metadata</b>. Bạn (trình duyệt) là người <b>tự mang giấy</b> đi.</div>
+<p><b>Vấn đề SAML giải quyết.</b> Công ty dùng hàng chục ứng dụng SaaS (phần mềm thuê ngoài, chạy trên Internet). Nếu mỗi ứng dụng có một mật khẩu riêng:</p>
+<ul>
+<li>nhân viên phải nhớ hàng chục mật khẩu;</li>
+<li>khi nhân viên nghỉ việc, IT phải đi khóa từng nơi một.</li>
+</ul>
+<p>SAML cho phép mọi ứng dụng <b>tin vào một nơi xác thực duy nhất</b> của công ty. Khóa tài khoản ở đó là mất quyền vào tất cả.</p>
+<p><b>SAML 2.0</b> (Security Assertion Markup Language, chuẩn của tổ chức OASIS, năm 2005) là chuẩn dựa trên <b>XML</b>. Nó dùng để trao đổi “giấy xác nhận” về đăng nhập (<b>authentication assertion</b>) và về thông tin người dùng (<b>attribute assertion</b>) giữa các <b>security domain</b> (vùng quản trị khác nhau — vd. công ty bạn và nhà cung cấp SaaS).</p>
+<div class="callout example"><span class="callout-title">🧪 Ví dụ: nội dung một “giấy xác nhận” SAML, viết bằng lời</span>
+“Tôi là IdP <code>https://sso.company.com/realms/corp</code>. Tôi xác nhận người dùng An đã đăng nhập lúc 09:00 bằng mật khẩu + MFA. Email của An là <code>an.nv@company.com</code>, nhóm <code>accounting</code>. Giấy này chỉ dành cho ứng dụng Expense, hết hạn sau 5 phút. [Chữ ký số của IdP]”.<br>
+IdP viết giấy này bằng XML, ký, rồi đưa cho <b>trình duyệt</b> của An mang sang Expense. Bạn sẽ đọc bản XML thật ở <a href="m04-2-assertion.html#saml-response-example">Bài 4.2</a>.</div>
+
+<div class="grid cols-3">
+  <div class="card"><span class="icon">🏢</span><h4>Dùng ở đâu?</h4><p>Enterprise SSO: đăng nhập vào SaaS (Salesforce, Jira Cloud, AWS Console, các phần mềm HR/kế toán…) bằng tài khoản công ty; federation giữa các tổ chức (trường đại học, cơ quan nhà nước).</p></div>
+  <div class="card"><span class="icon">📜</span><h4>Đặc trưng</h4><p>XML + XML Signature; truyền qua trình duyệt (redirect/POST); trust được thiết lập trước bằng <b>metadata</b> trao đổi giữa hai bên.</p></div>
+  <div class="card"><span class="icon">🚫</span><h4>Không phù hợp cho</h4><p>Gọi API từ mobile/SPA, cấp access token cho API — đó là đất của OAuth 2.0/OIDC (<a href="m03-5-oidc.html#oidc">M03</a>).</p></div>
+</div>
+
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>SAML lỗi thời nên không cần học.</span><span class="f-label">Thực tế</span><span>SAML vẫn rất phổ biến trong enterprise SSO và SaaS B2B. Ví dụ: khách hàng doanh nghiệp yêu cầu “đăng nhập bằng AD FS/Entra ID của chúng tôi qua SAML” — developer phải hiểu SAML để tích hợp và debug.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Lúc đăng nhập, Expense gọi thẳng server Keycloak để lấy assertion.</span><span class="f-label">Thực tế</span><span>Với binding phổ biến (Redirect/POST), message đi <b>qua trình duyệt</b>: Keycloak trả cho trình duyệt của An một form tự POST sang Expense. Chỉ Artifact binding mới có gọi back-channel. Vì assertion đi qua tay trình duyệt, nó phải được ký và có hạn ngắn.</span></div>
+
+<h3 id="ws-federation">WS-Federation <span class="badge nice">Nice</span></h3>
+<p>Trong hệ thống .NET cũ (ASP.NET WebForms/MVC 4–5, SharePoint on-prem…) bạn có thể gặp <b>WS-Federation</b>. Đây là một giao thức federation khác, cũng dựa trên XML, do Microsoft và các đối tác thúc đẩy. Nó thường đi cùng <b>AD FS</b> (Active Directory Federation Services — IdP của Microsoft cài trong công ty).</p>
+<ul>
+<li><b>Token bên trong:</b> thường chính là một SAML assertion (SAML 1.1 hoặc 2.0), được bọc trong message WS-Trust (một chuẩn web service cũ về phát hành token).</li>
+<li><b>Cách nhận ra:</b> thấy <code>wa=wsignin1.0</code>, <code>wtrealm=</code> trên URL là đang gặp WS-Federation.</li>
+<li><b>Hiện nay:</b> ASP.NET Core vẫn có package <code>Microsoft.AspNetCore.Authentication.WsFederation</code> để tương thích, nhưng hệ thống mới nên chọn OIDC. Bảng so sánh ba chuẩn ở <a href="m04-4-security.html#saml-oidc-wsfed">Bài 4.4</a>.</li>
+</ul>
+
+<!-- ===================================================== -->
+<h2 id="saml-components">B. Thành phần của SAML <span class="badge must">Must</span></h2>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Trước khi làm ăn, hai công ty trao đổi <b>danh thiếp</b> (metadata): “tôi tên là gì (entity ID), văn phòng ở đâu (endpoint URL), mẫu chữ ký của tôi thế này (certificate)”. Sau đó mỗi lần có người đăng nhập, IdP viết một <b>giấy xác nhận</b> (assertion) ghi: <i>ai</i> (NameID), <i>do ai cấp</i> (Issuer), <i>gửi cho ai</i> (Audience), <i>nộp ở quầy nào</i> (Recipient/ACS), <i>hiệu lực đến bao giờ</i> (Conditions).</div>
+<p>Một số thuật ngữ sẽ gặp liên tục: <b>Entity ID</b> = tên định danh duy nhất của một bên (thường là một URL); <b>Endpoint</b> = địa chỉ URL nhận message; <b>Certificate</b> (chứng thư X.509) = file chứa public key dùng để kiểm chữ ký (xem <a href="m02-1-crypto.html#pki">M02 — PKI</a>).</p>
+
+<div class="diagram">
+<pre class="mermaid">
+flowchart LR
+  U(("👤 An<br/>(Browser)"))
+  subgraph IdPDomain["Miền công ty"]
+    IDP["🔐 Identity Provider<br/>Keycloak<br/>sso.company.com"]
+  end
+  subgraph SPDomain["Miền nhà cung cấp SaaS"]
+    SP["🧾 Service Provider<br/>Expense<br/>expense.example.com"]
+  end
+  IDP -.->|"metadata IdP<br/>(entityID, SSO URL, cert ký)"| SP
+  SP -.->|"metadata SP<br/>(entityID, ACS URL, cert)"| IDP
+  U -- "AuthnRequest (qua browser)" --> IDP
+  U -- "SAML Response (qua browser)" --> SP
+</pre>
+<div class="caption">Trust được thiết lập <b>trước</b> bằng trao đổi metadata (đường nét đứt). Lúc đăng nhập, message đi <b>qua trình duyệt</b> — IdP và SP thường không gọi trực tiếp cho nhau (trừ Artifact binding).</div>
+</div>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Thành phần</th><th>Ý nghĩa</th><th>Trong ví dụ “Expense”</th></tr></thead>
+<tbody>
+<tr><td><b>Identity Provider (IdP)</b></td><td>Xác thực người dùng và phát hành SAML Response/Assertion có chữ ký.</td><td>Keycloak realm <code>corp</code> (cũng có thể là Entra ID, AD FS, Okta…).</td></tr>
+<tr><td><b>Service Provider (SP)</b></td><td>Ứng dụng nhận, <b>xác minh</b> SAML Response rồi tạo session cục bộ.</td><td>Ứng dụng Expense.</td></tr>
+<tr><td><b>Entity ID</b></td><td>Định danh duy nhất (thường là URI) của một IdP hoặc SP.</td><td><code>https://sso.company.com/realms/corp</code>, <code>https://expense.example.com/saml</code></td></tr>
+<tr><td><b>Metadata</b></td><td>Tài liệu XML mô tả entity ID, endpoint, binding hỗ trợ và certificate. Hai bên nhập metadata của nhau để thiết lập trust.</td><td>Keycloak xuất tại <code>…/realms/corp/protocol/saml/descriptor</code>.</td></tr>
+<tr><td><b>Assertion</b></td><td>Tuyên bố của IdP về subject: đã xác thực thế nào, có thuộc tính gì.</td><td>“An đăng nhập lúc 09:00, email an.nv@company.com, nhóm accounting”.</td></tr>
+<tr><td><b>NameID</b></td><td>Định danh của subject trong assertion, theo một <i>format</i>/chính sách đã thỏa thuận.</td><td><code>a3f9…</code> (persistent) hoặc <code>an.nv@company.com</code> (email).</td></tr>
+<tr><td><b>Issuer</b></td><td>Bên phát hành Response/Assertion (= entity ID của IdP).</td><td><code>https://sso.company.com/realms/corp</code></td></tr>
+<tr><td><b>Audience</b></td><td>Đối tượng được phép tiêu thụ assertion (= entity ID của SP).</td><td><code>https://expense.example.com/saml</code></td></tr>
+<tr><td><b>Destination / Recipient / ACS URL</b></td><td>Các trường chỉ endpoint nhận response (chi tiết bảng dưới).</td><td><code>https://expense.example.com/saml/acs</code></td></tr>
+<tr><td><b>Conditions</b></td><td>Điều kiện hiệu lực: <code>NotBefore</code>, <code>NotOnOrAfter</code>, <code>AudienceRestriction</code>…</td><td>Hợp lệ 09:00:00 → 09:05:00, chỉ cho Expense.</td></tr>
+</tbody></table></div>
+
+<div class="compare" id="idp-vs-sp"><span class="compare-title">Phân biệt dễ nhầm: IdP vs SP (và tên gọi tương ứng trong OIDC)</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>IdP (Identity Provider)</th><th>SP (Service Provider)</th></tr></thead>
+<tbody>
+<tr><td>Việc chính</td><td>Xác thực người dùng, <b>viết và ký</b> assertion.</td><td><b>Nhận và kiểm tra</b> assertion, rồi tạo session riêng.</td></tr>
+<tr><td>Có thấy mật khẩu không?</td><td>Có (hoặc thấy kết quả MFA/Kerberos…).</td><td>Không bao giờ.</td></tr>
+<tr><td>Giữ khóa gì?</td><td><b>Private key</b> để ký.</td><td>Certificate (public key) của IdP, lấy từ metadata, để kiểm chữ ký.</td></tr>
+<tr><td>Ví dụ trong module</td><td>Keycloak realm <code>corp</code>.</td><td>Ứng dụng Expense.</td></tr>
+<tr><td>Tên tương ứng trong OIDC (<a href="m03-5-oidc.html#oidc">M03</a>)</td><td><b>OpenID Provider (OP)</b> — thường vẫn gọi là IdP.</td><td><b>Relying Party (RP)</b> = OIDC client.</td></tr>
+<tr><td>Nhầm thì hỏng gì</td><td colspan="2">Cấu hình nhầm phía (vd. dán metadata SP vào ô “IdP metadata”) → không đăng nhập được; tệ hơn: SP tự tin dữ liệu chưa kiểm vì nghĩ “IdP đã lo rồi”.</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> Keycloak có thể đóng <b>cả hai vai</b>. Với Expense, Keycloak là IdP. Nhưng khi Keycloak cho phép “Đăng nhập bằng Entra ID của khách hàng” (broker), thì với Entra ID, Keycloak lại là SP. Vai trò phụ thuộc vào <i>chiều của assertion</i>, không phụ thuộc phần mềm.</p>
+<span class="rule">IdP <b>phát</b> giấy, SP <b>soát</b> giấy. SAML gọi “SP”, OIDC gọi “RP” — cùng một vai.</span>
+</div>
+
+<div class="compare" id="saml-documents"><span class="compare-title">Phân biệt dễ nhầm: Metadata vs AuthnRequest vs Response vs Assertion</span>
+<p class="small">Đây là 4 loại tài liệu XML bạn sẽ gặp. Chúng khác nhau ở <b>lúc nào</b> xuất hiện và <b>ai viết</b>.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Metadata</th><th>AuthnRequest</th><th>Response</th><th>Assertion</th></tr></thead>
+<tbody>
+<tr><td>Là gì</td><td>“Danh thiếp” cấu hình</td><td>“Phiếu yêu cầu” xác thực</td><td>“Phong bì” trả lời</td><td>“Lá thư” xác nhận, nằm <b>trong</b> Response</td></tr>
+<tr><td>Ai viết</td><td>Mỗi bên tự viết của mình</td><td>SP</td><td>IdP</td><td>IdP</td></tr>
+<tr><td>Khi nào</td><td>Một lần, lúc cài đặt (và khi đổi cert)</td><td>Mỗi lần đăng nhập (SP-initiated)</td><td>Mỗi lần đăng nhập</td><td>Mỗi lần đăng nhập</td></tr>
+<tr><td>Đi đường nào</td><td>Tải file / URL, ngoài luồng đăng nhập</td><td>Trình duyệt mang sang IdP (thường Redirect)</td><td>Trình duyệt mang về ACS của SP (thường POST)</td><td>Cùng Response</td></tr>
+<tr><td>Chứa gì chính</td><td>entityID, URL endpoint, certificate</td><td>ID, Issuer (SP), ACS URL</td><td>InResponseTo, Destination, Status</td><td>NameID, Conditions, Audience, thời điểm đăng nhập, thuộc tính</td></tr>
+<tr><td>Thẻ gốc</td><td><code>md:EntityDescriptor</code></td><td><code>samlp:AuthnRequest</code></td><td><code>samlp:Response</code></td><td><code>saml:Assertion</code></td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> Tuần trước, IT trao đổi metadata giữa Keycloak và Expense (1 lần). Sáng nay An mở Expense → Expense tạo <b>AuthnRequest</b> <code>_a1b2…</code> → Keycloak trả về <b>Response</b> có <code>InResponseTo="_a1b2…"</code>, bên trong là <b>Assertion</b> ghi “đây là An, nhóm accounting”.</p>
+<span class="rule">Metadata = cài đặt một lần. Request đi, Response về; Assertion nằm trong Response.</span>
+</div>
+
+<h3 id="metadata">Metadata — ví dụ rút gọn</h3>
+<p>Metadata là “danh thiếp” của mỗi bên. Khi cấu hình, bạn làm hai việc:</p>
+<ol>
+<li><b>Nhập metadata của IdP vào SP</b> — để SP biết URL đăng nhập của IdP và certificate dùng để kiểm chữ ký.</li>
+<li><b>Nhập metadata của SP vào IdP</b> — để IdP biết gửi response về URL nào và cho entity nào.</li>
+</ol>
+<p><b>Cần nhìn vào đâu trong 2 file dưới?</b> Đừng cố đọc hết namespace. Chỉ cần tìm 4 thứ:</p>
+<ul>
+<li><code>entityID="…"</code> trên thẻ <code>EntityDescriptor</code> — tên của bên đó.</li>
+<li><code>KeyDescriptor use="signing"</code> → <code>X509Certificate</code> — certificate để kiểm chữ ký của bên đó.</li>
+<li>Ở SP: <code>AssertionConsumerService … Location="…/saml/acs"</code> — ACS, nơi nhận Response.</li>
+<li>Ở IdP: <code>SingleSignOnService … Location="…"</code> — URL để SP gửi AuthnRequest tới. Thuộc tính <code>Binding</code> cho biết cách gửi (Redirect hay POST — xem <a href="m04-3-flows-bindings.html#bindings">Bài 4.3</a>).</li>
+</ul>
+<p class="small muted">Các cờ <code>AuthnRequestsSigned</code> / <code>WantAssertionsSigned</code> / <code>WantAuthnRequestsSigned</code> là “yêu cầu về chữ ký” mỗi bên đặt ra cho bên kia. <code>NameIDFormat</code> cho biết SP muốn nhận loại NameID nào (xem <a href="#nameid">phần NameID</a>).</p>
+<pre data-title="sp-metadata.xml (metadata của SP Expense)"><code class="language-xml">&lt;md:EntityDescriptor xmlns:md="urn:oasis:names:tc:SAML:2.0:metadata"
+    xmlns:ds="http://www.w3.org/2000/09/xmldsig#"
+    entityID="https://expense.example.com/saml"&gt;
+  &lt;md:SPSSODescriptor AuthnRequestsSigned="true" WantAssertionsSigned="true"
+      protocolSupportEnumeration="urn:oasis:names:tc:SAML:2.0:protocol"&gt;
+    &lt;!-- Certificate SP dùng để ký AuthnRequest --&gt;
+    &lt;md:KeyDescriptor use="signing"&gt;
+      &lt;ds:KeyInfo&gt;&lt;ds:X509Data&gt;&lt;ds:X509Certificate&gt;MIIC...SP...&lt;/ds:X509Certificate&gt;&lt;/ds:X509Data&gt;&lt;/ds:KeyInfo&gt;
+    &lt;/md:KeyDescriptor&gt;
+    &lt;md:SingleLogoutService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect"
+        Location="https://expense.example.com/saml/slo"/&gt;
+    &lt;md:NameIDFormat&gt;urn:oasis:names:tc:SAML:2.0:nameid-format:persistent&lt;/md:NameIDFormat&gt;
+    &lt;!-- ACS: nơi IdP POST SAML Response về --&gt;
+    &lt;md:AssertionConsumerService index="0" isDefault="true"
+        Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST"
+        Location="https://expense.example.com/saml/acs"/&gt;
+  &lt;/md:SPSSODescriptor&gt;
+&lt;/md:EntityDescriptor&gt;</code></pre>
+<pre data-title="idp-metadata.xml (trích phần IdP Keycloak)"><code class="language-xml">&lt;md:EntityDescriptor xmlns:md="urn:oasis:names:tc:SAML:2.0:metadata"
+    entityID="https://sso.company.com/realms/corp"&gt;
+  &lt;md:IDPSSODescriptor WantAuthnRequestsSigned="true"
+      protocolSupportEnumeration="urn:oasis:names:tc:SAML:2.0:protocol"&gt;
+    &lt;md:KeyDescriptor use="signing"&gt;
+      &lt;ds:KeyInfo xmlns:ds="http://www.w3.org/2000/09/xmldsig#"&gt;
+        &lt;ds:X509Data&gt;&lt;ds:X509Certificate&gt;MIIC...IdP...&lt;/ds:X509Certificate&gt;&lt;/ds:X509Data&gt;
+      &lt;/ds:KeyInfo&gt;
+    &lt;/md:KeyDescriptor&gt;
+    &lt;md:SingleSignOnService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect"
+        Location="https://sso.company.com/realms/corp/protocol/saml"/&gt;
+    &lt;md:SingleSignOnService Binding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST"
+        Location="https://sso.company.com/realms/corp/protocol/saml"/&gt;
+  &lt;/md:IDPSSODescriptor&gt;
+&lt;/md:EntityDescriptor&gt;</code></pre>
+<div class="callout warn"><span class="callout-title">⚠️ Metadata là gốc của trust</span>
+Ai sửa được metadata (đổi certificate, đổi ACS URL) là có thể giả mạo. Vì vậy:
+<ul>
+<li>Nhập metadata qua HTTPS từ nguồn tin cậy, hoặc dùng metadata đã được ký.</li>
+<li>Theo dõi ngày hết hạn certificate, có quy trình <b>rollover</b> (thay cert có kế hoạch: thêm cert mới vào metadata trước, chuyển sang ký bằng cert mới sau).</li>
+</ul>
+Rất nhiều sự cố “SSO đột nhiên hỏng” là do certificate ký của IdP hết hạn/đổi mà SP chưa cập nhật.</div>
+
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Trao đổi metadata một lần là xong mãi mãi.</span><span class="f-label">Thực tế</span><span>Certificate trong metadata có hạn và sẽ được thay. Nếu Keycloak đổi cert ký mà Expense vẫn giữ metadata cũ, mọi chữ ký mới đều “không hợp lệ” → cả công ty không đăng nhập được. Cần theo dõi hạn cert và làm rollover có kế hoạch.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Metadata chứa certificate nên phải giữ bí mật như mật khẩu.</span><span class="f-label">Thực tế</span><span>Metadata chỉ chứa <b>public key</b> (certificate) — công khai được, Keycloak còn xuất nó qua URL. Thứ cần bảo vệ là <b>tính toàn vẹn</b> của metadata (không ai tráo được cert/ACS URL) và <b>private key</b> của IdP.</span></div>
+
+<h3 id="nameid">NameID và các format phổ biến</h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+NameID là “tên ghi trên giấy giới thiệu”. Có thể ghi <b>mã nhân viên cố định</b> (persistent), <b>mã ngẫu nhiên dùng một lần</b> (transient — như số thứ tự bốc ở ngân hàng, đến lần sau là số khác), hoặc <b>email</b>. Ứng dụng cần nhận ra bạn lần sau thì phải dùng loại cố định.</div>
+<p>Trong XML, NameID nằm trong <code>&lt;saml:Subject&gt;</code> và có thuộc tính <code>Format</code> cho biết loại giá trị, ví dụ: <code>&lt;saml:NameID Format="urn:oasis:names:tc:SAML:2.0:nameid-format:persistent"&gt;f3a9c2e1-…&lt;/saml:NameID&gt;</code>.</p>
+<div class="compare" id="nameid-formats"><span class="compare-title">Phân biệt dễ nhầm: persistent vs transient vs emailAddress (vs unspecified)</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Format (URI)</th><th>Ý nghĩa</th><th>Khi nào dùng</th></tr></thead>
+<tbody>
+<tr><td><code>urn:oasis:names:tc:SAML:2.0:nameid-format:persistent</code></td><td>Định danh <b>ổn định, mờ (opaque)</b>, riêng cho từng cặp IdP–SP; không lộ email.</td><td>Khóa liên kết account lâu dài — tương tự <code>sub</code> của OIDC (<a href="m03-7-user-identity.html#iss-sub">M03</a>).</td></tr>
+<tr><td><code>urn:oasis:names:tc:SAML:2.0:nameid-format:transient</code></td><td>Giá trị ngẫu nhiên, <b>đổi mỗi lần</b> đăng nhập.</td><td>Khi SP không cần nhận ra người dùng giữa các phiên (ẩn danh, chỉ cần thuộc tính như “là sinh viên”).</td></tr>
+<tr><td><code>urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress</code></td><td>Địa chỉ email.</td><td>Rất phổ biến với SaaS; nhưng email <b>có thể đổi</b> hoặc được cấp lại cho người khác → rủi ro khi dùng làm khóa.</td></tr>
+<tr><td><code>urn:oasis:names:tc:SAML:1.1:nameid-format:unspecified</code></td><td>Không quy định; hai bên tự thỏa thuận.</td><td>Hệ thống cũ, cấu hình tùy chỉnh (vd. gửi username AD).</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> An đăng nhập Expense hai lần, thứ Hai và thứ Ba.</p>
+<ul>
+<li><b>persistent</b>: cả hai lần NameID đều là <code>f3a9c2e1-7b44-…</code> → Expense nhận ra cùng một người, mở đúng các báo cáo chi phí cũ của An.</li>
+<li><b>transient</b>: thứ Hai là <code>_t81c…</code>, thứ Ba là <code>_9de2…</code> → Expense coi như hai người lạ, không gắn được dữ liệu cũ.</li>
+<li><b>emailAddress</b>: cả hai lần là <code>an.nv@company.com</code> → chạy tốt… cho tới khi An đổi tên email, hoặc An nghỉ việc và email đó được cấp lại cho một “An” khác — người mới sẽ thấy dữ liệu của người cũ.</li>
+</ul>
+<p class="small muted">Lưu ý: <code>emailAddress</code> và <code>unspecified</code> nằm trong namespace <b>SAML 1.1</b> nhưng vẫn được dùng hợp lệ trong SAML 2.0.</p>
+<span class="rule">Cần nhận ra người dùng lâu dài → persistent. Không cần nhớ ai → transient. Email chỉ để hiển thị/liên lạc, không làm khóa.</span>
+</div>
+
+<div class="compare" id="nameid-vs-attribute"><span class="compare-title">Phân biệt dễ nhầm: NameID vs Attribute</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>NameID</th><th>Attribute (thuộc tính)</th></tr></thead>
+<tbody>
+<tr><td>Mục đích</td><td>Trả lời “người này <b>là ai</b>” — dùng làm khóa tìm account.</td><td>Mô tả thêm “người này <b>thế nào</b>”: email, tên, phòng ban, nhóm.</td></tr>
+<tr><td>Nằm ở đâu</td><td><code>&lt;saml:Subject&gt;&lt;saml:NameID&gt;</code></td><td><code>&lt;saml:AttributeStatement&gt;&lt;saml:Attribute Name="…"&gt;</code></td></tr>
+<tr><td>Số lượng</td><td>Một giá trị duy nhất trong Subject (trong SSO thực tế gần như luôn có).</td><td>Bao nhiêu cũng được; mỗi attribute có thể nhiều giá trị (vd. nhiều nhóm).</td></tr>
+<tr><td>Có thay đổi không</td><td>Nên ổn định (persistent).</td><td>Có thể đổi bất cứ lúc nào (đổi phòng ban, thêm nhóm).</td></tr>
+<tr><td>Tương đương OIDC</td><td><code>sub</code></td><td>Các claim <code>email</code>, <code>name</code>, <code>groups</code>…</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> Expense tìm account bằng (Issuer + NameID <code>f3a9c2e1-…</code>), rồi <i>cập nhật</i> tên hiển thị và vai trò từ attribute <code>displayName</code>, <code>groups=accounting</code>. Nếu An chuyển sang phòng nhân sự, chỉ attribute <code>groups</code> đổi — account vẫn là account cũ.</p>
+<span class="rule">NameID là “số CCCD”, attribute là “các dòng thông tin trong hồ sơ”.</span>
+</div>
+
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Dùng NameID dạng email làm khóa account là đủ ổn.</span><span class="f-label">Thực tế</span><span>Email có thể đổi hoặc được cấp lại cho người khác. Ví dụ: An đổi email từ <code>an.nv@</code> sang <code>an.tt@</code> → Expense coi là người mới, mất liên kết với báo cáo cũ. Khóa account nên là Issuer + NameID <b>persistent</b>; email chỉ là attribute.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>NameID transient “riêng tư hơn” nên dùng cho mọi ứng dụng.</span><span class="f-label">Thực tế</span><span>Transient đổi mỗi lần đăng nhập, nên ứng dụng không gắn được dữ liệu cũ của người dùng. Chỉ hợp khi ứng dụng thật sự không cần nhận ra ai (vd. chỉ cần biết “là sinh viên”). Muốn riêng tư mà vẫn nhận ra người dùng → persistent (vốn đã mờ, riêng cho từng SP).</span></div>
+
+<h3 id="endpoints">Destination, Recipient, ACS URL — ba trường dễ nhầm</h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Giống một lá thư: <b>Audience</b> là “gửi công ty Expense”, còn <b>Destination/Recipient</b> là “nộp tại quầy số 3 ở địa chỉ …/saml/acs”. <b>ACS</b> (Assertion Consumer Service — “quầy tiếp nhận assertion”) chính là quầy đó. Bảo vệ cẩn thận sẽ kiểm tra cả tên công ty lẫn số quầy trên thư.</div>
+<p>Thật ra có <b>bốn</b> trường hay bị nhầm vì đều trông giống “địa chỉ nhận”. Ba trường đầu là <b>URL</b> (endpoint), còn Audience là <b>entity ID</b> (tên ứng dụng).</p>
+<div class="compare" id="endpoints-compare"><span class="compare-title">Phân biệt dễ nhầm: ACS URL vs Destination vs Recipient vs Audience</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Trường</th><th>Nằm ở đâu</th><th>Ý nghĩa</th><th>SP kiểm tra</th></tr></thead>
+<tbody>
+<tr><td><b>ACS URL</b> (Assertion Consumer Service)</td><td>Metadata SP; thuộc tính <code>AssertionConsumerServiceURL</code> trong AuthnRequest</td><td>Endpoint của SP nhận SAML Response.</td><td>IdP chỉ được gửi về ACS đã đăng ký (IdP kiểm tra).</td></tr>
+<tr><td><b>Destination</b></td><td>Thuộc tính của <code>&lt;samlp:Response&gt;</code> (và của AuthnRequest)</td><td>URL mà message <b>được gửi tới</b>.</td><td>Phải bằng đúng URL ACS đang nhận request này.</td></tr>
+<tr><td><b>Recipient</b></td><td><code>&lt;SubjectConfirmationData Recipient="…"&gt;</code> trong Assertion</td><td>URL mà <b>assertion</b> được phép trình diện.</td><td>Phải bằng ACS URL của SP.</td></tr>
+<tr><td><b>Audience</b></td><td><code>&lt;Conditions&gt;&lt;AudienceRestriction&gt;&lt;Audience&gt;</code></td><td>Entity ID của SP được phép tiêu thụ.</td><td>Phải bằng entity ID của chính SP.</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> trong Response Keycloak gửi cho Expense, bạn sẽ thấy:</p>
+<ul>
+<li>ACS URL (đăng ký trong metadata SP): <code>https://expense.example.com/saml/acs</code></li>
+<li><code>Destination="https://expense.example.com/saml/acs"</code> — trên thẻ <code>Response</code> (phong bì)</li>
+<li><code>Recipient="https://expense.example.com/saml/acs"</code> — trong <code>SubjectConfirmationData</code> của Assertion (lá thư)</li>
+<li><code>&lt;Audience&gt;https://expense.example.com/saml&lt;/Audience&gt;</code> — <b>không có</b> <code>/acs</code>, vì đây là entity ID chứ không phải URL nhận.</li>
+</ul>
+<p>Lỗi thường gặp khi cấu hình: dán ACS URL vào ô Audience (hoặc ngược lại) → SP báo “Audience không hợp lệ”.</p>
+<span class="rule">Destination = địa chỉ trên phong bì; Recipient = địa chỉ trong lá thư; ACS = quầy thật của SP; Audience = tên người nhận.</span>
+</div>
+<div class="callout info"><span class="callout-title">ℹ️ Vì sao cần cả Audience lẫn Recipient?</span>
+<b>Audience</b> trả lời “assertion này dành cho <i>ứng dụng</i> nào” (entity ID). <b>Recipient/Destination</b> trả lời “được nộp tại <i>endpoint</i> nào” (URL). Một SP có thể có nhiều ACS; một IdP phục vụ hàng trăm SP. Kiểm tra cả hai ngăn kẻ xấu lấy assertion phát cho ứng dụng A đem nộp vào ứng dụng B (hoặc vào endpoint khác).</div>
+
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Audience chính là ACS URL, điền giá trị nào cũng như nhau.</span><span class="f-label">Thực tế</span><span>Audience là <b>entity ID</b> của SP (<code>https://expense.example.com/saml</code>), ACS là <b>URL nhận</b> (<code>…/saml/acs</code>). Chúng có thể trông giống nhau nhưng là hai giá trị khác nhau; dán nhầm sẽ gây lỗi “Audience không hợp lệ”.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Destination đúng URL của mình thì không cần kiểm Audience.</span><span class="f-label">Thực tế</span><span>Destination chỉ nói “nộp ở quầy nào”, không nói “giấy dành cho ứng dụng nào”. SP phải kiểm <b>cả</b> Destination/Recipient <b>và</b> Audience; sai một trong hai là từ chối.</span></div>
+
+<h3 id="conditions">Conditions</h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Như vé xem phim: chỉ có giá trị cho <b>suất chiếu này</b> (khung giờ NotBefore–NotOnOrAfter) và <b>rạp này</b> (Audience). Vé hôm qua hoặc vé rạp khác đều bị từ chối.</div>
+<ul>
+<li><code>NotBefore</code> / <code>NotOnOrAfter</code>: cửa sổ thời gian assertion có hiệu lực (thường vài phút). SP cho phép <b>độ lệch đồng hồ</b> (clock skew) nhỏ, vd. 1–5 phút — không phải vài giờ.</li>
+<li><code>AudienceRestriction</code>: danh sách Audience hợp lệ.</li>
+<li><code>OneTimeUse</code>, <code>ProxyRestriction</code>: ít gặp, chỉ cần biết tên.</li>
+<li>Ngoài Conditions, <code>SubjectConfirmationData/@NotOnOrAfter</code> giới hạn thời gian <b>trình diện</b> assertion bearer (“ai cầm giấy là người đó”) — cũng phải kiểm tra.</li>
+</ul>
+
+<div class="compare" id="notbefore-vs-notonorafter"><span class="compare-title">Phân biệt dễ nhầm: NotBefore vs NotOnOrAfter</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th><code>NotBefore</code></th><th><code>NotOnOrAfter</code></th></tr></thead>
+<tbody>
+<tr><td>Nghĩa</td><td>“Chưa có hiệu lực <b>trước</b> thời điểm này”.</td><td>“Hết hiệu lực <b>từ</b> thời điểm này trở đi”.</td></tr>
+<tr><td>Phép so sánh</td><td>Hợp lệ khi <code>now ≥ NotBefore</code> (bao gồm đúng mốc).</td><td>Hợp lệ khi <code>now &lt; NotOnOrAfter</code> (đúng mốc là đã hết hạn — “On or After”).</td></tr>
+<tr><td>Có ở đâu</td><td>Chỉ ở <code>Conditions</code>.</td><td>Ở <code>Conditions</code> <b>và</b> ở <code>SubjectConfirmationData</code>.</td></tr>
+<tr><td>Tương đương OIDC/JWT</td><td><code>nbf</code></td><td><code>exp</code></td></tr>
+<tr><td>Lỗi hay gặp</td><td>Đồng hồ server SP <b>chậm</b> hơn IdP → assertion “chưa tới giờ”.</td><td>Đồng hồ SP <b>nhanh</b> hơn, hoặc người dùng để trang treo lâu → “đã hết hạn”.</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> Keycloak ghi <code>NotBefore="02:00:00Z"</code>, <code>NotOnOrAfter="02:05:00Z"</code>. Server Expense chạy chậm 2 phút, nhận lúc giờ thật 02:00:05 nhưng đồng hồ của nó chỉ 01:58:05 → từ chối vì “chưa có hiệu lực”. Cách sửa đúng: đồng bộ NTP cho server và cho phép clock skew nhỏ (1–5 phút) — <b>không</b> nới cửa sổ lên vài giờ.</p>
+<span class="rule">NotBefore = “mở cửa lúc”; NotOnOrAfter = “đóng cửa lúc” (đúng giờ đóng là đã đóng).</span>
+</div>
+
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Hay bị lỗi “assertion hết hạn” thì tăng clock skew lên vài giờ cho xong.</span><span class="f-label">Thực tế</span><span>Clock skew chỉ để bù lệch đồng hồ nhỏ (1–5 phút). Nới lên vài giờ nghĩa là một assertion bị lộ dùng lại được trong vài giờ. Cách sửa đúng là đồng bộ NTP cho server.</span></div>
+
+<div class="callout tip"><span class="callout-title">✅ Tự kiểm tra nhanh</span><ul>
+<li>Trong metadata của SP, thẻ nào cho IdP biết phải gửi Response về đâu?</li>
+<li>Vì sao <code>Audience</code> không có đuôi <code>/acs</code> còn <code>Recipient</code> thì có?</li>
+<li>Ứng dụng cần nhớ lịch sử người dùng nên yêu cầu NameID format nào?</li>
+</ul></div>
+
+<h2 id="quiz-bai">Quiz nhanh — Bài 4.1</h2>
+<div id="quiz"></div>
+
+</main>
+<script>
+window.QUIZ = [
+  { q: "IT đang cấu hình Expense làm SP cho Keycloak. Để Expense kiểm được chữ ký trên SAML Response, cần nhập gì vào Expense?",
+    options: ["Metadata của chính Expense (SP metadata)", "Metadata của Keycloak, trong đó có <code>KeyDescriptor use=\"signing\"</code> chứa certificate của IdP", "Client secret của Keycloak", "Private key ký của Keycloak"],
+    answer: 1,
+    why: ["Metadata SP là thứ đưa cho IdP (để IdP biết ACS, entity ID của Expense), không giúp Expense kiểm chữ ký của IdP.", "SP kiểm chữ ký bằng public key/certificate của IdP, lấy từ metadata IdP đã tin cậy.", "Client secret là khái niệm của OAuth/OIDC client; SAML dựa vào certificate trong metadata.", "Private key chỉ IdP giữ để ký; đưa nó cho SP là làm lộ khóa — SP chỉ cần public key."],
+    explain: "Trust trong SAML đến từ metadata trao đổi trước: SP nhập metadata IdP (SSO URL + cert ký). Xem <a href='m04-1-saml-components.html#metadata'>Metadata</a>." },
+  { q: "Expense nhận Response có chữ ký hợp lệ của Keycloak. <code>Destination</code> và <code>Recipient</code> đều là <code>https://expense.example.com/saml/acs</code> (đúng ACS của Expense), nhưng <code>Audience</code> là <code>https://wiki.example.com/saml</code>. Expense nên làm gì?", tricky: true,
+    options: ["Chấp nhận, vì Destination/Recipient đã trỏ đúng URL của Expense", "Chấp nhận, vì chữ ký là của IdP đã tin cậy", "Từ chối, vì assertion này được phát cho ứng dụng Wiki (Audience là entity ID của SP được phép dùng)", "Sửa Audience trong XML cho đúng entity ID của Expense rồi xử lý tiếp"],
+    answer: 2,
+    why: ["Destination/Recipient chỉ nói “nộp ở URL nào”, không nói “dành cho ứng dụng nào” — một trường đúng không bù cho trường kia sai.", "Chữ ký chỉ chứng minh IdP viết assertion; IdP viết nó cho Wiki, không phải cho Expense.", "Audience không chứa entity ID của Expense → assertion không dành cho Expense, phải từ chối dù các trường URL đúng.", "Sửa XML sau khi ký sẽ làm chữ ký vô hiệu; và việc cần làm là từ chối, không phải “vá” dữ liệu."],
+    explain: "Bẫy: Destination đúng làm ta tưởng mọi thứ ổn. SP phải kiểm <b>cả</b> URL (Destination/Recipient) <b>và</b> entity ID (Audience). Xem <a href='m04-1-saml-components.html#endpoints-compare'>bảng 4 trường</a>." },
+  { q: "Expense dùng NameID format <code>emailAddress</code> làm khóa account. An đổi tên sau khi kết hôn, email đổi từ <code>an.nv@company.com</code> thành <code>an.tt@company.com</code>. Lần đăng nhập kế tiếp sẽ ra sao?",
+    options: ["Expense tự nhận ra An vì IdP gửi kèm email cũ", "Expense không tìm thấy account với email mới → coi An là người mới, mất liên kết với báo cáo cũ (trừ khi admin gộp tay)", "Chữ ký của Response không hợp lệ vì email đã đổi", "Không ảnh hưởng, vì NameID persistent luôn bằng email"],
+    answer: 1,
+    why: ["IdP không gửi “email cũ”; assertion chỉ chứa giá trị hiện tại.", "Khóa account là email, mà email đã đổi → không khớp account cũ. Đây chính là lý do không dùng email làm khóa.", "Chữ ký do IdP tạo trên dữ liệu mới, vẫn hợp lệ; đổi email không làm hỏng chữ ký.", "Persistent là định danh mờ, ổn định (vd. <code>f3a9c2e1-…</code>), không phải email — nên nó không đổi khi email đổi."],
+    explain: "Khóa account nên là Issuer + NameID persistent; email chỉ là attribute để hiển thị/liên lạc. Xem <a href='m04-1-saml-components.html#nameid'>NameID</a>." },
+  { q: "Assertion có <code>NotBefore=\"02:00:00Z\"</code>, <code>NotOnOrAfter=\"02:05:00Z\"</code>, SP không cho clock skew. Ở thời điểm nào SP chấp nhận? (chọn nhiều)",
+    options: ["01:59:59Z", "02:00:00Z", "02:04:59Z", "02:05:00Z"],
+    answer: [1, 2],
+    why: ["Trước NotBefore → assertion chưa có hiệu lực.", "Đúng mốc NotBefore là hợp lệ (điều kiện now ≥ NotBefore).", "Vẫn trước NotOnOrAfter nên còn hiệu lực.", "“On or After” — đúng mốc NotOnOrAfter là đã hết hạn (điều kiện now &lt; NotOnOrAfter)."],
+    explain: "NotBefore là “mở cửa lúc” (tính cả mốc), NotOnOrAfter là “đóng cửa lúc” (đúng mốc là đã đóng). Xem <a href='m04-1-saml-components.html#notbefore-vs-notonorafter'>so sánh</a>." },
+  { q: "Thư viện điện tử của trường chỉ cần biết người dùng “là sinh viên” (qua attribute), không cần nhớ lịch sử và không muốn theo dõi ai qua các lần đăng nhập. Nên yêu cầu NameID format nào?",
+    options: ["persistent", "transient", "emailAddress", "unspecified"],
+    answer: 1,
+    why: ["Persistent giúp SP nhận ra cùng một người qua nhiều lần — đúng điều thư viện không cần và không muốn.", "Transient đổi mỗi lần đăng nhập → SP không liên kết được các phiên, đúng yêu cầu ẩn danh.", "Email lộ danh tính thật và ổn định giữa các lần → ngược với yêu cầu không theo dõi.", "Unspecified là “tự thỏa thuận”, không nói gì về ẩn danh; thường dùng cho username hệ thống cũ."],
+    explain: "Không cần nhớ ai → transient; cần nhận ra lâu dài → persistent. Xem <a href='m04-1-saml-components.html#nameid-formats'>các format NameID</a>." }
+];
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="assets/pages.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

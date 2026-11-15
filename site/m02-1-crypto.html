@@ -1,0 +1,733 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M02 · Bài 2.1 · Cryptography essentials</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<main class="content">
+
+<div class="page-head">
+  <div class="breadcrumb"><a href="index.html">Lộ trình</a> / <a href="m02-crypto-session-token.html">Module 02</a> / Bài 2.1</div>
+  <h1>Bài 2.1 — Cryptography essentials</h1>
+  <p class="lead">Bộ “đồ nghề” mật mã đứng sau mọi cơ chế đăng nhập: encoding, mã hóa (encryption), băm (hash), băm mật khẩu có salt, chữ ký số, HMAC, certificate và HTTPS. Bài này không dạy toán — chỉ giúp bạn trả lời: <b>mỗi công cụ giải quyết bài toán gì, ai giữ key nào, và dùng nhầm thì hỏng gì</b>.</p>
+  <div class="meta-row">
+    <span class="chip">⏱ ~30 phút</span>
+    <span class="chip">📘 <a href="m02-crypto-session-token.html">Module 02 · Cryptography, Session, Token &amp; HTTP Auth</a></span>
+  </div>
+</div>
+
+<!-- ===================================================== -->
+<h2 id="crypto">A. Cryptography essentials <span class="badge must">Must</span></h2>
+<p>Bạn <b>không cần</b> biết toán học bên trong AES hay RSA. Bạn chỉ cần biết mỗi công cụ <b>giải quyết bài toán gì</b>.</p>
+<p>Lý do: phần lớn lỗi bảo mật trong authentication đến từ việc <b>dùng sai công cụ</b>. Ví dụ hay gặp:</p>
+<ul>
+<li>“Mã hóa” mật khẩu (đảo ngược được) thay vì băm mật khẩu.</li>
+<li>Tưởng JWT đã ký là bí mật — thật ra ai cũng đọc được nội dung.</li>
+<li>Tưởng Base64 là mã hóa — thật ra ai cũng giải ngược được trong 1 giây.</li>
+</ul>
+
+<div class="terms"><span class="terms-title">📖 Thuật ngữ trong bài</span><dl>
+<dt>Encoding (Base64)</dt><dd>Đổi cách viết dữ liệu cho dễ truyền đi; <b>không có key, không bí mật</b> — ai cũng đổi ngược được.</dd>
+<dt>Hash (băm)</dt><dd>“Dấu vân tay” cố định độ dài của dữ liệu; một chiều, không giải ngược được.</dd>
+<dt>Salt</dt><dd>Chuỗi ngẫu nhiên riêng cho từng mật khẩu, trộn vào trước khi băm để hai mật khẩu giống nhau ra hai hash khác nhau.</dd>
+<dt>Digital signature (chữ ký số)</dt><dd>Con dấu tạo bằng private key, ai có public key cũng kiểm tra được; chứng minh “ai tạo” và “không bị sửa”.</dd>
+<dt>HMAC</dt><dd>“Chữ ký” dùng một secret chung giữa hai bên; bên nào có secret cũng vừa tạo vừa kiểm tra được.</dd>
+<dt>Certificate (chứng thư số)</dt><dd>“Căn cước” gắn một public key với một tên miền/tổ chức, được CA đóng dấu.</dd>
+<dt>TLS / HTTPS</dt><dd>Kênh truyền được mã hóa giữa client và server (ổ khóa trên trình duyệt).</dd>
+</dl></div>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Thuật ngữ</th><th>Nghĩa</th></tr></thead>
+<tbody>
+<tr><td><b>Plaintext</b> (bản rõ)</td><td>Dữ liệu gốc, ai cũng đọc được. Ví dụ: <code>Lương tháng 11: 30.000.000</code>.</td></tr>
+<tr><td><b>Ciphertext</b> (bản mã)</td><td>Dữ liệu sau khi mã hóa, nhìn như rác nếu không có key. Ví dụ: <code>9f3a…c1</code>.</td></tr>
+<tr><td><b>Encryption / Decryption</b> (mã hóa / giải mã)</td><td>Biến plaintext ↔ ciphertext bằng <b>key</b>. Mục tiêu chính: <b>confidentiality</b> (tính bí mật) — chỉ người có key đọc được.</td></tr>
+<tr><td><b>Key</b> (khóa)</td><td>Giá trị bí mật (hoặc cặp giá trị) điều khiển thuật toán. Thuật toán thường công khai; <b>bí mật nằm ở key</b>.</td></tr>
+<tr><td><b>Integrity</b> (toàn vẹn) / <b>Authenticity</b> (xác thực nguồn gốc)</td><td>Dữ liệu không bị sửa / dữ liệu đúng là do bên được kỳ vọng tạo ra.</td></tr>
+</tbody></table></div>
+
+<h3 id="encoding">Encoding (Base64) — không phải bảo mật</h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Encoding giống việc <b>viết một câu tiếng Việt bằng chữ không dấu</b> để gửi qua hệ thống không hỗ trợ dấu: ai cũng đọc lại được, không có gì bí mật. Encryption giống <b>bỏ thư vào két và khóa lại</b>: không có chìa thì chịu.</div>
+<p><b>Base64</b> chỉ đổi dữ liệu bất kỳ (kể cả byte nhị phân) thành chuỗi ký tự “an toàn” (A–Z, a–z, 0–9, <code>+</code>, <code>/</code>) để nhét được vào HTTP header, JSON, URL. <b>Base64url</b> là biến thể dùng <code>-</code> và <code>_</code> thay cho <code>+</code> và <code>/</code> — chính là cách JWT viết header và payload.</p>
+<div class="callout example"><span class="callout-title">🧪 Ví dụ: Base64 trong Kaopiz HR</span>
+Một công cụ cũ gọi hr-api bằng Basic auth với tài khoản của An:
+<pre><code class="language-plaintext">Authorization: Basic YW4ubnY6S2FvcGl6MjAyNg==
+Base64-decode  →  an.nv:Kaopiz2026</code></pre>
+Không cần key nào — ai bắt được header là có ngay mật khẩu. Vì vậy Basic auth <b>bắt buộc chạy trên HTTPS</b> (xem <a href="m02-5-http-auth.html#basic">bài 2.5</a>).<br><b>Mẹo nhớ:</b> có key mới là bảo mật; Base64 không có key → không bảo vệ gì. So sánh đầy đủ với encryption/hash ở <a href="#hash-vs-encryption">mục B</a>.</div>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Base64 trong Basic auth đã che mật khẩu.</span><span class="f-label">Thực tế</span><span>Base64 là encoding, decode không cần key. <code>YW4ubnY6S2FvcGl6MjAyNg==</code> decode ra ngay <code>an.nv:Kaopiz2026</code>. Bảo vệ thật đến từ TLS.</span></div>
+
+<h3 id="symmetric-asymmetric">Symmetric vs Asymmetric</h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+<b>Symmetric</b> giống chiếc két sắt có <b>một chìa</b>: ai có chìa thì vừa khóa vừa mở được — nên phải trao chìa cho người kia một cách bí mật.
+<b>Asymmetric</b> giống <b>hộp thư có khe</b>: ai cũng nhét thư vào được (public key), nhưng chỉ chủ hộp có chìa mở (private key).</div>
+<ul>
+<li><b>Symmetric encryption</b> (mã hóa đối xứng): <b>cùng một secret key</b> để mã hóa và giải mã. Nhanh, dùng cho dữ liệu lớn. Ví dụ: <b>AES</b> (Advanced Encryption Standard). Khó khăn: làm sao chia sẻ key an toàn cho bên kia?</li>
+<li><b>Asymmetric cryptography</b> (mật mã bất đối xứng / mật mã khóa công khai): mỗi bên có <b>cặp khóa</b> — <b>public key</b> (công khai, phát cho ai cũng được) và <b>private key</b> (giữ tuyệt mật). Dữ liệu mã hóa bằng public key chỉ giải được bằng private key tương ứng. Ví dụ: <b>RSA</b>, <b>ECC</b> (Elliptic-Curve Cryptography — ví dụ ECDSA, ECDH). Chậm hơn nhiều so với symmetric.</li>
+<li>Thực tế (ví dụ TLS) dùng <b>cả hai</b>: asymmetric để xác thực và thỏa thuận key, rồi symmetric (AES) để mã hóa dữ liệu thật.</li>
+</ul>
+<div class="diagram">
+<pre class="mermaid">
+flowchart LR
+  subgraph SYM["Symmetric (AES)"]
+    direction LR
+    P1["Plaintext"] -->|"mã hóa bằng K"| C1["Ciphertext"]
+    C1 -->|"giải mã bằng CÙNG K"| P1b["Plaintext"]
+  end
+  subgraph ASYM["Asymmetric (RSA / ECC)"]
+    direction LR
+    P2["Plaintext"] -->|"mã hóa bằng PUBLIC key<br/>của người nhận"| C2["Ciphertext"]
+    C2 -->|"chỉ PRIVATE key<br/>của người nhận giải được"| P2b["Plaintext"]
+  end
+</pre>
+<div class="caption">Symmetric: một key dùng chung (vấn đề là phân phối key). Asymmetric: cặp key, public key phát công khai được.</div>
+</div>
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: Symmetric vs Asymmetric</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Symmetric (đối xứng)</th><th>Asymmetric (bất đối xứng)</th></tr></thead>
+<tbody>
+<tr><td>Số key</td><td>1 secret key, hai bên cùng giữ</td><td>1 cặp: private key (giữ kín) + public key (phát công khai)</td></tr>
+<tr><td>Khó khăn chính</td><td>Trao key cho bên kia sao cho không lộ</td><td>Biết public key này đúng là của ai (→ cần certificate)</td></tr>
+<tr><td>Trong Kaopiz HR</td><td>hr-web mã hóa cookie đăng nhập bằng key của ASP.NET Core Data Protection — chỉ hr-web giữ key</td><td>Keycloak ký token bằng private key; hr-api kiểm tra bằng public key tải từ Keycloak</td></tr>
+</tbody></table></div>
+<span class="rule">Một chìa dùng chung = symmetric. Chìa riêng + ổ khóa phát cho mọi người = asymmetric.</span>
+</div>
+
+<h3 id="hashing">Hashing (hàm băm)</h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Hash giống <b>dấu vân tay</b> của dữ liệu: cùng một người luôn cho cùng một vân tay, vân tay rất ngắn, nhưng <b>từ vân tay không dựng lại được cả con người</b>. Giới hạn của phép so sánh: “vân tay” của dữ liệu ngắn (như mật khẩu) có thể bị <b>đoán thử</b> — xem phần password hashing.</div>
+<ul>
+<li><b>Hash function</b> là hàm <b>một chiều</b>: nhận dữ liệu bất kỳ độ dài → trả về <b>digest</b> (giá trị băm) độ dài cố định. Ví dụ <b>SHA-256</b> luôn trả về 256 bit (64 ký tự hex).</li>
+<li>Cùng input → luôn cùng digest. Đổi 1 ký tự → digest thay đổi hoàn toàn (thử ở widget bên dưới).</li>
+<li><b>Không có key</b>, không “giải mã” được. Vì vậy <b>hash không phải encryption</b>.</li>
+<li>Dùng để: kiểm tra toàn vẹn file (checksum), làm thành phần trong chữ ký số/HMAC, lưu dấu của dữ liệu bí mật có entropy cao (ví dụ API key) — xem ví dụ bên dưới.</li>
+</ul>
+<pre data-title="Ví dụ SHA-256 (hex)"><code class="language-plaintext">SHA-256("Kaopiz2026") = 66dbbd5e77ce5ccf8d35ec6e9c178b6b94d181de3da88432c79f550ad6c9b99d
+SHA-256("kaopiz2026") = 8f297dcdca7f4903b0f31123d3a53d9135de1e551d8c745eb3d8571791341332
+                         ↑ chỉ khác chữ K hoa/thường → digest khác hoàn toàn</code></pre>
+<div class="callout example"><span class="callout-title">🧪 Ví dụ: hash dùng ở đâu trong Kaopiz HR</span>
+<ul>
+<li><b>Kiểm tra file không bị sửa</b>: payroll-batch xuất file <code>payroll-2026-11.csv</code> kèm SHA-256 của nó. Bên nhận băm lại file; khác digest → file đã bị sửa hoặc hỏng khi truyền. Lưu ý: hash không có key, nên kẻ sửa được file cũng tự tính lại được hash mới. Muốn chống <b>cố ý giả mạo</b>, cần HMAC hoặc chữ ký số (bên dưới).</li>
+<li><b>Lưu API key</b>: hr-api không lưu API key gốc của đối tác, chỉ lưu <code>SHA-256(api_key)</code>. Khi request đến, băm key nhận được rồi so sánh. Key ngẫu nhiên 256 bit nên dù DB lộ cũng không đoán ngược được — khác hẳn mật khẩu <code>Kaopiz2026</code> của An (phần tiếp theo).</li>
+</ul></div>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Hash là một kiểu mã hóa.</span><span class="f-label">Thực tế</span><span>Hash là hàm một chiều, không có key, không giải mã được. Encryption thì đảo ngược được bằng key. Các trang “giải mã SHA-256” trên mạng thực chất chỉ tra bảng các chuỗi đã băm sẵn.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Gửi file kèm SHA-256 là chống được giả mạo.</span><span class="f-label">Thực tế</span><span>Hash chỉ phát hiện file <b>hỏng/bị sửa ngẫu nhiên</b>. Kẻ sửa được file trên đường truyền cũng tự tính lại SHA-256 mới và thay luôn — không cần key nào. Chống cố ý giả mạo cần HMAC (secret chung) hoặc chữ ký số, hoặc lấy hash qua một kênh tin cậy khác.</span></div>
+
+<h3 id="password-hashing">Password hashing và Salt <span class="badge must">Must</span></h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+SHA-256 được thiết kế để <b>nhanh</b> — GPU có thể thử hàng tỷ mật khẩu mỗi giây. Password hashing cố tình làm việc băm <b>chậm và tốn RAM</b>, như một ổ khóa phải xoay 2 giây mới mở: người dùng thật không thấy phiền (chỉ mở một lần), còn kẻ đoán mò thử hàng tỷ lần thì kiệt sức. <b>Salt</b> giống việc mỗi người dùng có một “gia vị” riêng trộn vào trước khi băm, nên hai người cùng mật khẩu vẫn ra hai kết quả khác nhau.</div>
+
+<p><b>Vì sao <code>SHA-256(password)</code> không đủ?</b></p>
+<ol>
+<li><b>Quá nhanh</b> → brute-force/dictionary attack (thử lần lượt các mật khẩu phổ biến) rất rẻ khi DB bị lộ.</li>
+<li><b>Không có salt</b> → cùng mật khẩu cho cùng hash: kẻ tấn công thấy ngay ai dùng chung mật khẩu, và dùng được <b>bảng tính sẵn</b> (precomputed table / rainbow table) cho các mật khẩu phổ biến.</li>
+<li>Mật khẩu người dùng có <b>entropy thấp</b> (dễ đoán) — khác với API key ngẫu nhiên 256 bit.</li>
+</ol>
+
+<p><b>Password hashing</b> dùng thuật toán chuyên dụng: <b>chậm có chủ đích</b>, có <b>tham số chi phí</b> (work factor — số vòng lặp, lượng RAM; tăng dần khi phần cứng mạnh lên) và <b>tích hợp sẵn salt</b>. Bảng dưới là thứ tự OWASP khuyến nghị. Với người mới: hệ thống mới chọn <b>Argon2id</b>; nếu dùng ASP.NET Core Identity thì nó dùng PBKDF2 (xem đoạn code sau bảng).</p>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Thứ tự ưu tiên (OWASP)</th><th>Thuật toán</th><th>Tham số tối thiểu khuyến nghị</th><th>Ghi chú</th></tr></thead>
+<tbody>
+<tr><td>1</td><td><b>Argon2id</b></td><td>m = 19 MiB (19456 KiB), t = 2, p = 1<br/><span class="small muted">(tương đương: 46 MiB/t=1; 12 MiB/t=3; 9 MiB/t=4; 7 MiB/t=5 — cùng p=1)</span></td><td>Lựa chọn mặc định cho hệ thống mới. Tốn RAM → khó tăng tốc bằng GPU/ASIC.</td></tr>
+<tr><td>2</td><td><b>scrypt</b></td><td>N = 2<sup>17</sup> (128 MiB), r = 8, p = 1</td><td>Khi không có Argon2id.</td></tr>
+<tr><td>3</td><td><b>PBKDF2</b></td><td>HMAC-SHA256: <b>600.000</b> vòng · HMAC-SHA512: <b>220.000</b> vòng</td><td>Khi cần tuân thủ FIPS-140. (PBKDF2-HMAC-SHA1: 1.400.000 vòng, chỉ cho hệ thống cũ.)</td></tr>
+<tr><td>4</td><td><b>bcrypt</b></td><td>work factor ≥ 10</td><td>Chỉ cho hệ thống legacy. Đa số cài đặt <b>chỉ dùng 72 byte đầu</b> của mật khẩu.</td></tr>
+</tbody></table></div>
+<p class="small muted">Nguồn: <a href="https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html">OWASP Password Storage Cheat Sheet</a> (kiểm tra 11/2026). Con số là <b>mức tối thiểu</b>; hãy tăng tới mức server của bạn chịu được và đo thời gian thực tế.</p>
+
+<p><b>Salt</b> (ngẫu nhiên, riêng từng hash, không bí mật) và <b>pepper</b> (secret dùng chung, lưu ngoài DB — tùy chọn, thêm một lớp phòng thủ) hay bị nhầm; bảng dưới phân biệt. Và nhớ: không bao giờ lưu plaintext, không “mã hóa” mật khẩu (encryption đảo ngược được — lộ key là lộ hết), không tự chế thuật toán.</p>
+
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: Salt vs Pepper</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Salt</th><th>Pepper</th></tr></thead>
+<tbody>
+<tr><td>Bao nhiêu cái?</td><td>Mỗi password hash <b>một salt riêng</b>, sinh ngẫu nhiên</td><td><b>Một</b> giá trị dùng chung cho cả hệ thống (hoặc vài phiên bản khi xoay vòng)</td></tr>
+<tr><td>Có bí mật không?</td><td><b>Không</b> — lưu ngay cạnh hash trong DB</td><td><b>Có</b> — lưu ngoài DB (Key Vault, HSM, biến môi trường bảo vệ)</td></tr>
+<tr><td>Chống được gì?</td><td>Bảng hash tính sẵn; lộ việc hai user dùng chung mật khẩu</td><td>Trường hợp <b>chỉ DB</b> bị lộ: thiếu pepper thì kẻ tấn công không thể bắt đầu đoán mật khẩu</td></tr>
+<tr><td>Rủi ro khi dùng</td><td>Gần như không có</td><td>Mất pepper = không ai đăng nhập được; đổi pepper khó vì phải chờ user đăng nhập lại</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> Bảng <code>Users</code> của hr-web bị dump ra ngoài. Có salt: hai nhân viên cùng đặt <code>Kaopiz2026</code> vẫn có hash khác nhau, kẻ tấn công phải đoán <b>riêng từng người</b> (và Argon2id làm mỗi lần đoán rất chậm). Có thêm pepper nằm trong Key Vault (không bị lộ cùng DB): kẻ tấn công không đoán được ai cả.</p>
+<span class="rule">Salt như “muối riêng” rắc lên từng món, để công khai cũng được. Pepper là “gia vị bí truyền” cất trong két, dùng chung — và không thay thế salt.</span>
+</div>
+
+<div class="diagram">
+<pre class="mermaid">
+flowchart TD
+  subgraph REG["Đăng ký / đổi mật khẩu"]
+    direction TB
+    PW1["Mật khẩu: Kaopiz2026"] --> KDF1["Argon2id / PBKDF2<br/>(chậm có chủ đích)"]
+    S1["Salt ngẫu nhiên 16 byte<br/>(sinh mới cho mỗi user)"] --> KDF1
+    KDF1 --> DB[("DB lưu:<br/>thuật toán + tham số + salt + hash")]
+  end
+  subgraph LOGIN["Đăng nhập"]
+    direction TB
+    PW2["Mật khẩu người dùng gõ"] --> KDF2["Cùng thuật toán + tham số"]
+    DB -->|"đọc salt + tham số"| KDF2
+    KDF2 --> CMP{"So sánh hash<br/>(constant-time)"}
+    DB -->|"đọc hash đã lưu"| CMP
+    CMP -->|"khớp"| OK["✅ Đăng nhập"]
+    CMP -->|"không khớp"| NO["❌ Từ chối"]
+  end
+</pre>
+<div class="caption">Server không bao giờ “giải mã” mật khẩu — nó băm lại input với cùng salt/tham số rồi so sánh.</div>
+</div>
+
+<p><b>Trong ASP.NET Core</b>, đừng tự viết — dùng <code>PasswordHasher&lt;TUser&gt;</code> của ASP.NET Core Identity. Định dạng V3 hiện tại dùng <b>PBKDF2 với HMAC-SHA512</b>, salt 128 bit, subkey 256 bit, và <code>IterationCount</code> mặc định <b>100.000</b>. Mức này <b>thấp hơn</b> khuyến nghị OWASP hiện hành cho PBKDF2-HMAC-SHA512 (220.000), nên hãy cấu hình lại:</p>
+<pre data-title="Program.cs — PasswordHasher của ASP.NET Core Identity"><code class="language-csharp">using Microsoft.AspNetCore.Identity;
+
+// Tăng số vòng PBKDF2 (V3 dùng HMAC-SHA512) theo OWASP: &gt;= 220.000
+builder.Services.Configure&lt;PasswordHasherOptions&gt;(o =&gt;
+{
+    o.IterationCount = 220_000;   // đo thời gian đăng nhập trên server thật rồi điều chỉnh
+});
+
+// --- Dùng trực tiếp (ví dụ trong một app không dùng full Identity) ---
+var hasher = new PasswordHasher&lt;AppUser&gt;();
+string stored = hasher.HashPassword(user, "Kaopiz2026");
+// stored = chuỗi Base64 chứa: version marker, PRF, iteration count, salt, subkey
+
+var result = hasher.VerifyHashedPassword(user, stored, inputPassword);
+switch (result)
+{
+    case PasswordVerificationResult.Success:
+        break;                                   // đăng nhập OK
+    case PasswordVerificationResult.SuccessRehashNeeded:
+        // Hash cũ dùng tham số yếu hơn (ít vòng hơn, PRF cũ...) → băm lại và lưu
+        user.PasswordHash = hasher.HashPassword(user, inputPassword);
+        await db.SaveChangesAsync();
+        break;
+    default:
+        return Results.Unauthorized();
+}</code></pre>
+<div class="callout tip"><span class="callout-title">✅ Nâng cấp tham số không cần bắt user đổi mật khẩu</span>
+Vì hash lưu kèm tham số, khi bạn tăng <code>IterationCount</code>, các hash cũ vẫn verify được và trả về <code>SuccessRehashNeeded</code> → băm lại ngay lúc user đăng nhập thành công. Nếu cần Argon2id trong .NET, phải dùng thư viện bên thứ ba (BCL không có sẵn Argon2) — chọn thư viện được bảo trì tốt.</div>
+
+<div class="widget" id="hash-demo"><div class="w-title">🧪 Hash demo — SHA-256 chạy ngay trên trình duyệt của bạn</div>
+<p class="small muted">Tính bằng <code>crypto.subtle.digest</code> (Web Crypto API); không gửi gì lên mạng.</p>
+<label class="small">Chuỗi A</label>
+<input type="text" id="hashA" value="Kaopiz2026">
+<label class="small">Chuỗi B (thử đổi đúng 1 ký tự)</label>
+<input type="text" id="hashB" value="kaopiz2026">
+<div class="btn-row"><button class="btn" id="hashRun">Tính SHA-256</button><button class="btn ghost" id="hashSalt">Thêm salt ngẫu nhiên vào A</button></div>
+<div class="out" id="hashOut">Bấm “Tính SHA-256”.</div>
+</div>
+<div class="callout warn"><span class="callout-title">⚠️ Demo này cũng cho thấy vì sao SHA-256 đơn thuần không đủ cho mật khẩu</span>
+Trình duyệt của bạn tính SHA-256 gần như tức thì — kẻ tấn công với GPU tính được <b>hàng tỷ</b> lần mỗi giây. Nếu DB lộ <code>66dbbd5e…</code>, chỉ cần thử danh sách mật khẩu phổ biến là ra <code>Kaopiz2026</code>. Thêm salt chặn được bảng tính sẵn, nhưng <b>không làm chậm</b> việc đoán từng user — vì vậy cần Argon2id/scrypt/PBKDF2 với work factor cao.</div>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Mã hóa mật khẩu bằng AES rồi lưu là an toàn.</span><span class="f-label">Thực tế</span><span>Encryption đảo ngược được: lộ key (thường nằm ngay trong <code>appsettings</code> của chính server) là lộ toàn bộ mật khẩu. Mật khẩu phải lưu bằng password hashing (Argon2id/scrypt/PBKDF2/bcrypt) có salt.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Salt phải giữ bí mật, lộ salt là coi như mất.</span><span class="f-label">Thực tế</span><span>Salt <b>không cần bí mật</b> — nó được lưu ngay cạnh hash. Việc của salt là làm mỗi hash <b>khác nhau</b> để vô hiệu bảng tính sẵn và buộc đoán riêng từng user. Phần bí mật (nếu muốn) là <b>pepper</b>, lưu ngoài DB.</span></div>
+
+<h3 id="signature">Digital signature (chữ ký số) <span class="badge must">Must</span></h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Giống <b>con dấu niêm phong</b> của công ty trên văn bản: ai cũng <b>đọc được</b> văn bản và kiểm tra con dấu có thật không (bằng public key), nhưng chỉ người giữ con dấu (private key) mới đóng được. Chữ ký <b>không che</b> nội dung — nó chỉ chứng minh “ai tạo ra” và “không bị sửa”.</div>
+<ul>
+<li><b>Ký</b>: người gửi băm dữ liệu rồi dùng <b>private key</b> tạo chữ ký.</li>
+<li><b>Verify</b>: người nhận dùng <b>public key</b> của người gửi kiểm tra chữ ký khớp với dữ liệu.</li>
+<li>Đảm bảo <b>integrity</b> (sửa 1 byte → verify thất bại) và <b>authenticity</b> theo mô hình khóa (chỉ người giữ private key ký được). <b>Không</b> đảm bảo confidentiality.</li>
+<li>Ứng dụng trong auth: JWT ký RS256/ES256 (<a href="m02-3-token-jwt.html#jwt">mục E</a>), SAML assertion (<a href="m04-4-security.html#saml-validation">M04</a>), certificate (<a href="#pki">PKI</a>), passkey (<a href="m05-3-webauthn.html#webauthn">M05</a>).</li>
+</ul>
+<div class="diagram">
+<pre class="mermaid">
+flowchart LR
+  subgraph SIGN["Bên phát hành (Keycloak) - KÝ"]
+    direction TB
+    D1["Dữ liệu<br/>(header.payload)"] --> H1["Hash SHA-256"]
+    H1 --> SG["Ký bằng PRIVATE key"]
+    SG --> SIG["Chữ ký"]
+  end
+  subgraph VERIFY["Bên nhận (hr-api) - VERIFY"]
+    direction TB
+    D2["Dữ liệu nhận được"] --> V["Verify bằng PUBLIC key<br/>(lấy từ JWKS)"]
+    SIG2["Chữ ký nhận được"] --> V
+    V -->|"hợp lệ"| OK["✅ Đúng nguồn, không bị sửa"]
+    V -->|"sai"| BAD["❌ Từ chối"]
+  end
+  SIG -.->|"gửi kèm dữ liệu"| SIG2
+  D1 -.->|"gửi đi, ai cũng đọc được"| D2
+</pre>
+<div class="caption">Private key không bao giờ rời Keycloak; hr-api chỉ cần public key. Dữ liệu đi kèm vẫn là plaintext.</div>
+</div>
+<pre data-title="RSA sign/verify trong .NET"><code class="language-csharp">using System.Security.Cryptography;
+using System.Text;
+
+byte[] data = Encoding.UTF8.GetBytes("{\"sub\":\"an.nv\",\"role\":\"employee\"}");
+
+using RSA issuerKey = RSA.Create(2048);                       // private + public
+byte[] signature = issuerKey.SignData(data, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+
+// Bên nhận chỉ có public key
+using RSA verifier = RSA.Create();
+verifier.ImportSubjectPublicKeyInfo(issuerKey.ExportSubjectPublicKeyInfo(), out _);
+bool ok = verifier.VerifyData(data, signature, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+// ok == true. Sửa 1 byte trong data → ok == false</code></pre>
+<div class="callout example"><span class="callout-title">🧪 Ví dụ: An thử “tự nâng quyền”</span>
+An decode access token của mình (ai cũng làm được), sửa <code>realm_access.roles</code> từ <code>["employee"]</code> thành <code>["employee","admin"]</code> rồi gửi cho hr-api. Chữ ký cũ không còn khớp dữ liệu mới → verify thất bại → <code>401</code>. An không ký lại được vì private key chỉ nằm trong Keycloak.<br>Nhưng An <b>đọc được</b> toàn bộ nội dung token → đừng nhét dữ liệu bí mật (lương, mật khẩu) vào JWT chỉ được ký.</div>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Ký số là “mã hóa bằng private key”, nên dữ liệu đã ký là dữ liệu đã được giấu.</span><span class="f-label">Thực tế</span><span>Chữ ký được gửi <b>kèm</b> dữ liệu gốc, dữ liệu vẫn là plaintext. Ai có public key (tức là ai cũng được) đều verify được — chữ ký chỉ chứng minh nguồn gốc và chống sửa đổi, không che nội dung.</span></div>
+
+<h3 id="hmac">HMAC <span class="badge nice">Nice</span></h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+HMAC giống <b>mật khẩu chung giữa hai người bạn</b> gắn vào cuối thư: người nhận kiểm tra được thư từ bạn mình và không bị sửa. Nhưng vì <b>cả hai cùng biết</b> secret, người nhận cũng có thể tự tạo “thư hợp lệ” — nên HMAC không chứng minh được với bên thứ ba ai là người viết.</div>
+<ul>
+<li><b>HMAC</b> (Hash-based Message Authentication Code, RFC 2104): <code>HMAC(secret key, message)</code> → tag. Bên nhận có cùng key tính lại và so sánh.</li>
+<li>Đảm bảo integrity + authenticity giữa <b>hai bên cùng giữ secret</b>. Khác chữ ký bất đối xứng: <b>không có non-repudiation</b> (chống chối bỏ) và mọi bên verify được cũng <b>ký được</b>.</li>
+<li>Ví dụ: JWT <code>HS256</code> = HMAC-SHA256; webhook signature (GitHub, Stripe…); một số cơ chế ký request API.</li>
+<li>Hệ quả quan trọng: nếu dùng <code>HS256</code> cho access token, <b>mọi API</b> cần secret để verify → API nào cũng có thể <b>tự phát hành</b> token. Với nhiều API, dùng chữ ký bất đối xứng (RS256/ES256) an toàn hơn.</li>
+</ul>
+<pre data-title="Verify webhook HMAC-SHA256"><code class="language-csharp">byte[] expected = HMACSHA256.HashData(webhookSecret, requestBodyBytes);
+byte[] received = Convert.FromHexString(signatureHeaderValue);
+// So sánh constant-time để không lộ thông tin qua thời gian phản hồi
+bool valid = CryptographicOperations.FixedTimeEquals(expected, received);</code></pre>
+
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: Digital signature vs HMAC</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Digital signature (RS256, ES256)</th><th>HMAC (HS256)</th></tr></thead>
+<tbody>
+<tr><td>Key</td><td>Private key để <b>ký</b>, public key để <b>kiểm tra</b></td><td><b>Một</b> secret chung, dùng cho cả tạo và kiểm tra</td></tr>
+<tr><td>Ai tạo được?</td><td>Chỉ bên giữ private key</td><td><b>Mọi bên</b> có secret — kể cả bên chỉ định kiểm tra</td></tr>
+<tr><td>Hợp khi</td><td>Một bên phát hành, nhiều bên kiểm tra (Keycloak → nhiều API)</td><td>Đúng hai bên tin nhau (webhook, một service tự ký/tự kiểm tra)</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> Hệ thống chấm công gửi webhook “An check-in lúc 08:02” sang hr-api kèm header HMAC-SHA256 tính bằng secret hai bên đã thỏa thuận → hợp lý, chỉ có 2 bên. Nhưng token đăng nhập do Keycloak phát cho hr-api, leave-api, report-api… thì nên dùng RS256: các API chỉ cần public key, không API nào giả được token.</p>
+<span class="rule">Signature: “một người ký, cả thế giới kiểm tra”. HMAC: “hai người cùng biết mật khẩu”.</span>
+</div>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>hr-api verify được HMAC của webhook, vậy là có bằng chứng hệ thống chấm công đã gửi nó.</span><span class="f-label">Thực tế</span><span>Tag hợp lệ chỉ chứng minh <b>với hr-api</b> rằng người gửi có secret. Vì hr-api cũng giữ secret, nó tự tạo được tag y hệt — trước bên thứ ba (kiểm toán, tòa án), HMAC <b>không chống chối bỏ</b>. Cần chống chối bỏ thì dùng chữ ký số.</span></div>
+
+<h3 id="pki">Certificate, X.509, CA và PKI <span class="badge should">Should</span></h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Public key chỉ là một dãy số — làm sao biết nó <b>thật sự</b> thuộc về <code>sso.kaopiz.local</code>? Certificate giống <b>căn cước công dân</b>: ghi “public key này thuộc về tên miền này”, và được <b>cơ quan cấp</b> (CA) đóng dấu. Bạn tin căn cước vì bạn tin cơ quan cấp.</div>
+<ul>
+<li><b>Certificate / X.509</b>: chứng thư theo định dạng X.509, gắn <b>public key</b> với <b>danh tính/thuộc tính</b> (subject, tên miền trong SAN — Subject Alternative Name), có thời hạn (<code>notBefore</code>/<code>notAfter</code>), và được <b>CA ký</b>.</li>
+<li><b>CA</b> (Certificate Authority — tổ chức cấp chứng thư): ký certificate cho người khác. Có <b>Root CA</b> (tự ký, được cài sẵn trong trust store của OS/trình duyệt) và <b>Intermediate CA</b>.</li>
+<li><b>PKI</b> (Public Key Infrastructure — hạ tầng khóa công khai): toàn bộ CA, chính sách, quy trình cấp phát, gia hạn, thu hồi certificate.</li>
+<li><b>Trust chain</b> (chuỗi tin cậy): leaf certificate ← ký bởi Intermediate ← ký bởi Root có trong trust store.</li>
+<li>Khi kiểm tra certificate: chữ ký chuỗi hợp lệ tới một root tin cậy; <b>còn hạn</b>; tên miền khớp; mục đích sử dụng phù hợp; <b>chưa bị thu hồi</b> (revocation — qua CRL hoặc OCSP; mức hỗ trợ khác nhau tùy CA/trình duyệt).</li>
+</ul>
+<div class="diagram">
+<pre class="mermaid">
+flowchart TD
+  ROOT["🏛 Root CA<br/>(tự ký, có sẵn trong trust store)"] -->|"ký"| INT["Intermediate CA"]
+  INT -->|"ký"| LEAF["Leaf certificate<br/>CN/SAN = sso.kaopiz.local<br/>+ public key của server"]
+  LEAF -->|"server gửi leaf + intermediate<br/>trong TLS handshake"| CLIENT["Trình duyệt / HttpClient"]
+  CLIENT -->|"1. verify chữ ký từng mắt xích<br/>2. root có trong trust store?<br/>3. còn hạn, đúng tên miền, chưa thu hồi?"| DEC{"Tin cậy?"}
+  DEC -->|"có"| OK["✅ Tiếp tục kết nối"]
+  DEC -->|"không"| ERR["❌ Lỗi certificate"]
+</pre>
+<div class="caption">Chain of trust: bạn tin leaf vì tin intermediate, tin intermediate vì tin root đã cài sẵn.</div>
+</div>
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: Certificate vs Public key vs Private key</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Private key</th><th>Public key</th><th>Certificate</th></tr></thead>
+<tbody>
+<tr><td>Là gì</td><td>Nửa bí mật của cặp khóa</td><td>Nửa công khai của cặp khóa</td><td>Public key <b>+</b> danh tính (tên miền, tổ chức) <b>+</b> hạn dùng <b>+</b> chữ ký của CA</td></tr>
+<tr><td>Ai giữ</td><td>Chỉ chủ sở hữu (server, Keycloak)</td><td>Ai cũng được</td><td>Ai cũng được — server gửi cho client mỗi lần bắt tay TLS</td></tr>
+<tr><td>Dùng để</td><td>Ký, giải mã</td><td>Kiểm tra chữ ký, mã hóa gửi cho chủ</td><td>Trả lời câu hỏi “public key này đúng là của <code>sso.kaopiz.local</code> không?”</td></tr>
+<tr><td>Lộ ra thì sao</td><td><b>Nguy hiểm</b>: kẻ tấn công giả mạo được server / ký token giả → phải thu hồi và thay ngay</td><td>Không sao</td><td>Không sao (không chứa private key)</td></tr>
+<tr><td>File thường gặp</td><td><code>.key</code>, hoặc nằm trong <code>.pfx</code>/<code>.p12</code></td><td>Trong certificate, hoặc JWKS của Keycloak</td><td><code>.crt</code>, <code>.cer</code>, <code>.pem</code></td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> Đội vận hành gửi cho dev file <code>sso-kaopiz.pfx</code> qua chat “để cài HTTPS cho máy test”. Đây là sai lầm: file <code>.pfx</code> thường chứa <b>cả certificate lẫn private key</b>. Thứ dev cần để tin server chỉ là file <code>.crt</code> của root CA nội bộ.</p>
+<span class="rule">Certificate = public key có “giấy chứng nhận”. Private key thì không bao giờ rời khỏi chủ.</span>
+</div>
+<div class="callout warn"><span class="callout-title">⚠️ Lỗi kinh điển trong .NET</span>
+Đừng “sửa” lỗi certificate bằng <code>ServerCertificateCustomValidationCallback = (_, _, _, _) =&gt; true</code>. Làm vậy là tắt toàn bộ việc xác thực server → mở cửa cho tấn công man-in-the-middle. Với CA nội bộ, hãy cài root CA nội bộ vào trust store của máy.</div>
+
+<h3 id="tls">TLS/HTTPS và mTLS <span class="badge should">Should</span></h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+TLS giống <b>xe chở tiền bọc thép</b> giữa trình duyệt và server: kiểm tra giấy tờ tài xế (certificate của server) trước khi lên xe, và không ai nhìn trộm hay tráo hàng trên đường. Nhưng tới nơi rồi thì hàng (token, mật khẩu) vẫn là hàng thật — TLS không bảo vệ dữ liệu <b>sau khi</b> đến server hay trong log.</div>
+<ul>
+<li><b>TLS</b> (Transport Layer Security) bảo vệ <b>kênh truyền</b>: xác thực <b>server</b> bằng certificate, bảo vệ bí mật và toàn vẹn dữ liệu khi truyền. <b>HTTPS</b> = HTTP chạy trên TLS.</li>
+<li><b>mTLS</b> (mutual TLS): <b>client cũng</b> trình certificate → server xác thực được client. Hay dùng cho service-to-service, và trong OAuth để ràng buộc token với certificate của client (RFC 8705).</li>
+<li>Mọi cơ chế trong module này (cookie, Basic, Bearer, API key) đều <b>giả định có TLS</b>. Không có TLS, ai nghe lén được mạng là lấy được credential.</li>
+</ul>
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  participant C as Client (payroll-batch)
+  participant S as Server (hr-api)
+  C->>S: ClientHello
+  S-->>C: ServerHello + certificate của server
+  C->>C: Verify chain, hạn, tên miền
+  opt Chỉ khi mTLS
+    S-->>C: CertificateRequest
+    C->>S: Certificate của client + chứng minh giữ private key
+    S->>S: Verify certificate client theo CA tin cậy
+  end
+  Note over C,S: Thỏa thuận key phiên, từ đây dữ liệu mã hóa bằng symmetric key
+  C->>S: GET /payroll (đã mã hóa trong kênh TLS)
+</pre>
+<div class="caption">Sơ đồ đơn giản hóa (TLS 1.3 gộp nhiều bước). Điểm chính: TLS thường chỉ xác thực server; mTLS xác thực cả hai phía.</div>
+</div>
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: TLS vs mTLS</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>TLS (HTTPS thông thường)</th><th>mTLS (mutual TLS)</th></tr></thead>
+<tbody>
+<tr><td>Ai trình certificate?</td><td>Chỉ <b>server</b></td><td><b>Cả server và client</b></td></tr>
+<tr><td>Server biết client là ai?</td><td>Không — phải dựa vào cookie, token, mật khẩu ở tầng trên</td><td>Có — từ certificate của client</td></tr>
+<tr><td>Client cần gì?</td><td>Trust store có root CA</td><td>Thêm certificate <b>và private key</b> của chính nó</td></tr>
+<tr><td>Hay dùng cho</td><td>Mọi website, trình duyệt ↔ server</td><td>Service-to-service, thiết bị, token ràng buộc certificate (RFC 8705)</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> An mở <code>https://hr.kaopiz.local</code> → TLS thường: trình duyệt kiểm tra hr-web, còn An tự chứng minh danh tính bằng cách đăng nhập. payroll-batch gọi hr-api lúc 2 giờ sáng → có thể dùng mTLS: hr-api chỉ nhận kết nối có certificate do CA nội bộ Kaopiz cấp cho <code>payroll-batch</code>.</p>
+<span class="rule">TLS: “tôi kiểm tra anh”. mTLS: “hai ta kiểm tra lẫn nhau”.</span>
+</div>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Có ổ khóa HTTPS nghĩa là website đáng tin.</span><span class="f-label">Thực tế</span><span>Ổ khóa chỉ cho biết kênh truyền được mã hóa và certificate đúng với tên miền đang mở. Trang lừa đảo <code>hr-kaopiz-login.example</code> vẫn có certificate hợp lệ cho chính tên miền của nó — hãy nhìn <b>tên miền</b>, không chỉ ổ khóa.</span></div>
+<!-- ===================================================== -->
+<h2 id="hash-vs-encryption">B. Những phân biệt quan trọng <span class="badge must">Must</span></h2>
+<p>Đây là <b>Deliverable 1</b>. Hãy tự điền trước khi đọc bảng: với mỗi công cụ, trả lời 3 câu — <b>dùng để làm gì?</b> <b>ai giữ key gì?</b> <b>có lấy lại được dữ liệu gốc không?</b></p>
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: Encoding vs Encryption vs Hash vs Password hashing vs Digital signature vs HMAC</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Khái niệm</th><th>Mục đích chính</th><th>Ai giữ key gì</th><th>Có khôi phục dữ liệu gốc?</th><th>Ví dụ trong auth</th><th>Ví dụ trong Kaopiz HR</th></tr></thead>
+<tbody>
+<tr><td><b>Encoding</b> (Base64)</td><td>Đổi định dạng cho dễ truyền — <b>không bảo mật</b></td><td>Không có key</td><td><b>Có</b>, ai cũng làm được</td><td>Header <code>Basic</code>, header/payload JWT</td><td><code>YW4ubnY6S2FvcGl6MjAyNg==</code> → <code>an.nv:Kaopiz2026</code></td></tr>
+<tr><td><b>Encryption</b></td><td>Bảo mật nội dung (confidentiality)</td><td>Symmetric: hai bên cùng giữ 1 key. Asymmetric: người nhận giữ private key, người gửi dùng public key</td><td><b>Có</b>, nếu có key phù hợp</td><td>TLS, JWE, mã hóa cookie của ASP.NET Core (Data Protection)</td><td>Cookie đăng nhập hr-web — chỉ hr-web giải mã được</td></tr>
+<tr><td><b>Hash</b></td><td>Tạo digest để đối chiếu/kiểm tra toàn vẹn</td><td>Không có key</td><td><b>Không</b> (một chiều)</td><td>Checksum, lưu hash của API key</td><td>SHA-256 của file <code>payroll-2026-11.csv</code></td></tr>
+<tr><td><b>Password hashing</b></td><td>Lưu/kiểm tra mật khẩu an toàn hơn</td><td>Không có key (có salt, có thể có pepper)</td><td><b>Không</b>, và cố tình chậm</td><td>Argon2id, PBKDF2 trong ASP.NET Core Identity</td><td>Cột <code>PasswordHash</code> của An trong DB</td></tr>
+<tr><td><b>Digital Signature</b></td><td>Xác minh nguồn gốc + toàn vẹn; chống chối bỏ</td><td>Bên phát hành giữ private key (ký); mọi bên nhận dùng public key (verify)</td><td>Không phải cơ chế mã hóa — dữ liệu vẫn đọc được</td><td>JWT RS256/ES256, SAML assertion, certificate</td><td>Keycloak ký access token; hr-api verify bằng JWKS</td></tr>
+<tr><td><b>HMAC</b></td><td>Xác minh thông điệp bằng shared secret</td><td>Hai bên cùng giữ một secret (ai giữ cũng tạo được tag)</td><td><b>Không</b></td><td>JWT HS256, chữ ký webhook</td><td>Webhook chấm công gửi sang hr-api</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ — một request dùng nhiều công cụ cùng lúc:</b> payroll-batch gọi hr-api với <code>Authorization: Bearer eyJ…</code>. Kênh truyền được <b>mã hóa</b> (TLS); token chỉ được <b>encode</b> Base64url (ai cũng đọc) nhưng được <b>ký</b> RS256 (hr-api biết nó do Keycloak phát, không bị sửa).</p>
+<span class="rule">Muốn giấu → encryption. Muốn kiểm tra không bị sửa → hash / HMAC / signature. Muốn người khác kiểm tra được mà không giả mạo được → signature. Muốn lưu mật khẩu → password hashing, không bao giờ encryption. Base64 → không bảo vệ gì.</span>
+</div>
+
+<div class="callout tip"><span class="callout-title">✅ Tự kiểm tra nhanh</span><ul>
+<li>Đồng nghiệp nói “token đã Base64 rồi nên an toàn để chứa số tài khoản ngân hàng”. Sai ở đâu?</li>
+<li>Vì sao hr-api chỉ cần public key của Keycloak mà không cần private key?</li>
+<li>DB bị lộ cả hash lẫn salt. Vì sao kẻ tấn công vẫn khó lấy được <code>Kaopiz2026</code> nếu dùng Argon2id?</li>
+</ul></div>
+
+<h2 id="quiz-bai">Quiz nhanh — Bài 2.1</h2>
+<div id="quiz"></div>
+
+</main>
+<script>
+(function () {
+  "use strict";
+  function $(id) { return document.getElementById(id); }
+  function esc(s) {
+    return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+  function utf8Encode(str) { return new TextEncoder().encode(str); }
+  function utf8Decode(bytes) { return new TextDecoder("utf-8", { fatal: false }).decode(bytes); }
+  function bytesToB64(bytes) {
+    var bin = "";
+    for (var i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+    return btoa(bin);
+  }
+  function b64ToBytes(b64) {
+    var bin = atob(b64);
+    var out = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+  function b64urlEncodeStr(str) {
+    return bytesToB64(utf8Encode(str)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  }
+  function b64urlDecodeStr(s) {
+    if (!/^[A-Za-z0-9_-]*$/.test(s)) throw new Error("Chứa ký tự không thuộc bảng Base64url");
+    var t = s.replace(/-/g, "+").replace(/_/g, "/");
+    while (t.length % 4) t += "=";
+    return utf8Decode(b64ToBytes(t));
+  }
+  var box = 'style="white-space:normal;font-family:var(--font);margin:6px 0"';
+
+  // ---------------- JWT decoder ----------------
+  var SAMPLE_H = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6ImhyLTIwMjYtMTEifQ";
+  var SAMPLE_P = "eyJleHAiOjE3OTQyNzYzMDAsImlhdCI6MTc5NDI3NjAwMCwianRpIjoiNWMxZTdkMmEtOWI0Zi00YThlLWI2ZDEtM2YyYTljOGU3YjYwIiwiaXNzIjoiaHR0cHM6Ly9zc28ua2FvcGl6LmxvY2FsL3JlYWxtcy9rYW9waXoiLCJhdWQiOiJoci1hcGkiLCJzdWIiOiI4ZjJjMWE3ZS00YjlkLTRlMTUtOWEzZi0yZDZjN2I4ZTlmMTAiLCJ0eXAiOiJCZWFyZXIiLCJhenAiOiJoci13ZWIiLCJzY29wZSI6Im9wZW5pZCBwcm9maWxlIGhyLnJlYWQiLCJwcmVmZXJyZWRfdXNlcm5hbWUiOiJhbi5udiIsInJlYWxtX2FjY2VzcyI6eyJyb2xlcyI6WyJlbXBsb3llZSJdfX0";
+  var SAMPLE_S = "Y2h1LWt5LW1pbmgtaG9hOiBkYXkgS0hPTkcgcGhhaSBjaHUga3kgUlMyNTYgdGhhdCAtIGNoaSBkZSBtaW5oIGhvYSBjYXUgdHJ1YyBKV1Q";
+  var SAMPLE = SAMPLE_H + "." + SAMPLE_P + "." + SAMPLE_S;
+
+  var CLAIMS = {
+    iss: "Issuer — ai phát hành token",
+    sub: "Subject — định danh ổn định của chủ thể (trong phạm vi iss)",
+    aud: "Audience — token dành cho ai (API phải là một trong số này)",
+    exp: "Expiration — hết hạn sau thời điểm này",
+    nbf: "Not before — chưa hiệu lực trước thời điểm này",
+    iat: "Issued at — thời điểm phát hành",
+    auth_time: "Thời điểm người dùng thực sự xác thực",
+    jti: "JWT ID — mã duy nhất của token",
+    azp: "Authorized party — client đã xin token",
+    scope: "Phạm vi quyền (chuỗi, cách nhau bởi dấu cách)",
+    scp: "Phạm vi quyền (tên claim kiểu Entra ID)",
+    roles: "Vai trò (tùy hệ thống)",
+    realm_access: "Vai trò cấp realm (Keycloak)",
+    resource_access: "Vai trò theo client (Keycloak)",
+    typ: "Loại token (claim riêng của Keycloak)",
+    sid: "Session ID phía IdP",
+    nonce: "Chống replay ID token (OIDC)",
+    preferred_username: "Tên đăng nhập hiển thị — không dùng làm khóa định danh",
+    email: "Email — không dùng làm khóa định danh",
+    client_id: "Client đã xin token"
+  };
+  var TIME_CLAIMS = { exp: 1, nbf: 1, iat: 1, auth_time: 1 };
+
+  function fmtTime(v) {
+    if (typeof v !== "number") return "";
+    var d = new Date(v * 1000);
+    var vn;
+    try { vn = d.toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" }) + " (giờ VN)"; }
+    catch (e) { vn = d.toLocaleString(); }
+    return vn + " · " + d.toISOString().replace(".000Z", "Z");
+  }
+
+  function renderJwt(raw) {
+    var out = $("jwtOut");
+    var tok = (raw || "").trim().replace(/^Authorization:\s*/i, "").replace(/^Bearer\s+/i, "").trim();
+    if (!tok) { out.innerHTML = "Chưa có token."; return; }
+    var parts = tok.split(".");
+    var html = "";
+    if (parts.length === 5) {
+      var jh = "";
+      try { jh = esc(JSON.stringify(JSON.parse(b64urlDecodeStr(parts[0])), null, 2)); } catch (e) { jh = "(không decode được header)"; }
+      out.innerHTML = '<div ' + box + '>🔒 Token có <b>5 phần</b> → đây là <b>JWE</b> (mã hóa). Chỉ header đọc được; payload là ciphertext, cần private key/secret của người nhận để giải mã.</div>' +
+        '<div class="small">Header:</div>' + jh;
+      return;
+    }
+    if (parts.length !== 3) {
+      out.innerHTML = '<div ' + box + '>❌ Token có ' + parts.length + ' phần. JWS compact phải có 3 phần (header.payload.signature), JWE có 5. Có thể đây là <b>opaque token</b> — không decode được, API phải dùng introspection.</div>';
+      return;
+    }
+    html += '<div class="jwt" style="margin:6px 0"><span class="h">' + esc(parts[0]) + '</span><span class="dot">.</span><span class="p">' + esc(parts[1]) + '</span><span class="dot">.</span><span class="s">' + esc(parts[2] || "(trống)") + '</span></div>';
+    var header, payload;
+    try { header = JSON.parse(b64urlDecodeStr(parts[0])); }
+    catch (e) { out.innerHTML = html + '<div ' + box + '>❌ Header không phải Base64url/JSON hợp lệ: ' + esc(e.message) + '</div>'; return; }
+    try { payload = JSON.parse(b64urlDecodeStr(parts[1])); }
+    catch (e) { out.innerHTML = html + '<div ' + box + '>❌ Payload không phải Base64url/JSON hợp lệ: ' + esc(e.message) + '</div>'; return; }
+
+    html += '<div ' + box + '><b style="color:var(--jwt-h)">Header</b></div>' + esc(JSON.stringify(header, null, 2));
+    html += '<div ' + box + '><b style="color:var(--jwt-p)">Payload</b></div>' + esc(JSON.stringify(payload, null, 2));
+
+    var warns = [];
+    var alg = String(header.alg || "");
+    if (!alg || alg.toLowerCase() === "none") warns.push("🚨 <code>alg</code> = <b>" + esc(alg || "(thiếu)") + "</b>: token <b>không có chữ ký</b>. API phải từ chối — thuật toán chỉ lấy từ allowlist của API.");
+    else if (/^HS/i.test(alg)) warns.push("ℹ️ <code>" + esc(alg) + "</code> là HMAC (secret dùng chung): ai verify được cũng ký được.");
+    if (!parts[2]) warns.push("🚨 Phần chữ ký trống.");
+    if (parts[2] === SAMPLE_S) warns.push("ℹ️ Chữ ký của token mẫu là <b>chữ ký minh họa</b> (Base64url của một câu ghi chú), không phải RS256 thật.");
+    if (header.kid) warns.push("🔑 <code>kid</code> = " + esc(header.kid) + " → API tìm public key có kid này trong JWKS của issuer.");
+
+    var now = Math.floor(Date.now() / 1000);
+    var rows = "";
+    Object.keys(payload).forEach(function (k) {
+      var v = payload[k];
+      var val = typeof v === "string" ? v : JSON.stringify(v);
+      var extra = "";
+      if (TIME_CLAIMS[k] && typeof v === "number") {
+        extra = "<br><span class=\"small\">" + esc(fmtTime(v)) + "</span>";
+        if (k === "exp") extra += v < now ? ' <b style="color:var(--danger)">— ĐÃ HẾT HẠN</b>' : ' <b style="color:var(--ok)">— còn ' + Math.round((v - now) / 60) + ' phút</b>';
+        if (k === "nbf" && v > now) extra += ' <b style="color:var(--danger)">— CHƯA HIỆU LỰC</b>';
+      }
+      rows += "<tr><td><code>" + esc(k) + "</code></td><td>" + esc(val) + extra + "</td><td>" + esc(CLAIMS[k] || "Claim riêng / tùy hệ thống") + "</td></tr>";
+    });
+    if (typeof payload.exp === "number" && typeof payload.iat === "number") {
+      warns.push("⏱ Thời gian sống: " + Math.round((payload.exp - payload.iat) / 60) + " phút (exp − iat).");
+    }
+    if (payload.aud === undefined) warns.push("⚠️ Không có <code>aud</code> — API không xác định được token có dành cho mình không.");
+    html += '<div ' + box + '><b>Claims</b></div><div class="table-wrap" style="white-space:normal"><table><thead><tr><th>Claim</th><th>Giá trị</th><th>Ý nghĩa</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+    if (warns.length) html += '<div ' + box + '>' + warns.join("<br>") + '</div>';
+    html += '<div ' + box + '><b style="color:var(--danger)">⛔ DECODE ≠ VERIFY.</b> Widget này chỉ Base64url-decode, <b>không kiểm tra chữ ký</b> (không có public key của issuer). Mọi thông tin trên có thể đã bị sửa. API phải verify chữ ký + iss + aud + exp/nbf + loại token + scope bằng thư viện chuẩn.</div>';
+    out.innerHTML = html;
+  }
+
+  if ($("jwtIn")) {
+    $("jwtIn").value = SAMPLE;
+    $("jwtDecode").addEventListener("click", function () { renderJwt($("jwtIn").value); });
+    $("jwtSample").addEventListener("click", function () { $("jwtIn").value = SAMPLE; renderJwt(SAMPLE); });
+    $("jwtTamper").addEventListener("click", function () {
+      var p = JSON.parse(b64urlDecodeStr(SAMPLE_P));
+      p.realm_access = { roles: ["employee", "admin"] };
+      p.scope = "openid profile hr.read hr.write hr.admin";
+      p.exp = Math.floor(Date.now() / 1000) + 365 * 24 * 3600;
+      var t = SAMPLE_H + "." + b64urlEncodeStr(JSON.stringify(p)) + "." + SAMPLE_S;
+      $("jwtIn").value = t; renderJwt(t);
+      $("jwtOut").insertAdjacentHTML("afterbegin", '<div ' + box + '>🦹 Token vừa bị <b>sửa payload</b> (thêm role admin, scope hr.admin, hạn 1 năm) nhưng giữ nguyên chữ ký cũ. Decode vẫn “đẹp” — chỉ bước verify chữ ký mới phát hiện được.</div>');
+    });
+    $("jwtNone").addEventListener("click", function () {
+      var h = b64urlEncodeStr(JSON.stringify({ alg: "none", typ: "JWT" }));
+      var p = JSON.parse(b64urlDecodeStr(SAMPLE_P));
+      p.realm_access = { roles: ["admin"] };
+      var t = h + "." + b64urlEncodeStr(JSON.stringify(p)) + ".";
+      $("jwtIn").value = t; renderJwt(t);
+    });
+  }
+
+  // ---------------- Hash demo ----------------
+  function sha256Fallback(bytes) {
+    function rr(v, n) { return (v >>> n) | (v << (32 - n)); }
+    var H = [], K = [], primes = [], cand = 2, i, t;
+    while (primes.length < 64) {
+      var isP = true;
+      for (i = 0; i < primes.length; i++) { if (cand % primes[i] === 0) { isP = false; break; } }
+      if (isP) primes.push(cand);
+      cand++;
+    }
+    for (i = 0; i < 64; i++) {
+      if (i < 8) H[i] = (Math.pow(primes[i], 1 / 2) * 4294967296) | 0;
+      K[i] = (Math.pow(primes[i], 1 / 3) * 4294967296) | 0;
+    }
+    var m = [], l = bytes.length;
+    for (i = 0; i < l; i++) m.push(bytes[i]);
+    m.push(0x80);
+    while ((m.length % 64) !== 56) m.push(0);
+    var bitHi = Math.floor(l / 536870912), bitLo = (l * 8) >>> 0;
+    m.push((bitHi >>> 24) & 255, (bitHi >>> 16) & 255, (bitHi >>> 8) & 255, bitHi & 255,
+           (bitLo >>> 24) & 255, (bitLo >>> 16) & 255, (bitLo >>> 8) & 255, bitLo & 255);
+    var w = [];
+    for (var off = 0; off < m.length; off += 64) {
+      for (t = 0; t < 16; t++) {
+        var j = off + t * 4;
+        w[t] = (m[j] << 24) | (m[j + 1] << 16) | (m[j + 2] << 8) | m[j + 3];
+      }
+      for (t = 16; t < 64; t++) {
+        var x = w[t - 15], y = w[t - 2];
+        var s0 = rr(x, 7) ^ rr(x, 18) ^ (x >>> 3);
+        var s1 = rr(y, 17) ^ rr(y, 19) ^ (y >>> 10);
+        w[t] = (w[t - 16] + s0 + w[t - 7] + s1) | 0;
+      }
+      var a = H[0], b = H[1], c = H[2], d = H[3], e = H[4], f = H[5], g = H[6], h = H[7];
+      for (t = 0; t < 64; t++) {
+        var S1 = rr(e, 6) ^ rr(e, 11) ^ rr(e, 25);
+        var ch = (e & f) ^ (~e & g);
+        var t1 = (h + S1 + ch + K[t] + w[t]) | 0;
+        var S0 = rr(a, 2) ^ rr(a, 13) ^ rr(a, 22);
+        var maj = (a & b) ^ (a & c) ^ (b & c);
+        var t2 = (S0 + maj) | 0;
+        h = g; g = f; f = e; e = (d + t1) | 0; d = c; c = b; b = a; a = (t1 + t2) | 0;
+      }
+      H[0] = (H[0] + a) | 0; H[1] = (H[1] + b) | 0; H[2] = (H[2] + c) | 0; H[3] = (H[3] + d) | 0;
+      H[4] = (H[4] + e) | 0; H[5] = (H[5] + f) | 0; H[6] = (H[6] + g) | 0; H[7] = (H[7] + h) | 0;
+    }
+    var hex = "";
+    for (i = 0; i < 8; i++) { var s = (H[i] >>> 0).toString(16); while (s.length < 8) s = "0" + s; hex += s; }
+    return hex;
+  }
+  function sha256Hex(str) {
+    var bytes = utf8Encode(str);
+    if (window.crypto && window.crypto.subtle && window.crypto.subtle.digest) {
+      return window.crypto.subtle.digest("SHA-256", bytes).then(function (buf) {
+        return Array.prototype.map.call(new Uint8Array(buf), function (x) { return ("0" + x.toString(16)).slice(-2); }).join("");
+      });
+    }
+    return Promise.resolve(sha256Fallback(bytes)); // fallback khi crypto.subtle không khả dụng (ngữ cảnh không bảo mật)
+  }
+  function bitDiff(h1, h2) {
+    var n = 0;
+    for (var i = 0; i < h1.length; i++) {
+      var v = parseInt(h1[i], 16) ^ parseInt(h2[i], 16);
+      while (v) { n += v & 1; v >>= 1; }
+    }
+    return n;
+  }
+  function highlightDiff(h1, h2) {
+    var s = "";
+    for (var i = 0; i < h2.length; i++) {
+      s += h1[i] === h2[i] ? h2[i] : '<b style="color:var(--danger)">' + h2[i] + "</b>";
+    }
+    return s;
+  }
+  function runHash() {
+    var a = $("hashA").value, b = $("hashB").value;
+    Promise.all([sha256Hex(a), sha256Hex(b)]).then(function (r) {
+      var ha = r[0], hb = r[1];
+      var same = 0;
+      for (var i = 0; i < 64; i++) if (ha[i] === hb[i]) same++;
+      var api = (window.crypto && window.crypto.subtle) ? "crypto.subtle" : "JS fallback";
+      $("hashOut").innerHTML =
+        "SHA-256(A) = " + ha + "\n" +
+        "SHA-256(B) = " + highlightDiff(ha, hb) + "\n\n" +
+        '<span style="font-family:var(--font)">' +
+        (a === b ? "A và B giống nhau → digest giống hệt nhau (hash là tất định)." :
+          "Khác <b>" + bitDiff(ha, hb) + "/256 bit</b> (lý tưởng ≈ 128 = một nửa). Chỉ " + same + "/64 ký tự hex trùng vị trí — không đoán được A từ B hay ngược lại.") +
+        "\nĐộ dài digest luôn là 64 ký tự hex (256 bit), dù input dài hay ngắn. (Tính bằng " + api + ")</span>";
+    });
+  }
+  if ($("hashRun")) {
+    $("hashRun").addEventListener("click", runHash);
+    $("hashSalt").addEventListener("click", function () {
+      var arr = new Uint8Array(8);
+      if (window.crypto && window.crypto.getRandomValues) window.crypto.getRandomValues(arr);
+      else for (var i = 0; i < 8; i++) arr[i] = Math.floor(Math.random() * 256);
+      var salt = Array.prototype.map.call(arr, function (x) { return ("0" + x.toString(16)).slice(-2); }).join("");
+      var base = $("hashA").value.replace(/^[0-9a-f]{16}\$/, "");
+      $("hashA").value = salt + "$" + base;
+      $("hashB").value = base;
+      runHash();
+      setTimeout(function () {
+        $("hashOut").insertAdjacentHTML("beforeend", '<span style="font-family:var(--font)">\n\n🧂 A giờ là <b>salt + "$" + mật khẩu</b>. Cùng mật khẩu nhưng salt khác → hash khác, nên bảng hash tính sẵn vô dụng. Nhưng việc tính vẫn tức thì → kẻ tấn công vẫn thử nhanh từng mật khẩu với salt đã biết. Vì vậy cần thuật toán <b>chậm</b> (Argon2id/scrypt/PBKDF2).</span>');
+      }, 50);
+    });
+  }
+
+  // ---------------- Base64 / Basic ----------------
+  if ($("b64Decode")) {
+    $("b64Decode").addEventListener("click", function () {
+      var v = $("b64In").value.trim().replace(/^Authorization:\s*/i, "").replace(/^Basic\s+/i, "").trim();
+      try {
+        var txt = utf8Decode(b64ToBytes(v));
+        var idx = txt.indexOf(":");
+        var html = "Base64 : " + esc(v) + "\nDecode : " + esc(txt) + "\n\n";
+        if (idx >= 0) {
+          html += "username = " + esc(txt.slice(0, idx)) + "\npassword = <b style=\"color:var(--danger)\">" + esc(txt.slice(idx + 1)) + "</b>\n\n";
+        }
+        html += '<span style="font-family:var(--font)">⚠️ Không cần key, không cần mật khẩu nào để decode — Base64 chỉ là <b>encoding</b>. Bảo vệ thật sự phải đến từ <b>TLS</b>.</span>';
+        $("b64Out").innerHTML = html;
+      } catch (e) {
+        $("b64Out").textContent = "Không phải chuỗi Base64 hợp lệ: " + e.message;
+      }
+    });
+    $("b64Encode").addEventListener("click", function () {
+      var raw = $("b64User").value + ":" + $("b64Pass").value;
+      var enc = bytesToB64(utf8Encode(raw));
+      $("b64In").value = "Authorization: Basic " + enc;
+      $("b64Out").innerHTML = "Chuỗi gốc : " + esc(raw) + "\nHeader    : Authorization: Basic " + esc(enc) +
+        '\n\n<span style="font-family:var(--font)">Bấm “Decode” để thấy nó đảo ngược dễ thế nào.</span>';
+    });
+  }
+})();
+</script>
+<script>
+window.QUIZ = [
+  { q: "Một công cụ nội bộ in ra log: <code>Authorization: Basic YW4ubnY6S2FvcGl6MjAyNg==</code> và một access token JWT ký RS256. Thứ nào kẻ đọc log lấy lại được nội dung gốc <b>mà không cần key nào</b>?",
+    options: ["Mật khẩu trong header Basic", "Mật khẩu thật của An từ cột <code>PasswordHash</code> (Argon2id) nếu DB cũng lộ", "Payload (claims) của JWT ký RS256", "Private key của Keycloak từ chữ ký của JWT"],
+    answer: [0, 2],
+    why: ["Base64 là encoding, decode ngược ra <code>an.nv:Kaopiz2026</code> không cần key.", "Password hash là một chiều: không “giải” được, chỉ có thể đoán thử từng mật khẩu, và Argon2id làm mỗi lần đoán rất chậm.", "Payload JWS chỉ được Base64url-encode; chữ ký chống sửa chứ không che nội dung.", "Từ chữ ký và public key không suy ra được private key — đó chính là nền tảng an toàn của RSA/ECC."],
+    explain: "Encoding ai cũng đảo ngược được; hash thì không; chữ ký không che dữ liệu. Xem <a href='#hash-vs-encryption'>bảng phân biệt ở mục B</a>." },
+  { q: "payroll-batch gửi <code>payroll-2026-11.csv</code> cho ngân hàng qua một kênh không tin cậy, kèm file <code>.sha256</code> chứa digest của nó trên cùng kênh đó. Kẻ tấn công chặn được kênh và đổi số tài khoản trong CSV. Bên nhận băm lại file và so sánh. Kết quả?", tricky: true,
+    options: ["Phát hiện được, vì đổi 1 ký tự là SHA-256 khác hoàn toàn", "Có thể không phát hiện được, vì kẻ tấn công tính lại SHA-256 của file đã sửa và thay luôn file <code>.sha256</code>", "Phát hiện được, vì không có key thì không ai tính được SHA-256", "Chỉ phát hiện được nếu đổi SHA-256 thành MD5"],
+    answer: 1,
+    why: ["Đúng là digest thay đổi, nhưng kẻ tấn công kiểm soát cả digest đi kèm nên hai cái vẫn khớp nhau.", "Hash không có key: ai cũng tính được, nên kẻ sửa file cũng sửa được hash. Hash chỉ bảo vệ khi digest đến qua kênh tin cậy khác.", "Ngược lại: chính vì hash không cần key nên ai cũng tính được — đây là điểm nhầm giữa hash và HMAC.", "MD5 còn yếu hơn SHA-256 và cũng không có key, nên không giải quyết được gì."],
+    explain: "Muốn chống <b>cố ý</b> giả mạo cần HMAC (secret chung) hoặc chữ ký số (private key). Xem <a href='#hashing'>Hashing</a> và <a href='#hmac'>HMAC</a>." },
+  { q: "Trong buổi review, một dev đề xuất: “Cột <code>Salt</code> trong bảng <code>Users</code> nên được mã hóa AES và key cất trong Key Vault, vì lộ salt là kẻ tấn công crack được ngay.” Bạn phản hồi thế nào?", tricky: true,
+    options: ["Đồng ý, salt lộ thì password hashing mất tác dụng", "Không cần: salt không phải bí mật, nó chỉ cần ngẫu nhiên và riêng cho từng hash; nếu muốn thêm một bí mật ngoài DB thì đó là pepper", "Tốt hơn là dùng một salt chung cho cả hệ thống rồi giấu nó trong Key Vault", "Bỏ salt luôn vì Argon2id đã chậm sẵn"],
+    answer: 1,
+    why: ["Salt được thiết kế để công khai cạnh hash; tác dụng của nó (mỗi hash khác nhau, chặn bảng tính sẵn) vẫn giữ nguyên khi bị lộ.", "Đúng vai trò: salt chống bảng tính sẵn và buộc đoán riêng từng user; secret dùng chung lưu ngoài DB là pepper.", "Salt chung là đánh mất đúng tác dụng của salt (hai user cùng mật khẩu lại ra cùng hash) — đây là nhầm salt với pepper.", "Argon2id làm chậm từng lần đoán nhưng không có salt thì vẫn bị bảng tính sẵn và lộ việc dùng chung mật khẩu; Argon2id luôn yêu cầu salt."],
+    explain: "Salt: riêng, ngẫu nhiên, không bí mật. Pepper: chung, bí mật, lưu ngoài DB, không thay thế salt. Xem <a href='#password-hashing'>Password hashing và Salt</a>." },
+  { q: "Hệ thống chấm công gửi webhook “An check-in 08:02” sang hr-api, ký bằng HMAC-SHA256 với secret hai bên chia sẻ. Sau này xảy ra tranh chấp: bên chấm công nói “chúng tôi không gửi webhook này”. hr-api đang giữ webhook với tag HMAC hợp lệ. Những phát biểu nào đúng?", tricky: true,
+    options: ["Tag hợp lệ chỉ chứng minh webhook do một bên có secret tạo ra — có thể là bên chấm công, cũng có thể là chính hr-api", "Tag hợp lệ là bằng chứng chắc chắn trước bên thứ ba rằng bên chấm công đã gửi", "Muốn chống chối bỏ, bên chấm công phải ký bằng private key chỉ họ giữ (chữ ký số) và hr-api verify bằng public key", "Chuyển sang HMAC-SHA512 sẽ giải quyết được tranh chấp"],
+    answer: [0, 2],
+    why: ["Đúng: HMAC dùng một secret chung, nên bên nào giữ secret cũng tạo được tag hợp lệ.", "Sai: hr-api cũng giữ secret nên tự tạo được tag y hệt — HMAC “verify được” nhưng không chống chối bỏ (non-repudiation).", "Đúng: chỉ chữ ký bất đối xứng mới cho bên thứ ba thấy chỉ người giữ private key mới tạo được chữ ký.", "Đổi hàm băm chỉ đổi độ mạnh, không đổi bản chất “hai bên cùng giữ secret”."],
+    explain: "HMAC bảo đảm integrity + authenticity giữa hai bên tin nhau, nhưng không có non-repudiation. Xem <a href='#hmac'>HMAC</a>." },
+  { q: "payroll-batch gọi <code>https://hr.kaopiz.local</code> qua HTTPS thông thường (không mTLS), không gửi token hay mật khẩu nào. Sau bước bắt tay TLS, hr-api biết được gì về payroll-batch?",
+    options: ["Biết chắc đó là payroll-batch vì kết nối đã được mã hóa", "Không biết client là ai — TLS thường chỉ xác thực server; danh tính client phải đến từ token, mật khẩu hoặc mTLS", "Biết nhờ certificate của client mà trình duyệt/HttpClient luôn gửi kèm", "Biết nhờ địa chỉ IP nằm trong certificate của server"],
+    answer: 1,
+    why: ["Mã hóa kênh không đồng nghĩa với xác thực client: ai cũng mở được kết nối TLS tới hr-api.", "Đúng: TLS thường là “client kiểm tra server”; muốn server kiểm tra client thì cần mTLS hoặc credential ở tầng HTTP.", "Client chỉ gửi certificate khi server yêu cầu trong mTLS; HTTPS thường không có bước này.", "Certificate của server mô tả server (tên miền, public key), không nói gì về client."],
+    explain: "TLS: “tôi kiểm tra anh”. mTLS: “hai ta kiểm tra lẫn nhau”. Xem <a href='#tls'>TLS/HTTPS và mTLS</a>." },
+  { q: "Máy test của dev báo lỗi certificate khi gọi <code>https://sso.kaopiz.local</code> (certificate do CA nội bộ Kaopiz cấp). Cách xử lý đúng là gì?",
+    options: ["Đặt <code>ServerCertificateCustomValidationCallback</code> trả về <code>true</code> cho nhanh", "Xin đội vận hành file <code>sso-kaopiz.pfx</code> của server để cài lên máy", "Cài certificate root CA nội bộ (file <code>.crt</code>, chỉ chứa public key) vào trust store của máy test", "Chuyển sang gọi <code>http://</code> trong môi trường test"],
+    answer: 2,
+    why: ["Tắt toàn bộ việc xác thực server → mở cửa cho man-in-the-middle, và đoạn code này hay “lọt” lên production.", "File <code>.pfx</code> thường chứa cả private key của server — phát tán nó là lộ khóa bí mật, mà dev không cần nó để tin server.", "Đúng: client chỉ cần tin root CA để xác minh chuỗi certificate; root certificate công khai được.", "Bỏ TLS làm mọi credential đi dạng rõ, và test không còn phản ánh môi trường thật."],
+    explain: "Lỗi certificate thì sửa trust store, không tắt validation. Xem <a href='#pki'>Certificate, X.509, CA và PKI</a>." }
+];
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="assets/pages.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

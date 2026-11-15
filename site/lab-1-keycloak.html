@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LAB · Lab 1 — Cấu hình Keycloak</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<main class="content">
+
+<div class="page-head">
+  <div class="breadcrumb"><a href="index.html">Lộ trình</a> / <a href="lab.html">Lab</a> / L1</div>
+  <h1>Lab 1 — Cấu hình Keycloak</h1>
+  <p class="lead">Bạn dựng “quầy cấp thẻ” (IdP) cho cả lab: chạy Keycloak bằng Docker, rồi tạo realm, user, các client public/confidential, client scope và audience. Mỗi bước đều có “làm gì – vì sao – thấy gì là đúng”.</p>
+  <div class="meta-row">
+    <span class="chip">⏱ ~20 phút</span>
+    <span class="chip">📘 <a href="lab.html">Lab · Hands-on OAuth/OIDC với ASP.NET Core</a></span>
+  </div>
+</div>
+
+<div class="terms"><span class="terms-title">📖 Thuật ngữ trong bài</span><dl>
+<dt>Realm</dt><dd>Một “công ty” riêng trong Keycloak: có user, client, khóa ký và issuer riêng. Realm <code>master</code> chỉ dành cho quản trị; lab dùng realm <code>demo</code>.</dd>
+<dt>Client</dt><dd>Một ứng dụng được đăng ký với realm để xin token hoặc để được nhắc tên trong token (như <code>demo-api</code>).</dd>
+<dt>Public / Confidential client</dt><dd>Public = không có secret (app cài trên máy người dùng); Confidential = có <code>client_secret</code> (app chạy trên server). Trong Keycloak là công tắc <b>Client authentication</b> Off/On.</dd>
+<dt>Client scope</dt><dd>Một “gói” đặt tên (vd. <code>orders.read</code>) gồm chuỗi scope + các mapper. Client xin scope nào thì token được “đóng gói” theo scope đó.</dd>
+<dt>Mapper / Audience mapper</dt><dd>Mapper là luật “thêm claim gì vào token”. Audience mapper thêm một client (ở đây <code>demo-api</code>) vào claim <code>aud</code>.</dd>
+<dt>Service account</dt><dd>Một “user ảo” Keycloak tạo riêng cho client (tên <code>service-account-worker</code>) để client xin token cho chính nó bằng Client Credentials.</dd>
+<dt>Redirect URI</dt><dd>Địa chỉ Keycloak được phép trả <code>code</code> về sau khi đăng nhập. Phải khớp từng ký tự.</dd>
+<dt>Discovery document</dt><dd>File JSON công khai ở <code>/.well-known/openid-configuration</code> liệt kê issuer và mọi endpoint của realm.</dd>
+<dt>JWKS / <code>kid</code></dt><dd>Danh sách khóa công khai để kiểm tra chữ ký token; <code>kid</code> là mã của khóa đã ký.</dd>
+</dl></div>
+
+<!-- ===================================================== -->
+<div class="lab-task" id="lab1-box">
+<div class="lab-head"><h3 id="lab1">Lab 1 — Cấu hình IdP (Keycloak)</h3><span class="badge must">Must</span><span class="chip">⏱ 20 phút</span></div>
+<div class="lab-body">
+
+<h4>(a) Mục tiêu</h4>
+<p>Có một IdP chạy local với đủ “nhân vật” cho các lab sau: realm <code>demo</code>, user <code>alice</code>, client public <code>demo-client</code> (Auth Code + PKCE S256), API <code>demo-api</code> được dùng làm <b>audience</b>, client scope <code>orders.read</code>/<code>orders.write</code>, và client confidential <code>worker</code> (Client Credentials). Biết đọc discovery document và JWKS.</p>
+
+<h4>(b) Yêu cầu / đề bài</h4>
+<ol>
+<li>Keycloak 26.x chạy ở <code>http://localhost:8080</code>, đăng nhập được admin console.</li>
+<li>Realm <code>demo</code> có user <code>alice</code> đăng nhập được (mật khẩu không bị bắt đổi).</li>
+<li>Client <code>demo-client</code>: public, chỉ bật Standard flow, PKCE method <code>S256</code>, redirect URI đúng <code>http://127.0.0.1:7890/</code>.</li>
+<li>Client scope <code>orders.read</code> và <code>orders.write</code>, mỗi scope có Audience mapper thêm <code>demo-api</code> vào <code>aud</code> của access token.</li>
+<li>Client <code>worker</code>: confidential, bật Service account roles, được gán 2 scope trên.</li>
+<li><b>Nộp:</b> một bảng ghi lại <code>issuer</code>, <code>authorization_endpoint</code>, <code>token_endpoint</code>, <code>jwks_uri</code>, <code>introspection_endpoint</code>, <code>revocation_endpoint</code> và <code>kid</code> của khóa ký RS256; ảnh chụp tab “Evaluate” cho thấy access token chứa <code>"aud": "demo-api"</code> khi xin scope <code>orders.read</code>.</li>
+</ol>
+
+<div class="diagram">
+<pre class="mermaid">
+flowchart LR
+  subgraph R["Realm demo"]
+    A["👤 User alice"]
+    DC["demo-client<br/>public · Standard flow<br/>PKCE S256"]
+    WK["worker<br/>confidential<br/>Service account roles"]
+    DA["demo-api<br/>(chỉ là audience)"]
+    S1["Client scope orders.read<br/>+ Audience mapper"]
+    S2["Client scope orders.write<br/>+ Audience mapper"]
+  end
+  S1 -- "Included Client Audience" --> DA
+  S2 -- "Included Client Audience" --> DA
+  DC -- "Optional" --> S1
+  DC -- "Optional" --> S2
+  WK -- "Optional" --> S1
+  WK -- "Optional" --> S2
+</pre>
+<div class="caption">Bản đồ cấu hình Lab 1. Client scope là “gói” mapper + quyền; client xin scope nào thì token mang mapper của scope đó.</div>
+</div>
+
+<div class="compare" id="realm-client-scope-role"><span class="compare-title">Phân biệt dễ nhầm: Realm vs Client vs Client scope vs Role</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Realm</th><th>Client</th><th>Client scope</th><th>Role</th></tr></thead>
+<tbody>
+<tr><td>Là gì</td><td>Không gian riêng, có issuer riêng</td><td>Một ứng dụng đăng ký với realm</td><td>Gói “scope + mapper” để gắn vào client</td><td>Nhãn quyền gán cho user/service account</td></tr>
+<tr><td>Câu hỏi nó trả lời</td><td>“Token do <i>ai</i> phát hành?” (<code>iss</code>)</td><td>“<i>App nào</i> xin token / được nhắc tên?” (<code>azp</code>, <code>aud</code>)</td><td>“Token chứa <i>những gì</i> khi xin scope X?” (<code>scope</code>, <code>aud</code>…)</td><td>“<i>Người/máy này</i> giữ vai trò gì?”</td></tr>
+<tr><td>Trong lab</td><td><code>demo</code> (và <code>sp-realm</code> ở Lab 5)</td><td><code>demo-client</code>, <code>worker</code>, <code>demo-api</code></td><td><code>orders.read</code>, <code>orders.write</code></td><td>Lab không tự tạo role; Keycloak tự gán role mặc định (<code>default-roles-demo</code>)</td></tr>
+<tr><td>Thấy trong token ở đâu</td><td>Claim <code>iss</code> = <code>http://localhost:8080/realms/demo</code></td><td>Claim <code>azp</code> (client đã xin), <code>aud</code> (nhờ mapper)</td><td>Claim <code>scope</code> + claim do mapper thêm</td><td>Claim <code>realm_access</code> / <code>resource_access</code></td></tr>
+<tr><td>Nhầm thì hỏng gì</td><td>Tạo client trong <code>master</code> → issuer sai, API 401</td><td>Gõ sai tên <code>demo-api</code> → mapper không thêm <code>aud</code></td><td>Không gán scope cho client → <code>invalid_scope</code></td><td>Tưởng role = scope → viết policy đọc sai claim</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> token worker xin <code>scope=orders.read</code> sẽ có <code>iss</code> = realm <code>demo</code>, <code>azp</code> = client <code>worker</code>, <code>scope</code> chứa <code>orders.read</code> (từ client scope) và <code>aud</code> chứa <code>demo-api</code> (do Audience mapper trong client scope đó). Claim <code>resource_access.account</code> (role của client nội bộ <code>account</code>) cũng là lý do <code>aud</code> thường kèm <code>"account"</code>.</p>
+<span class="rule">Realm = tòa nhà · Client = công ty thuê văn phòng · Client scope = loại thẻ được in · Role = chức danh của người cầm thẻ.</span>
+</div>
+
+<h4>(c) Hướng dẫn từng bước</h4>
+<div class="callout info"><span class="callout-title">ℹ️ Tên menu Keycloak</span>
+Hướng dẫn viết theo admin console Keycloak 26.x (tài liệu <a href="https://www.keycloak.org/docs/latest/server_admin/" target="_blank" rel="noopener">Server Administration Guide</a>). Giao diện thay đổi nhẹ giữa các bản minor (ví dụ vị trí chọn realm, vị trí PKCE). Nếu không thấy đúng tên, tìm trường có ý nghĩa tương đương.</div>
+<p><b>Vì sao làm theo thứ tự này?</b> Có quan hệ phụ thuộc giữa các bước:</p>
+<ul>
+<li>Client <code>demo-api</code> phải có <b>trước</b> Audience mapper (mapper chọn nó từ danh sách).</li>
+<li>Client scope phải có <b>trước</b> khi gán vào <code>demo-client</code> và <code>worker</code>.</li>
+<li>Kiểm tra cuối cùng (Evaluate, curl) chỉ đúng khi tất cả đã nối với nhau.</li>
+</ul>
+
+<ol class="steps">
+<li><b>Chạy Keycloak bằng Docker.</b>
+<pre data-title="Terminal (bash / PowerShell đều chạy được trên 1 dòng)"><code class="language-bash">docker run --name kc -p 8080:8080 -e KC_BOOTSTRAP_ADMIN_USERNAME=admin -e KC_BOOTSTRAP_ADMIN_PASSWORD=admin quay.io/keycloak/keycloak:26.8.2 start-dev</code></pre>
+<ul>
+<li><i>Vì sao:</i> <code>start-dev</code> chạy chế độ phát triển (HTTP, DB nhúng, không cần cấu hình hostname). Biến <code>KC_BOOTSTRAP_ADMIN_*</code> tạo admin tạm thời lần đầu. Phiên bản Keycloak cũ (trước 26) dùng <code>KEYCLOAK_ADMIN</code>/<code>KEYCLOAK_ADMIN_PASSWORD</code>. Ghim tag phiên bản (<code>26.8.2</code>, bản mới tại thời điểm viết) để lab lặp lại được; dùng tag <code>26.8</code> hoặc bản 26.x mới hơn cũng được.</li>
+<li><i>Kiểm tra:</i> log có dòng tương tự <code>Running the server in development mode. DO NOT use this configuration in production.</code>; mở <code>http://localhost:8080</code> thấy trang đăng nhập admin.</li>
+<li><i>Lưu ý:</i> dữ liệu nằm <b>trong container</b>. <code>docker stop kc</code> / <code>docker start kc</code> giữ nguyên cấu hình; <code>docker rm kc</code> là mất hết realm (lúc đó API sẽ gặp lỗi <code>kid</code> không tìm thấy vì khóa ký đã đổi).</li>
+</ul></li>
+
+<li><b>Đăng nhập admin console</b> bằng <code>admin</code>/<code>admin</code>.
+<ul><li><i>Kiểm tra:</i> có thể thấy banner cảnh báo đây là <b>temporary admin</b> — bình thường với lab.</li></ul></li>
+
+<li><b>Tạo realm <code>demo</code>.</b> Mở danh sách realm (dropdown góc trên-trái, hoặc mục <b>Manage realms</b> ở menu trái tùy phiên bản) → <b>Create realm</b> → Realm name: <code>demo</code> → <b>Create</b>.
+<ul>
+<li><i>Vì sao:</i> không làm việc trong realm <code>master</code> (realm quản trị). Realm <code>demo</code> sẽ có issuer riêng.</li>
+<li><i>Kiểm tra:</i> mở <code>http://localhost:8080/realms/demo/.well-known/openid-configuration</code> — trả JSON bắt đầu bằng <code>{"issuer":"http://localhost:8080/realms/demo", ...</code>. Thấy <code>Realm does not exist</code> nghĩa là gõ sai tên realm (phân biệt hoa thường).</li>
+</ul></li>
+
+<li><b>Tạo user test <code>alice</code>.</b> Menu <b>Users</b> → <b>Create new user</b> (hoặc <b>Add user</b>) → Username <code>alice</code>, Email <code>alice@example.com</code>, First name <code>Alice</code>, Last name <code>Nguyen</code>, bật <b>Email verified</b> → <b>Create</b>. Sang tab <b>Credentials</b> → <b>Set password</b> → nhập mật khẩu (ví dụ <code>Alice@123</code>) → tắt <b>Temporary</b> → <b>Save</b>.
+<ul>
+<li><i>Vì sao:</i> nếu để <b>Temporary = On</b>, lần đăng nhập đầu Keycloak bắt đổi mật khẩu — làm rối luồng lab. Điền đủ email/họ tên để Keycloak không hiện màn hình “Update account information” (user profile mặc định yêu cầu các trường này).</li>
+<li><i>Kiểm tra:</i> mở <code>http://localhost:8080/realms/demo/account</code> (Account Console) bằng cửa sổ ẩn danh, đăng nhập alice thành công ngay.</li>
+</ul></li>
+
+<li><b>Tạo client <code>demo-api</code></b> (đại diện cho Web API). <b>Clients</b> → <b>Create client</b> → Client type <b>OpenID Connect</b>, Client ID <code>demo-api</code> → <b>Next</b> → Capability config: <b>Client authentication</b> Off, bỏ chọn <b>Standard flow</b> và <b>Direct access grants</b> → <b>Next</b> → <b>Save</b>.
+<ul>
+<li><i>Vì sao:</i> API không đăng nhập ai cả và không xin token; ta chỉ cần một client tên <code>demo-api</code> để Audience mapper tham chiếu — giống đăng ký tên “phòng Orders” để in lên thẻ. Tài liệu Keycloak ghi rõ mapper <b>không thêm audience</b> nếu client được tham chiếu bị disable hoặc không tồn tại.</li>
+<li><i>Kiểm tra:</i> <code>demo-api</code> xuất hiện trong danh sách Clients. (Nếu UI không cho lưu khi bỏ hết flow, để Standard flow bật nhưng <b>không</b> khai báo redirect URI — không ai đăng nhập qua client này được.)</li>
+</ul>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Tạo client <code>demo-api</code> xong là token sẽ tự có <code>"aud": "demo-api"</code>.</span><span class="f-label">Thực tế</span><span>Client <code>demo-api</code> chỉ là “cái tên để nhắc tới”. <code>aud</code> chỉ chứa <code>demo-api</code> khi có <b>Audience mapper</b> trỏ tới nó <b>và</b> client xin scope chứa mapper đó (bước 6–8). Ví dụ: <code>worker</code> xin token không kèm <code>scope</code> → <code>aud</code> thường chỉ là <code>account</code>.</span></div></li>
+
+<li><b>Tạo client scope <code>orders.read</code> có Audience mapper.</b>
+<ol>
+<li>Menu <b>Client scopes</b> → <b>Create client scope</b> → Name <code>orders.read</code>, Type <b>None</b>, Protocol <b>OpenID Connect</b>, <b>Include in token scope</b> On → <b>Save</b>.</li>
+<li>Tab <b>Mappers</b> → <b>Configure a new mapper</b> (hoặc <b>Add mapper → By configuration</b>) → chọn <b>Audience</b> → Name <code>aud-demo-api</code>, <b>Included Client Audience</b> = <code>demo-api</code>, <b>Add to access token</b> On, <b>Add to ID token</b> Off → <b>Save</b>.</li>
+<li>Lặp lại cho <code>orders.write</code> (cùng mapper <code>aud-demo-api</code>).</li>
+</ol>
+<ul>
+<li><i>Vì sao Audience mapper:</i> mặc định, access token của Keycloak thường có <code>aud</code> = <code>account</code> (client nội bộ của Keycloak) hoặc không chứa API của bạn. API của ta kiểm tra <code>aud == demo-api</code> → phải dạy Keycloak thêm giá trị này. Gắn mapper vào <b>scope</b> nghĩa là: “client nào xin <code>orders.read</code> thì token dành cho <code>demo-api</code>”.</li>
+<li><i>Vì sao Type None:</i> ta sẽ gán scope cho từng client ở bước sau, không gán tự động cho mọi client trong realm.</li>
+<li><i>Vì sao Include in token scope:</i> để chuỗi <code>orders.read</code> xuất hiện trong claim <code>scope</code> của access token — policy của API dựa vào đó.</li>
+<li><i>Vì sao có thêm <code>orders.write</code>:</i> để Lab 2 tạo được token <b>đúng audience nhưng thiếu scope</b> <code>orders.read</code> (kịch bản 403).</li>
+</ul></li>
+
+<li><b>Tạo client public <code>demo-client</code>.</b> <b>Clients</b> → <b>Create client</b>:
+<ol>
+<li>General settings: Client type <b>OpenID Connect</b>, Client ID <code>demo-client</code> → <b>Next</b>.</li>
+<li>Capability config: <b>Client authentication</b> <b>Off</b> (= public client), <b>Authorization</b> Off, Authentication flow: chỉ chọn <b>Standard flow</b>; bỏ <b>Direct access grants</b>, <b>Implicit flow</b>. Bật <b>Require PKCE</b> = On → ô <b>PKCE Method</b> hiện ra, chọn <code>S256</code> → <b>Next</b>.</li>
+<li>Login settings: <b>Valid redirect URIs</b> = <code>http://127.0.0.1:7890/</code> (có dấu <code>/</code> cuối), <b>Valid post logout redirect URIs</b> = <code>http://127.0.0.1:7890/</code>, <b>Web origins</b> để trống → <b>Save</b>.</li>
+<li>Tab <b>Client scopes</b> của <code>demo-client</code> → <b>Add client scope</b> → chọn <code>orders.read</code>, <code>orders.write</code> → <b>Add ▾ → Optional</b>.</li>
+</ol>
+<div class="callout warn"><span class="callout-title">⚠️ Vị trí cài đặt PKCE thay đổi theo phiên bản</span>
+Ở admin console Keycloak 26.8 (đã đối chiếu mã nguồn), mục <b>Settings → Capability config</b> có công tắc <b>Require PKCE</b>; bật lên thì hiện ô <b>PKCE Method</b> (<code>S256</code> / <code>plain</code>). Bản 26.x cũ hơn có thể chỉ có ô <b>PKCE Method</b> (trống / <code>S256</code> / <code>plain</code>). Release notes Keycloak 26.3.0 ghi nhận việc <b>chuyển</b> cài đặt này từ tab <b>Advanced</b> sang tab <b>Settings</b>. Nếu bạn dùng bản cũ hơn: tab <b>Advanced</b> → mục <b>Advanced settings</b> → <b>Proof Key for Code Exchange Code Challenge Method</b> = <code>S256</code>. Để <b>trống</b> nghĩa là PKCE chỉ được áp dụng khi client tự gửi tham số — <i>không bắt buộc</i>.</div>
+<ul>
+<li><i>Vì sao public:</i> console/WPF app được cài trên máy người dùng — ai cũng có thể dịch ngược lấy secret. PKCE thay thế vai trò “chứng minh tôi là người đã bắt đầu flow” (<a href="m03-2-auth-code-pkce.html#pkce">M03 — PKCE</a>).</li>
+<li><i>Vì sao tắt Direct access grants:</i> đó là ROPC (client cầm mật khẩu user) — bị loại khỏi OAuth 2.1 và Security BCP (<a href="m03-3-other-grants.html#ropc-implicit">M03</a>).</li>
+<li><i>Vì sao 127.0.0.1:</i> RFC 8252 (OAuth cho native app) khuyến nghị loopback IP literal thay vì <code>localhost</code>. Keycloak so khớp redirect URI <b>chính xác, phân biệt hoa thường</b> → <code>http://127.0.0.1:7890</code> (thiếu <code>/</code>) hay <code>http://localhost:7890/</code> đều bị từ chối.</li>
+<li><i>Kiểm tra:</i> tab <b>Client scopes → Evaluate</b> (tab con) → chọn user <code>alice</code>, ô <b>Scope parameter</b> chọn thêm <code>orders.read</code> → xem <b>Generated access token</b>: có <code>"aud"</code> chứa <code>demo-api</code> và <code>"scope"</code> chứa <code>orders.read</code>. Bỏ <code>orders.read</code> → <code>demo-api</code> biến mất khỏi <code>aud</code>.
+<pre data-title="Generated access token (rút gọn, ví dụ)"><code class="language-json">{
+  "iss": "http://localhost:8080/realms/demo",
+  "aud": ["demo-api", "account"],
+  "azp": "demo-client",
+  "preferred_username": "alice",
+  "scope": "openid orders.read profile email"
+}</code></pre>
+Thứ tự các từ trong <code>scope</code> và việc <code>aud</code> có kèm <code>account</code> hay không có thể khác trên máy bạn — điều cần thấy là <code>demo-api</code> và <code>orders.read</code>.</li>
+</ul>
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: Valid redirect URI vs Web origins</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Valid redirect URIs</th><th>Web origins</th></tr></thead>
+<tbody>
+<tr><td>Mục đích</td><td>Danh sách địa chỉ Keycloak <b>được phép gửi <code>code</code> về</b> sau khi đăng nhập</td><td>Danh sách origin được phép gọi Keycloak bằng <b>JavaScript trong trình duyệt</b> (CORS)</td></tr>
+<tr><td>Dạng giá trị</td><td>URL đầy đủ: scheme + host + cổng + path (<code>http://127.0.0.1:7890/</code>)</td><td>Chỉ origin: scheme + host + cổng, không path (<code>http://localhost:3000</code>)</td></tr>
+<tr><td>Ai cần</td><td>Mọi client dùng Standard flow (Auth Code)</td><td>Chỉ SPA/JS gọi token endpoint từ trình duyệt</td></tr>
+<tr><td>Trong lab</td><td><code>http://127.0.0.1:7890/</code></td><td>Để trống — console app gọi token endpoint từ .NET, không qua trình duyệt nên không có CORS</td></tr>
+<tr><td>Sai thì hỏng gì</td><td>Trang Keycloak báo <b>Invalid parameter: redirect_uri</b>, không đăng nhập được</td><td>SPA thấy lỗi CORS trong Console của DevTools khi đổi code lấy token</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> nếu sau này bạn viết một SPA React chạy ở <code>http://localhost:3000</code>, client của nó cần redirect URI <code>http://localhost:3000/callback</code> <b>và</b> web origin <code>http://localhost:3000</code> (hoặc <code>+</code> = “lấy origin từ các redirect URI”).</p>
+<span class="rule">Redirect URI = “trả hàng về địa chỉ nào”; Web origins = “trang web nào được gọi điện hỏi quầy bằng JavaScript”.</span>
+</div>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span><code>localhost</code> và <code>127.0.0.1</code> là cùng một máy, nên redirect URI ghi kiểu nào cũng được.</span><span class="f-label">Thực tế</span><span>Keycloak so <b>chuỗi</b>, không phân giải tên máy. <code>http://localhost:7890/</code> và <code>http://127.0.0.1:7890/</code> là hai chuỗi khác nhau → <b>Invalid parameter: redirect_uri</b>. Thiếu dấu <code>/</code> cuối cũng hỏng.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Cứ bật Direct access grants để lấy token cho tiện.</span><span class="f-label">Thực tế</span><span>Đó là ROPC — client cầm mật khẩu user, không hỗ trợ MFA/SSO tốt, bị loại khỏi OAuth 2.1. Nếu thật sự cần cho lab, tạo client test riêng (như <code>lab-ropc</code>) và xóa sau lab; <b>không</b> bật trên <code>demo-client</code>.</span></div></li>
+
+<li><b>Default hay Optional?</b> — hiểu trước khi chọn.
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+<b>Default</b> giống món “đi kèm combo”: gọi combo là luôn có, không cần nói. <b>Optional</b> giống món “gọi thêm”: chỉ có khi bạn nói rõ trong order (tham số <code>scope</code>).</div>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>Default client scope</th><th>Optional client scope</th></tr></thead>
+<tbody>
+<tr><td>Khi nào áp dụng</td><td><b>Luôn luôn</b>, bất kể tham số <code>scope</code> client gửi.</td><td>Chỉ khi client <b>xin</b> nó trong tham số <code>scope</code>.</td></tr>
+<tr><td>Hệ quả với lab</td><td>Mọi token của client đều có <code>aud=demo-api</code> + <code>orders.read</code>.</td><td>Chỉ token xin <code>scope=... orders.read</code> mới có.</td></tr>
+<tr><td>Ưu điểm</td><td>Đơn giản, client không cần biết tên scope.</td><td>Đúng tinh thần <b>least privilege</b>: xin quyền nào nhận quyền đó; tái hiện được lỗi “thiếu scope”.</td></tr>
+<tr><td>Dùng trong lab</td><td>—</td><td>✅ Chọn Optional cho cả <code>demo-client</code> và <code>worker</code>.</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> với Optional, <code>worker</code> gửi <code>scope=orders.read</code> → token có <code>aud=demo-api</code>; gửi không có <code>scope</code> → token <b>không</b> có <code>demo-api</code>. Lab 2 dùng chính khác biệt này để tạo lỗi “sai audience” (kịch bản 2).</p>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Optional client scope nghĩa là user sẽ được hỏi “có đồng ý không”.</span><span class="f-label">Thực tế</span><span>Optional chỉ có nghĩa “áp dụng khi <b>client xin</b> trong tham số <code>scope</code>”. Màn hình đồng ý (consent) là công tắc khác của client (<b>Consent required</b>), lab không bật.</span></div>
+</li>
+
+<li><b>Tạo client confidential <code>worker</code>.</b> <b>Clients</b> → <b>Create client</b> → Client ID <code>worker</code> → <b>Next</b> → <b>Client authentication</b> <b>On</b>, bỏ <b>Standard flow</b> và <b>Direct access grants</b>, chọn <b>Service account roles</b> → <b>Next</b> → <b>Save</b>. Tab <b>Credentials</b> → copy <b>Client Secret</b>. Tab <b>Client scopes</b> → <b>Add client scope</b> → <code>orders.read</code>, <code>orders.write</code> → <b>Optional</b>.
+<ul>
+<li><i>Vì sao:</i> “Service account roles” chính là bật <b>Client Credentials grant</b> cho client này (theo tài liệu Keycloak). Keycloak tạo kèm một <b>service account</b> — user ảo tên <code>service-account-worker</code> — để token có chủ thể (<code>sub</code>). Client confidential vì worker chạy trên server, giữ được secret.</li>
+<li><i>Biến môi trường:</i> lệnh dưới lưu URL realm vào <code>$KC</code> và secret vào <code>$WORKER_SECRET</code>; các lab sau dùng lại hai biến này, nên giữ cửa sổ terminal (hoặc đặt lại khi mở terminal mới).</li>
+<li><i>Kiểm tra:</i>
+<pre data-title="bash (Git Bash / WSL)"><code class="language-bash">export KC=http://localhost:8080/realms/demo
+export WORKER_SECRET='dán-secret-vào-đây'
+curl -s -X POST "$KC/protocol/openid-connect/token" \
+  -d grant_type=client_credentials -d client_id=worker \
+  -d client_secret="$WORKER_SECRET" -d scope=orders.read | jq .</code></pre>
+<pre data-title="PowerShell"><code class="language-powershell">$KC = "http://localhost:8080/realms/demo"
+$env:WORKER_SECRET = "dán-secret-vào-đây"
+$t = Invoke-RestMethod -Method Post -Uri "$KC/protocol/openid-connect/token" -Body @{
+  grant_type = "client_credentials"; client_id = "worker"
+  client_secret = $env:WORKER_SECRET; scope = "orders.read" }
+$t | Format-List</code></pre>
+Phải nhận được JSON có <code>access_token</code>, <code>token_type: "Bearer"</code>, <code>expires_in: 300</code> (mặc định 5 phút).
+<pre data-title="Kết quả (rút gọn, ví dụ)"><code class="language-json">{
+  "access_token": "eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICJwWDNr...",
+  "expires_in": 300,
+  "refresh_expires_in": 0,
+  "token_type": "Bearer",
+  "not-before-policy": 0,
+  "scope": "orders.read profile email"
+}</code></pre>
+Không có <code>refresh_token</code> là bình thường: worker cứ xin token mới khi cần (xem <a href="lab-4-client-credentials.html#lab4">Lab 4</a>).</li>
+</ul>
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: Public vs Confidential client trong Keycloak</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Public — <code>demo-client</code></th><th>Confidential — <code>worker</code></th></tr></thead>
+<tbody>
+<tr><td>Công tắc trong Keycloak</td><td><b>Client authentication</b> = Off</td><td><b>Client authentication</b> = On (xuất hiện tab <b>Credentials</b>)</td></tr>
+<tr><td>Chạy ở đâu</td><td>Máy người dùng (console/WPF, mobile, SPA)</td><td>Server do bạn kiểm soát</td></tr>
+<tr><td>Chứng minh “tôi là client này” bằng gì</td><td>Không có secret; PKCE chứng minh “tôi là bên đã bắt đầu flow”</td><td><code>client_secret</code> (gửi kèm <code>-d client_secret</code> hoặc HTTP Basic <code>-u worker:secret</code>)</td></tr>
+<tr><td>Flow bật trong lab</td><td>Standard flow (Auth Code + PKCE)</td><td>Service account roles (Client Credentials)</td></tr>
+<tr><td>Token đại diện cho</td><td>User đã đăng nhập (alice)</td><td>Chính ứng dụng (<code>service-account-worker</code>)</td></tr>
+<tr><td>Gọi được introspection?</td><td>Không nên/không thể (không xác thực được)</td><td>Có (Lab 4 dùng worker để introspect)</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> nếu bạn nhúng secret vào DemoClient rồi phát hành file <code>.exe</code>, bất kỳ ai cũng dịch ngược lấy được secret và giả làm app của bạn. Vì thế app cài trên máy người dùng luôn là public + PKCE.</p>
+<span class="rule">Code chạy trên máy ai khác → public. Code chạy trên server của mình → confidential.</span>
+</div>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Response của <code>worker</code> không có <code>refresh_token</code> → cấu hình sai.</span><span class="f-label">Thực tế</span><span>Keycloak mặc định không cấp refresh token cho Client Credentials (<code>"refresh_expires_in": 0</code>). Worker đã có secret, hết hạn thì xin token mới — không cần “giấy hẹn đổi thẻ”.</span></div></li>
+
+<li><b>Đọc discovery document và JWKS.</b>
+<pre data-title="bash"><code class="language-bash">curl -s $KC/.well-known/openid-configuration | jq '{issuer, authorization_endpoint, token_endpoint, jwks_uri, userinfo_endpoint, end_session_endpoint, introspection_endpoint, revocation_endpoint, pushed_authorization_request_endpoint, code_challenge_methods_supported}'
+curl -s $KC/protocol/openid-connect/certs | jq '.keys[] | {kid, kty, alg, use}'</code></pre>
+<ul>
+<li><i>Vì sao:</i> đây chính là thứ <code>AddJwtBearer</code> làm tự động khi bạn đặt <code>Authority</code>: tải discovery → lấy <code>issuer</code> và <code>jwks_uri</code> → tải khóa công khai (<a href="m03-6-discovery-logout.html#discovery-jwks">M03 — Discovery &amp; JWKS</a>).</li>
+<li><i>Kiểm tra:</i> lấy header của access token ở bước 9 (dùng <a href="lab-quiz.html#jwt-decoder">bộ decode</a>) → <code>kid</code> trong header phải trùng với <code>kid</code> của một khóa <code>"use": "sig"</code>, <code>"alg": "RS256"</code> trong JWKS.</li>
+</ul></li>
+
+<li>(Tùy chọn, khuyến nghị) <b>Lưu cấu hình:</b> <b>Realm settings</b> → menu <b>Action</b> (góc trên-phải) → <b>Partial export</b> (bật export clients) → lưu thành <code>keycloak/realm-demo.json</code> trong repo. Secret sẽ bị che trong file export.</li>
+</ol>
+
+<h4>(d) Kết quả mong đợi</h4>
+<pre data-title="Discovery (rút gọn — giá trị thật trên máy bạn)"><code class="language-json">{
+  "issuer": "http://localhost:8080/realms/demo",
+  "authorization_endpoint": "http://localhost:8080/realms/demo/protocol/openid-connect/auth",
+  "token_endpoint": "http://localhost:8080/realms/demo/protocol/openid-connect/token",
+  "jwks_uri": "http://localhost:8080/realms/demo/protocol/openid-connect/certs",
+  "userinfo_endpoint": "http://localhost:8080/realms/demo/protocol/openid-connect/userinfo",
+  "end_session_endpoint": "http://localhost:8080/realms/demo/protocol/openid-connect/logout",
+  "introspection_endpoint": "http://localhost:8080/realms/demo/protocol/openid-connect/token/introspect",
+  "revocation_endpoint": "http://localhost:8080/realms/demo/protocol/openid-connect/revoke",
+  "pushed_authorization_request_endpoint": "http://localhost:8080/realms/demo/protocol/openid-connect/ext/par/request",
+  "code_challenge_methods_supported": ["plain", "S256"]
+}</code></pre>
+<pre data-title="JWKS (rút gọn, ví dụ)"><code class="language-json">{ "kid": "pX3k...Qw", "kty": "RSA", "alg": "RS256",    "use": "sig" }
+{ "kid": "9fLm...Za", "kty": "RSA", "alg": "RSA-OAEP", "use": "enc" }</code></pre>
+<p>Khóa <code>use: enc</code> dùng cho mã hóa, <b>không</b> dùng để kiểm tra chữ ký access token. Issuer phụ thuộc vào <b>hostname bạn dùng để gọi Keycloak</b>: gọi bằng <code>127.0.0.1:8080</code> thì issuer sẽ là <code>http://127.0.0.1:8080/realms/demo</code> — khác <code>localhost</code>! Hãy dùng <b>thống nhất <code>localhost:8080</code></b> trong toàn bộ lab.</p>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Khóa nào trong JWKS cũng dùng để kiểm tra chữ ký token được.</span><span class="f-label">Thực tế</span><span>Chỉ khóa có <code>"use": "sig"</code> và <code>kid</code> trùng header token. Khóa <code>"use": "enc"</code> (vd. <code>RSA-OAEP</code>) dành cho mã hóa. Vì vậy bước kiểm tra là so <code>kid</code>, không phải “lấy khóa đầu tiên”.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Issuer là giá trị cố định của realm, gọi Keycloak bằng địa chỉ nào cũng ra như nhau.</span><span class="f-label">Thực tế</span><span>Ở chế độ <code>start-dev</code> (chưa cấu hình hostname), issuer lấy theo hostname bạn dùng để gọi. Lấy token qua <code>127.0.0.1:8080</code> → <code>iss</code> = <code>http://127.0.0.1:8080/realms/demo</code> → API cấu hình <code>localhost</code> trả 401.</span></div>
+
+<h4>(e) Lỗi thường gặp &amp; cách xử lý</h4>
+<div class="table-wrap"><table>
+<thead><tr><th>Hiện tượng</th><th>Nguyên nhân</th><th>Cách xử lý</th></tr></thead>
+<tbody>
+<tr><td><code>port is already allocated</code> khi docker run</td><td>Cổng 8080 đã bị app khác dùng.</td><td>Dùng <code>-p 8081:8080</code> và sửa mọi URL trong lab thành <code>:8081</code>.</td></tr>
+<tr><td><code>Conflict. The container name "/kc" is already in use</code></td><td>Container cũ còn tồn tại.</td><td><code>docker start -a kc</code> để chạy lại (giữ dữ liệu), hoặc <code>docker rm kc</code> để tạo mới (mất dữ liệu).</td></tr>
+<tr><td>Đăng nhập alice bị bắt đổi mật khẩu / cập nhật thông tin</td><td>Temporary = On, hoặc thiếu email/họ tên.</td><td>Đặt lại mật khẩu với Temporary Off; điền đủ thông tin; xóa “Required user actions”.</td></tr>
+<tr><td>Evaluate không có <code>demo-api</code> trong <code>aud</code></td><td>Chưa chọn <code>orders.read</code> trong Scope parameter; mapper chưa bật “Add to access token”; client <code>demo-api</code> sai tên/bị disable.</td><td>Kiểm tra lại từng điểm.</td></tr>
+<tr><td>Token client_credentials: <code>unauthorized_client</code></td><td>Chưa bật Service account roles cho <code>worker</code>.</td><td>Bật và Save.</td></tr>
+<tr><td><code>invalid_client</code></td><td>Sai secret (thường do copy thiếu ký tự) hoặc client đang là public.</td><td>Copy lại secret từ tab Credentials; Client authentication = On.</td></tr>
+<tr><td><code>invalid_scope</code></td><td>Xin scope chưa được gán cho client.</td><td>Gán scope ở tab Client scopes của client đó.</td></tr>
+</tbody></table></div>
+
+<h4>(f) Câu hỏi tự kiểm tra</h4>
+<details><summary>Vì sao <code>demo-client</code> là public còn <code>worker</code> là confidential?</summary><p><code>demo-client</code> chạy trên máy người dùng: mọi secret nhúng trong app đều lấy ra được, nên coi như không có secret và dùng PKCE. <code>worker</code> chạy trên server do ta kiểm soát, giữ được secret, nên xác thực client bằng <code>client_secret</code>.</p></details>
+<details><summary>Nếu gắn <code>orders.read</code> là Default cho <code>demo-client</code>, điều gì thay đổi?</summary><p>Mọi access token của <code>demo-client</code> sẽ luôn có <code>aud=demo-api</code> và <code>scope</code> chứa <code>orders.read</code>, kể cả khi client không xin. Tiện nhưng vi phạm least privilege, và bạn không tái hiện được kịch bản “thiếu scope”.</p></details>
+<details><summary><code>kid</code> dùng để làm gì?</summary><p>IdP có thể có nhiều khóa (đang dùng, sắp xoay vòng…). <code>kid</code> trong header JWT cho API biết dùng khóa nào trong JWKS để kiểm tra chữ ký. Khi gặp <code>kid</code> lạ, JwtBearer sẽ tải lại metadata/JWKS.</p></details>
+
+</div></div>
+
+<h2 id="quiz-bai">Quiz nhanh — Lab 1</h2>
+<div id="quiz"></div>
+
+</main>
+<script>
+window.QUIZ = [
+  { q: "Client <code>demo-api</code> được tạo với Client authentication Off, không bật flow nào, không có redirect URI. Vì sao như vậy vẫn đủ cho lab?",
+    options: ["Vì DemoApi sẽ dùng client này để tự xin token khi khởi động", "Vì client này chỉ cần tồn tại để Audience mapper chọn nó và ghi tên nó vào <code>aud</code>", "Vì Keycloak tự cấp secret ngầm cho mọi client", "Vì API cần client này để gọi introspection cho mỗi request"],
+    answer: 1,
+    why: ["DemoApi không xin token nào: nó chỉ nhận và kiểm tra token cục bộ bằng JWKS.", "Audience mapper chọn client từ danh sách và Keycloak không thêm audience nếu client được tham chiếu không tồn tại hoặc bị disable, nên chỉ cần client này có mặt.", "Client authentication Off nghĩa là không có secret; Keycloak không cấp “secret ngầm”.", "DemoApi xác minh JWT cục bộ, không gọi introspection; trong lab chỉ <code>worker</code> gọi introspection (Lab 4)."],
+    explain: "API là <b>người nhận</b> token, không phải người xin token. Client <code>demo-api</code> chỉ là cái tên để in lên thẻ. Xem <a href='lab-1-keycloak.html#lab1'>bước 5–6</a>." },
+  { q: "Bạn tạo client scope <code>orders.read</code> có Audience mapper đúng, nhưng quên bật <b>Include in token scope</b>. <code>worker</code> xin <code>scope=orders.read</code> rồi gọi <code>/me</code> và <code>/orders</code> của DemoApi. Kết quả?",
+    tricky: true,
+    options: ["Cả hai 401 vì không có <code>orders.read</code> thì cũng không có <code>aud=demo-api</code>", "<code>/me</code> 200, <code>/orders</code> 403", "Cả hai 200 vì scope đã được xin trong request", "Keycloak trả <code>invalid_scope</code>, không cấp token"],
+    answer: 1,
+    why: ["Audience mapper vẫn chạy khi client xin scope; công tắc Include in token scope chỉ quyết định có ghi chữ <code>orders.read</code> vào claim <code>scope</code> hay không.", "Token có <code>aud</code> chứa <code>demo-api</code> (mapper chạy) nên qua authentication, nhưng claim <code>scope</code> thiếu chữ <code>orders.read</code> nên policy chặn → 403.", "Policy của DemoApi đọc claim <code>scope</code> <b>trong token</b>, không đọc tham số bạn đã gửi lên Keycloak.", "Scope đã được gán cho <code>worker</code> nên Keycloak vẫn cấp token; <code>invalid_scope</code> chỉ xảy ra khi xin scope chưa gán."],
+    explain: "Client scope có hai “tác dụng” độc lập: mapper (thêm <code>aud</code>) và tên scope trong claim <code>scope</code>. Tắt cái sau → đúng audience nhưng thiếu quyền. Xem <a href='lab-2-api-jwt.html#aud-azp-scope'>aud vs azp vs scope</a>." },
+  { q: "Bạn bật <b>Service account roles</b> cho client <code>worker</code>. Những điều nào đúng?",
+    options: ["Client <code>worker</code> được dùng grant Client Credentials", "Keycloak tạo kèm user ảo <code>service-account-worker</code> làm chủ thể (<code>sub</code>) của token", "<code>worker</code> có thể mở trình duyệt cho alice đăng nhập", "Token của <code>worker</code> mặc định kèm <code>refresh_token</code>"],
+    answer: [0, 1],
+    why: ["Theo tài liệu Keycloak, Service account roles chính là bật Client Credentials cho client đó.", "Token cần một chủ thể; Keycloak gắn token với service account của client, nên <code>preferred_username</code> là <code>service-account-worker</code>.", "Standard flow của <code>worker</code> đã bị bỏ chọn; worker là máy gọi máy, không có người đăng nhập.", "Mặc định Keycloak không cấp refresh token cho Client Credentials (<code>refresh_expires_in: 0</code>)."],
+    explain: "Service account = “danh tính của chính ứng dụng”. Xem <a href='lab-1-keycloak.html#lab1'>bước 9</a> và <a href='lab-4-client-credentials.html#lab4'>Lab 4</a>." },
+  { q: "Lệnh curl xin token client_credentials cho <code>worker</code> trả <code>{\"error\":\"unauthorized_client\"}</code>. Nguyên nhân khả dĩ nhất?",
+    options: ["Copy thiếu một ký tự của secret", "Chưa bật Service account roles cho <code>worker</code>", "Xin <code>scope=orders.read</code> nhưng chưa gán scope này cho <code>worker</code>", "Keycloak chưa chạy"],
+    answer: 1,
+    why: ["Sai secret là lỗi xác thực client → <code>invalid_client</code>, không phải <code>unauthorized_client</code>.", "Client đã xác thực đúng nhưng không được phép dùng grant này → <code>unauthorized_client</code>; bật Service account roles rồi Save.", "Scope chưa gán cho client gây <code>invalid_scope</code>.", "Keycloak tắt thì curl báo lỗi kết nối (connection refused), không có JSON lỗi OAuth nào."],
+    explain: "Phân biệt 3 mã lỗi: <code>invalid_client</code> = sai danh tính client; <code>unauthorized_client</code> = client không được dùng grant đó; <code>invalid_scope</code> = xin scope không được gán. Xem bảng <a href='lab-1-keycloak.html#lab1'>(e) Lỗi thường gặp</a>." },
+  { q: "Để “đỡ phải gõ scope”, bạn gán <code>orders.read</code> cho <code>worker</code> dạng <b>Default</b> thay vì Optional. Sau đó làm Lab 2 kịch bản 2 (<code>worker_token</code> không tham số, mong đợi 401 sai audience). Điều gì xảy ra?",
+    tricky: true,
+    options: ["Vẫn 401 “The audience 'account' is invalid” như hướng dẫn", "Keycloak báo <code>invalid_scope</code> vì không gửi scope", "<code>/me</code> trả 200 — kịch bản 2 không tái hiện được nữa", "<code>/me</code> trả 403 vì thiếu scope"],
+    answer: 2,
+    why: ["Kịch bản 2 dựa vào việc <b>không</b> xin scope thì không có Audience mapper; với Default, mapper luôn chạy.", "Không gửi tham số <code>scope</code> là hợp lệ; Keycloak chỉ áp các scope Default.", "Default scope luôn áp dụng nên token có <code>aud=demo-api</code> và <code>scope</code> chứa <code>orders.read</code> dù bạn không xin → API chấp nhận.", "<code>/me</code> chỉ cần token hợp lệ, không cần scope; và ở đây token còn có cả <code>orders.read</code>."],
+    explain: "Default = “luôn có”, Optional = “chỉ khi xin”. Chọn Default thì tiện nhưng mất least privilege và mất luôn khả năng tái hiện lỗi. Xem <a href='lab-2-api-jwt.html#lab2-s2'>Lab 2 kịch bản 2</a>." }
+];
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="assets/pages.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

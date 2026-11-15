@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phụ lục · Glossary A–Z</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+<style>
+  /* Chỉ dùng cho widget rubric và glossary của trang này */
+  .rubric-table td.pick { white-space: nowrap; }
+  .rubric-table label.r { display: inline-flex; align-items: center; gap: 4px; margin-right: 10px; cursor: pointer; }
+  .rubric-table tr.crit td:first-child::after { content: " ★"; color: var(--warn); }
+  .rubric-score { font-size: 1.6em; font-weight: 700; }
+  .rubric-bar { height: 10px; border-radius: 6px; background: var(--surface-2); border: 1px solid var(--border); overflow: hidden; margin: 6px 0 10px; }
+  .rubric-bar > span { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+  .verdict-ok { color: var(--ok); font-weight: 600; }
+  .verdict-bad { color: var(--danger); font-weight: 600; }
+  .verdict-wait { color: var(--muted); font-weight: 600; }
+  .gl-count { color: var(--muted); font-size: .9em; margin-top: 6px; }
+  .status { display: inline-block; font-size: .78em; font-weight: 600; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface-2); white-space: nowrap; }
+  .status.rfc { color: var(--ok); background: var(--ok-soft); }
+  .status.draft { color: var(--warn); background: var(--warn-soft); }
+  .status.rec { color: var(--info); background: var(--info-soft); }
+  .status.final { color: var(--purple); background: var(--purple-soft); }
+</style>
+</head>
+<body>
+<main class="content">
+
+<div class="page-head">
+  <div class="breadcrumb"><a href="index.html">Lộ trình</a> / <a href="appendix.html">Phụ lục</a> / H</div>
+  <h1>Phụ lục H — Glossary A–Z</h1>
+  <p class="lead">Tra cứu nhanh thuật ngữ của toàn lộ trình.</p>
+  <div class="meta-row">
+    <span class="chip">📘 <a href="appendix.html">Phụ lục · Phụ lục</a></span>
+  </div>
+</div>
+
+<!-- ===================================================== -->
+<h2 id="glossary">H. Glossary tổng hợp (A–Z)</h2>
+<div class="widget">
+  <div class="w-title">🔎 Lọc thuật ngữ</div>
+  <input type="text" id="gl-search" placeholder="Gõ để lọc, ví dụ: token, saml, pkce…" autocomplete="off" aria-label="Lọc glossary">
+  <div class="gl-count" id="gl-count"></div>
+</div>
+<div class="table-wrap"><table id="gl-table">
+<thead><tr><th>Thuật ngữ</th><th>Giải thích</th><th>Xem</th></tr></thead>
+<tbody>
+<tr><td><b>ABAC</b><br><small>Attribute-Based Access Control — phân quyền theo thuộc tính</small></td><td>Cho phép hay không dựa trên <b>đặc điểm</b> của người dùng, tài nguyên và hoàn cảnh, thay vì chỉ dựa vào role.<br><i>Ví dụ:</i> “Nhân viên phòng HR được xem hồ sơ, nhưng chỉ trong giờ hành chính và từ mạng công ty.”</td><td><a href="m06-1-authz-models.html#abac">M06</a></td></tr>
+<tr><td><b>Access token</b><br><small>token truy cập</small></td><td>“Thẻ ra vào” có hạn dùng mà ứng dụng gửi kèm mỗi lần gọi API. API xem thẻ để biết được phép làm gì. Thẻ này dành cho API, không phải để ứng dụng đọc thông tin người dùng.<br><i>Ví dụ:</i> <code>Authorization: Bearer eyJhbGci...</code> khi gọi <code>GET /orders</code>.</td><td><a href="m02-3-token-jwt.html#tokens">M02</a></td></tr>
+<tr><td><b>Account</b><br><small>tài khoản</small></td><td>Bản ghi của một người (hoặc máy) <b>trong một hệ thống cụ thể</b>. Một người có thể có nhiều tài khoản ở nhiều nơi.<br><i>Ví dụ:</i> An có tài khoản Entra ID, tài khoản GitHub và <code>user_id = 57</code> trong app HR.</td><td><a href="m01-1-identity-roles.html#identity-account">M01</a></td></tr>
+<tr><td><b>Account linking</b><br><small>liên kết tài khoản</small></td><td>Gắn nhiều cách đăng nhập bên ngoài vào <b>cùng một</b> người dùng trong app, dựa trên <code>iss</code> + <code>sub</code>, và phải xác minh trước khi gắn.<br><i>Ví dụ:</i> An đăng nhập được bằng cả Google lẫn Entra ID nhưng vẫn thấy cùng dữ liệu.</td><td><a href="m03-7-user-identity.html#account-linking">M03</a></td></tr>
+<tr><td><b>ACL</b><br><small>Access Control List — danh sách kiểm soát truy cập</small></td><td>Danh sách “ai được làm gì” <b>dán trực tiếp lên từng tài nguyên</b>.<br><i>Ví dụ:</i> quyền chia sẻ một thư mục trên Windows: An – đọc, Bình – sửa.</td><td><a href="m06-1-authz-models.html#acl">M06</a></td></tr>
+<tr><td><b>ACS URL</b><br><small>Assertion Consumer Service — địa chỉ nhận assertion</small></td><td>Địa chỉ trên ứng dụng (SAML SP) nơi IdP gửi kết quả đăng nhập về. Phải khớp với địa chỉ đã đăng ký trước.<br><i>Ví dụ:</i> <code>https://hr.example.com/saml/acs</code>.</td><td><a href="m04-1-saml-components.html#saml-components">M04</a></td></tr>
+<tr><td><b>Active Directory (AD)</b><br><small>dịch vụ thư mục của Microsoft</small></td><td>“Danh bạ trung tâm” của công ty dùng Windows: lưu user, group, máy tính và lo việc đăng nhập vào domain.<br><i>Ví dụ:</i> bật máy công ty, gõ mật khẩu domain là đang đăng nhập vào AD.</td><td><a href="m05-1-ldap-ad.html#ad">M05</a></td></tr>
+<tr><td><b>AiTM</b><br><small>Adversary-in-the-Middle — kẻ tấn công đứng giữa</small></td><td>Trang phishing đứng giữa người dùng và trang login thật, chuyển tiếp mọi thứ rồi <b>cướp session cookie</b> sau khi bạn đăng nhập xong. Vượt qua được cả mã OTP và push. Passkey chống được.<br><i>Ví dụ:</i> link giả <code>micros0ft-login.com</code> hiển thị đúng trang Microsoft.</td><td><a href="m06-4-identity-attacks.html#aitm">M06</a></td></tr>
+<tr><td><b>API key</b><br><small>khóa API</small></td><td>Một chuỗi bí mật cố định để nhận diện <b>ứng dụng</b> gọi API. Thường không gắn với người dùng và không tự hết hạn, nên cần đổi định kỳ.<br><i>Ví dụ:</i> header <code>X-Api-Key: sk_live_...</code> khi gọi dịch vụ gửi email.</td><td><a href="m02-5-http-auth.html#api-key">M02</a></td></tr>
+<tr><td><b>Assertion (SAML)</b><br><small>bản xác nhận</small></td><td>“Giấy xác nhận” có chữ ký của IdP, nói rằng người này là ai, đã đăng nhập lúc nào, giấy dành cho ứng dụng nào, có hiệu lực đến khi nào.<br><i>Ví dụ:</i> phần <code>&lt;saml:Assertion&gt;</code> trong SAML Response.</td><td><a href="m04-2-assertion.html#response-vs-assertion">M04</a></td></tr>
+<tr><td><b>Audience (<code>aud</code>)</b><br><small>người nhận dự kiến</small></td><td>Ghi trong token: token này được phát <b>cho ai dùng</b>. API phải từ chối token không ghi tên mình.<br><i>Ví dụ:</i> token có <code>"aud": "payroll-api"</code> gửi tới <code>orders-api</code> → 401.</td><td><a href="m02-3-token-jwt.html#jwt-validation">M02</a></td></tr>
+<tr><td><b>Authentication (AuthN)</b><br><small>xác thực</small></td><td>Trả lời câu hỏi “<b>Bạn có đúng là người bạn khai không?</b>” bằng cách kiểm tra bằng chứng. Thất bại thường trả HTTP 401.<br><i>Ví dụ:</i> nhập mật khẩu + bấm xác nhận trên điện thoại.</td><td><a href="m01-1-identity-roles.html#iaaa">M01</a></td></tr>
+<tr><td><b>Authorization (AuthZ)</b><br><small>phân quyền / ủy quyền</small></td><td>Trả lời câu hỏi “<b>Bạn được làm gì?</b>” sau khi đã biết bạn là ai. Thiếu quyền trả HTTP 403.<br><i>Ví dụ:</i> An xem được bảng lương của mình, không xem được của đồng nghiệp.</td><td><a href="m01-1-identity-roles.html#iaaa">M01</a></td></tr>
+<tr><td><b>Authorization Code Flow</b><br><small>luồng mã ủy quyền</small></td><td>Cách đăng nhập chuẩn của OAuth/OIDC: browser chỉ mang về một <b>mã dùng một lần</b>, rồi ứng dụng đổi mã đó lấy token qua kênh riêng. Luôn đi kèm PKCE.<br><i>Ví dụ:</i> bấm “Đăng nhập bằng Microsoft” → về <code>/callback?code=...</code>.</td><td><a href="m03-2-auth-code-pkce.html#auth-code-pkce">M03</a></td></tr>
+<tr><td><b>Authorization Server (AS)</b><br><small>máy chủ cấp quyền</small></td><td>Nơi người dùng đăng nhập và nơi <b>phát hành token</b> theo OAuth.<br><i>Ví dụ:</i> Keycloak, Microsoft Entra ID.</td><td><a href="m03-1-oauth-basics.html#oauth-roles">M03</a></td></tr>
+<tr><td><b>Bearer token</b><br><small>token “người mang”</small></td><td>Token mà <b>ai cầm được cũng dùng được</b>, giống tiền mặt. Vì vậy phải giữ kỹ và chỉ gửi qua HTTPS.<br><i>Ví dụ:</i> lộ access token trong log → kẻ khác gọi được API đến khi token hết hạn.</td><td><a href="m02-5-http-auth.html#http-auth">M02</a></td></tr>
+<tr><td><b>BFF</b><br><small>Backend for Frontend</small></td><td>Một backend nhỏ đứng sau SPA, giữ token thay cho browser. Browser chỉ giữ một cookie an toàn, nên JavaScript độc không lấy được token.<br><i>Ví dụ:</i> React gọi <code>/bff/api/orders</code>, BFF gắn token rồi gọi API thật.</td><td><a href="m07-1-design-web.html#bff">M07</a></td></tr>
+<tr><td><b>Claim</b><br><small>thông tin khai báo</small></td><td>Một mẩu thông tin dạng “tên = giá trị” về người dùng, nằm trong token.<br><i>Ví dụ:</i> <code>"sub": "57"</code>, <code>"email": "an@company.com"</code>, <code>"roles": ["manager"]</code>.</td><td><a href="m02-3-token-jwt.html#jwt">M02</a></td></tr>
+<tr><td><b>ClaimsPrincipal</b><br><small>người dùng hiện tại trong .NET</small></td><td>Đối tượng .NET chứa người dùng đang gọi request và các claim của họ, đọc qua <code>HttpContext.User</code>.<br><i>Ví dụ:</i> <code>User.FindFirst("sub")?.Value</code>.</td><td><a href="appendix.html#dotnet-mapping">Phụ lục</a></td></tr>
+<tr><td><b>Client (confidential / public)</b><br><small>ứng dụng khách</small></td><td>Ứng dụng xin token. <b>Confidential</b> chạy trên server nên giữ được bí mật (secret). <b>Public</b> chạy trên máy người dùng nên không giữ được bí mật.<br><i>Ví dụ:</i> web MVC = confidential; SPA, app WPF, app mobile = public.</td><td><a href="m03-1-oauth-basics.html#oauth-roles">M03</a></td></tr>
+<tr><td><b>Client Credentials</b><br><small>luồng thông tin xác thực của client</small></td><td>Cách một <b>dịch vụ</b> tự xin token cho chính nó, không có người dùng tham gia.<br><i>Ví dụ:</i> job đồng bộ dữ liệu ban đêm gọi API báo cáo.</td><td><a href="m03-3-other-grants.html#client-credentials">M03</a></td></tr>
+<tr><td><b>Cookie attributes</b><br><small>thuộc tính cookie</small></td><td>Các “nhãn an toàn” trên cookie. <code>HttpOnly</code>: JavaScript không đọc được. <code>Secure</code>: chỉ gửi qua HTTPS. <code>SameSite</code>: hạn chế gửi kèm khi request đến từ trang khác.<br><i>Ví dụ:</i> <code>Set-Cookie: sid=abc; HttpOnly; Secure; SameSite=Lax</code>.</td><td><a href="m02-2-session-cookie.html#cookie-attributes">M02</a></td></tr>
+<tr><td><b>CORS</b><br><small>Cross-Origin Resource Sharing</small></td><td>Quy tắc của browser cho phép trang ở <b>domain khác</b> gọi API của bạn. CORS <b>không</b> xác thực ai và <b>không</b> phân quyền gì.<br><i>Ví dụ:</i> cho <code>https://spa.example.com</code> gọi <code>https://api.example.com</code>.</td><td><a href="appendix.html#dotnet-mapping">Phụ lục</a></td></tr>
+<tr><td><b>Credential</b><br><small>bằng chứng xác thực</small></td><td>Thứ bạn đưa ra để chứng minh mình là ai.<br><i>Ví dụ:</i> mật khẩu, passkey, smart card, chứng thư số.</td><td><a href="m01-1-identity-roles.html#identity-account">M01</a></td></tr>
+<tr><td><b>CSRF</b><br><small>Cross-Site Request Forgery — giả mạo request từ trang khác</small></td><td>Trang độc lừa browser gửi request tới app của bạn, browser <b>tự gửi kèm cookie</b> nên app tưởng chính bạn bấm.<br><i>Ví dụ:</i> mở trang lạ, nó âm thầm submit form “chuyển tiền” tới ngân hàng bạn đang đăng nhập. Chống bằng antiforgery token, SameSite.</td><td><a href="m06-3-web-threats.html#csrf">M06</a></td></tr>
+<tr><td><b>Data Protection (.NET)</b><br><small>bộ mã hóa dữ liệu của ASP.NET Core</small></td><td>Cơ chế ASP.NET Core dùng để mã hóa và ký cookie đăng nhập. Mọi server chạy cùng app phải <b>dùng chung bộ khóa</b>.<br><i>Ví dụ:</i> 3 server không chung khóa → người dùng bị đăng xuất ngẫu nhiên.</td><td><a href="appendix.html#pitfall-dataprotection">Phụ lục</a></td></tr>
+<tr><td><b>Device Authorization Grant</b><br><small>luồng đăng nhập cho thiết bị</small></td><td>Đăng nhập cho thiết bị khó gõ phím: thiết bị hiện một mã ngắn, bạn nhập mã đó trên điện thoại để xác nhận.<br><i>Ví dụ:</i> đăng nhập YouTube trên Smart TV, hoặc <code>az login --use-device-code</code>.</td><td><a href="m03-3-other-grants.html#device-flow">M03</a></td></tr>
+<tr><td><b>Discovery &amp; JWKS</b><br><small>tài liệu khám phá &amp; bộ khóa công khai</small></td><td>Discovery là “danh thiếp” của IdP (các địa chỉ endpoint). JWKS là danh sách <b>public key</b> để kiểm chữ ký token.<br><i>Ví dụ:</i> <code>/.well-known/openid-configuration</code> chứa <code>jwks_uri</code>.</td><td><a href="m03-6-discovery-logout.html#discovery-jwks">M03</a></td></tr>
+<tr><td><b>DPoP</b><br><small>Demonstrating Proof of Possession — chứng minh sở hữu khóa</small></td><td>Gắn token với một khóa bí mật của client. Kẻ trộm có token mà không có khóa thì vẫn không dùng được.<br><i>Ví dụ:</i> mỗi request gửi kèm header <code>DPoP</code> ký bằng khóa của app.</td><td><a href="appendix-2-resources.html#advanced">Phụ lục</a></td></tr>
+<tr><td><b>Federation</b><br><small>liên kết danh tính</small></td><td>Hai tổ chức <b>tin nhau</b>, chấp nhận việc đăng nhập do bên kia thực hiện.<br><i>Ví dụ:</i> nhân viên đối tác đăng nhập vào hệ thống của bạn bằng tài khoản công ty họ.</td><td><a href="m01-2-sso-federation-mfa.html#federation">M01</a></td></tr>
+<tr><td><b>Hash vs Encryption</b><br><small>băm vs mã hóa</small></td><td>Hash là “xay nhuyễn” một chiều, không đảo ngược được. Encryption là “khóa két”, có chìa thì mở lại được. Mật khẩu phải hash, không mã hóa.<br><i>Ví dụ:</i> DB lưu <code>AQAAAAIAAYag...</code> (hash), không lưu mật khẩu gốc.</td><td><a href="m02-1-crypto.html#hash-vs-encryption">M02</a></td></tr>
+<tr><td><b>HMAC</b><br><small>Hash-based Message Authentication Code</small></td><td>“Con dấu” tạo từ một <b>khóa bí mật dùng chung</b>. Bên nhận có cùng khóa sẽ biết dữ liệu không bị sửa và do bên kia gửi.<br><i>Ví dụ:</i> JWT ký <code>HS256</code>; webhook kèm header chữ ký HMAC.</td><td><a href="m02-1-crypto.html#hmac">M02</a></td></tr>
+<tr><td><b>ID token</b><br><small>token danh tính</small></td><td>“Giấy báo kết quả đăng nhập” mà OIDC gửi cho <b>ứng dụng</b>: ai vừa đăng nhập, lúc nào, bằng cách nào. Không dùng để gọi API.<br><i>Ví dụ:</i> app đọc <code>name</code> trong ID token để hiện “Xin chào An”.</td><td><a href="m03-5-oidc.html#id-vs-access">M03</a></td></tr>
+<tr><td><b>Identity</b><br><small>danh tính</small></td><td>Tập thông tin mô tả một người/thực thể <b>trong một bối cảnh</b>.<br><i>Ví dụ:</i> “An — kỹ sư R&amp;D, mã NV 1024” trong công ty.</td><td><a href="m01-1-identity-roles.html#identity-account">M01</a></td></tr>
+<tr><td><b>Identity Provider (IdP)</b><br><small>nhà cung cấp danh tính</small></td><td>Hệ thống <b>lo việc đăng nhập</b> thay cho các ứng dụng, rồi báo kết quả cho chúng.<br><i>Ví dụ:</i> Entra ID, Google, Okta, Keycloak.</td><td><a href="m01-1-identity-roles.html#vai-tro">M01</a></td></tr>
+<tr><td><b>Introspection / Revocation</b><br><small>tra cứu / thu hồi token</small></td><td>Introspection: API <b>hỏi lại</b> IdP “token này còn dùng được không?”. Revocation: yêu cầu IdP <b>hủy</b> token.<br><i>Ví dụ:</i> người dùng bấm “Đăng xuất mọi thiết bị” → refresh token bị thu hồi.</td><td><a href="m02-4-token-lifecycle.html#introspection-revocation">M02</a></td></tr>
+<tr><td><b>Issuer (<code>iss</code>) + Subject (<code>sub</code>)</b><br><small>bên phát hành + mã người dùng</small></td><td><code>iss</code> cho biết IdP nào phát token; <code>sub</code> là mã cố định của người dùng tại IdP đó. Cặp này mới là khóa nhận diện người dùng đáng tin, không phải email.<br><i>Ví dụ:</i> <code>iss = https://login.example.com</code>, <code>sub = 8f2c...</code>.</td><td><a href="m03-7-user-identity.html#iss-sub">M03</a></td></tr>
+<tr><td><b>JWT</b><br><small>JSON Web Token</small></td><td>Định dạng token gồm 3 phần <code>header.payload.signature</code>. Ai cũng đọc được nội dung; chữ ký chỉ chứng minh <b>không bị sửa</b>, không giữ bí mật.<br><i>Ví dụ:</i> dán token vào jwt.io là đọc được <code>sub</code>, <code>exp</code>.</td><td><a href="m02-3-token-jwt.html#jwt">M02</a></td></tr>
+<tr><td><b>Kerberos</b><br><small>giao thức xác thực bằng vé</small></td><td>Đăng nhập một lần vào domain, sau đó hệ thống cấp <b>“vé”</b> để vào từng dịch vụ mà không phải gõ lại mật khẩu.<br><i>Ví dụ:</i> mở thư mục chia sẻ <code>\\fileserver</code> trong công ty không bị hỏi mật khẩu.</td><td><a href="m05-2-kerberos-enterprise.html#kerberos">M05</a></td></tr>
+<tr><td><b>LDAP</b><br><small>Lightweight Directory Access Protocol</small></td><td>Giao thức để <b>tra cứu danh bạ</b> (user, group, phòng ban). Có thể dùng để kiểm mật khẩu nhưng không phải giao thức SSO như OIDC.<br><i>Ví dụ:</i> app tìm “các thành viên group HR” trong AD qua LDAP.</td><td><a href="m05-1-ldap-ad.html#ldap">M05</a></td></tr>
+<tr><td><b>MFA</b><br><small>Multi-Factor Authentication — xác thực đa yếu tố</small></td><td>Đăng nhập bằng ít nhất 2 loại bằng chứng <b>khác nhóm</b>: thứ bạn biết, thứ bạn có, thứ thuộc về bạn.<br><i>Ví dụ:</i> mật khẩu + mã trên app điện thoại. Hai mật khẩu thì <b>không</b> phải MFA.</td><td><a href="m01-2-sso-federation-mfa.html#mfa">M01</a></td></tr>
+<tr><td><b>mTLS</b><br><small>mutual TLS — TLS hai chiều</small></td><td>Kết nối HTTPS mà <b>cả hai bên</b> đều trình chứng thư, không chỉ server. Dùng để các dịch vụ nhận diện nhau. Nó chứng minh “ai đang gọi”, không quyết định “được làm gì”.<br><i>Ví dụ:</i> service A gọi service B trong mạng nội bộ bằng chứng thư riêng.</td><td><a href="m07-2-native-s2s.html#s2s">M07</a></td></tr>
+<tr><td><b>Nonce</b><br><small>số dùng một lần</small></td><td>Giá trị ngẫu nhiên app tạo khi bắt đầu đăng nhập và kiểm lại trong ID token, để không ai dùng lại ID token cũ.<br><i>Ví dụ:</i> request có <code>nonce=x7k2</code> → ID token phải có <code>"nonce": "x7k2"</code>.</td><td><a href="m03-4-state-nonce-redirect.html#state-nonce">M03</a></td></tr>
+<tr><td><b>NTLM</b><br><small>NT LAN Manager</small></td><td>Cách đăng nhập cũ của Windows dựa trên thách đố–trả lời. Yếu hơn Kerberos, chỉ dùng khi không có lựa chọn khác.<br><i>Ví dụ:</i> truy cập máy chủ bằng địa chỉ IP thay vì tên thường rơi về NTLM.</td><td><a href="m05-2-kerberos-enterprise.html#ntlm">M05</a></td></tr>
+<tr><td><b>OAuth 2.0</b><br><small>khung ủy quyền mở</small></td><td>Chuẩn để một ứng dụng <b>xin quyền truy cập API</b> thay mặt người dùng mà không cần biết mật khẩu của họ. Bản thân OAuth không phải chuẩn đăng nhập.<br><i>Ví dụ:</i> cho app lịch quyền đọc Google Calendar của bạn.</td><td><a href="m03-1-oauth-basics.html#oauth-roles">M03</a></td></tr>
+<tr><td><b>OAuth 2.1</b><br><small>phiên bản hợp nhất (đang là draft)</small></td><td>Bản “dọn dẹp” OAuth 2.0: bắt buộc PKCE, bỏ các luồng không an toàn (Implicit, ROPC), redirect URI phải khớp chính xác.<br><i>Ví dụ:</i> thiết kế mới nên tuân theo các quy tắc này ngay cả khi 2.1 chưa thành RFC.</td><td><a href="m03-3-other-grants.html#oauth21">M03</a></td></tr>
+<tr><td><b>OpenID Connect (OIDC)</b><br><small>lớp đăng nhập trên OAuth</small></td><td>Chuẩn <b>đăng nhập</b> xây trên OAuth 2.0: thêm ID token để ứng dụng biết ai vừa đăng nhập.<br><i>Ví dụ:</i> nút “Sign in with Google/Microsoft” trên hầu hết website.</td><td><a href="m03-5-oidc.html#oidc">M03</a></td></tr>
+<tr><td><b>Passkey</b><br><small>khóa truy cập thay mật khẩu</small></td><td>Đăng nhập không mật khẩu: thiết bị giữ một khóa bí mật, mở bằng vân tay/khuôn mặt/PIN. Khóa chỉ hoạt động với đúng website đã đăng ký nên trang giả không lừa được.<br><i>Ví dụ:</i> đăng nhập GitHub bằng Face ID.</td><td><a href="m05-4-passkey.html#passkey">M05</a></td></tr>
+<tr><td><b>Password hashing</b><br><small>băm mật khẩu</small></td><td>Lưu mật khẩu bằng thuật toán <b>cố tình chậm</b> và có salt, để kẻ trộm DB khó đoán ngược.<br><i>Ví dụ:</i> Argon2id, bcrypt, PBKDF2 (ASP.NET Core Identity). Không dùng SHA-256 đơn thuần.</td><td><a href="m02-1-crypto.html#password-hashing">M02</a></td></tr>
+<tr><td><b>PKCE</b><br><small>Proof Key for Code Exchange, đọc là “pixy”</small></td><td>App tạo một bí mật ngẫu nhiên, gửi trước bản băm của nó, rồi trình bí mật gốc khi đổi code. Kẻ trộm được code cũng không đổi được token.<br><i>Ví dụ:</i> <code>code_challenge</code> trong URL đăng nhập, <code>code_verifier</code> khi đổi token.</td><td><a href="m03-2-auth-code-pkce.html#pkce">M03</a></td></tr>
+<tr><td><b>PKI</b><br><small>Public Key Infrastructure — hạ tầng khóa công khai</small></td><td>Hệ thống CA cấp và thu hồi chứng thư số, tạo chuỗi tin cậy để biết một public key thuộc về ai.<br><i>Ví dụ:</i> ổ khóa HTTPS trên trình duyệt dựa vào PKI.</td><td><a href="m02-1-crypto.html#pki">M02</a></td></tr>
+<tr><td><b>Principal</b><br><small>chủ thể bảo mật</small></td><td>“Ai đó” mà hệ thống gắn quyền vào: có thể là người, dịch vụ hay thiết bị.<br><i>Ví dụ:</i> trong .NET là <code>ClaimsPrincipal</code>; trong Kerberos là <code>an@CORP.LOCAL</code>.</td><td><a href="m01-1-identity-roles.html#vai-tro">M01</a></td></tr>
+<tr><td><b>RADIUS</b><br><small>Remote Authentication Dial-In User Service</small></td><td>Giao thức kiểm tra đăng nhập cho <b>thiết bị mạng</b> như VPN, Wi-Fi doanh nghiệp.<br><i>Ví dụ:</i> kết nối Wi-Fi công ty bằng tài khoản domain.</td><td><a href="m05-2-kerberos-enterprise.html#radius">M05</a></td></tr>
+<tr><td><b>RBAC</b><br><small>Role-Based Access Control — phân quyền theo vai trò</small></td><td>Gán quyền cho <b>vai trò</b>, rồi gán vai trò cho người dùng.<br><i>Ví dụ:</i> role <code>Manager</code> được duyệt nghỉ phép; An là Manager nên duyệt được.</td><td><a href="m06-1-authz-models.html#rbac">M06</a></td></tr>
+<tr><td><b>ReBAC</b><br><small>Relationship-Based Access Control — phân quyền theo quan hệ</small></td><td>Quyền suy ra từ <b>quan hệ</b> giữa người dùng và tài nguyên.<br><i>Ví dụ:</i> Google Docs: bạn sửa được tài liệu vì bạn là chủ sở hữu hoặc được chia sẻ.</td><td><a href="m06-1-authz-models.html#rebac">M06</a></td></tr>
+<tr><td><b>Redirect URI</b><br><small>địa chỉ trả về</small></td><td>Địa chỉ IdP gửi người dùng (kèm code) quay về sau đăng nhập. Phải đăng ký trước và khớp chính xác, nếu không code có thể bị gửi tới kẻ gian.<br><i>Ví dụ:</i> <code>https://hr.example.com/signin-oidc</code>.</td><td><a href="m03-4-state-nonce-redirect.html#redirect-uri">M03</a></td></tr>
+<tr><td><b>Refresh token</b><br><small>token làm mới</small></td><td>Token sống lâu hơn, dùng để <b>lấy access token mới</b> khi cái cũ hết hạn mà không bắt người dùng đăng nhập lại. Cần giữ rất kỹ.<br><i>Ví dụ:</i> app mobile vẫn đăng nhập sau nhiều ngày nhờ refresh token.</td><td><a href="m02-4-token-lifecycle.html#token-lifecycle">M02</a></td></tr>
+<tr><td><b>Relying Party (RP)</b><br><small>bên tin cậy</small></td><td>Ứng dụng <b>dựa vào</b> kết quả đăng nhập do bên khác cung cấp, thay vì tự kiểm mật khẩu.<br><i>Ví dụ:</i> app HR dùng Entra ID để đăng nhập là RP.</td><td><a href="m01-1-identity-roles.html#vai-tro">M01</a></td></tr>
+<tr><td><b>Resource Server (RS)</b><br><small>máy chủ tài nguyên</small></td><td>API giữ dữ liệu, <b>kiểm tra access token</b> trước khi trả dữ liệu.<br><i>Ví dụ:</i> <code>orders-api</code> của bạn viết bằng ASP.NET Core.</td><td><a href="m03-1-oauth-basics.html#oauth-roles">M03</a></td></tr>
+<tr><td><b>ROPC / Implicit</b><br><small>hai luồng OAuth cũ</small></td><td>ROPC: app tự cầm mật khẩu của người dùng. Implicit: token trả thẳng trên URL. Cả hai đều kém an toàn và bị loại khỏi OAuth 2.1.<br><i>Ví dụ:</i> SPA đời cũ nhận <code>#access_token=...</code> trên URL — không làm vậy nữa.</td><td><a href="m03-3-other-grants.html#ropc-implicit">M03</a></td></tr>
+<tr><td><b>SAML 2.0</b><br><small>Security Assertion Markup Language</small></td><td>Chuẩn SSO doanh nghiệp dựa trên XML: IdP gửi “giấy xác nhận” có chữ ký cho ứng dụng.<br><i>Ví dụ:</i> đăng nhập Salesforce bằng tài khoản công ty qua ADFS.</td><td><a href="m04-1-saml-components.html#saml-components">M04</a></td></tr>
+<tr><td><b>Scope</b><br><small>phạm vi quyền</small></td><td>Quyền mà <b>ứng dụng</b> xin được làm thay người dùng. Khác role: role mô tả người dùng, scope giới hạn ứng dụng.<br><i>Ví dụ:</i> <code>orders.read</code> cho phép đọc nhưng không cho sửa đơn hàng.</td><td><a href="m06-2-api-authz.html#api-authz">M06</a></td></tr>
+<tr><td><b>SCIM</b><br><small>System for Cross-domain Identity Management</small></td><td>Chuẩn để IdP <b>tự động tạo, sửa, khóa</b> tài khoản trong các ứng dụng.<br><i>Ví dụ:</i> nhân viên nghỉ việc, HR khóa ở Entra ID → tài khoản ở Slack tự bị vô hiệu.</td><td><a href="m07-3-provisioning-wpf.html#provisioning">M07</a></td></tr>
+<tr><td><b>Service Provider (SP)</b><br><small>nhà cung cấp dịch vụ</small></td><td>Tên gọi ứng dụng trong SAML: bên <b>nhận</b> assertion từ IdP.<br><i>Ví dụ:</i> Salesforce là SP khi đăng nhập qua ADFS.</td><td><a href="m04-1-saml-components.html#saml-components">M04</a></td></tr>
+<tr><td><b>Session</b><br><small>phiên đăng nhập</small></td><td>Trạng thái “đã đăng nhập” mà server ghi nhớ giữa các request. Cookie chỉ là <b>phương tiện mang</b> mã phiên.<br><i>Ví dụ:</i> cookie <code>.AspNetCore.Cookies</code> giúp bạn không phải đăng nhập lại ở mỗi trang.</td><td><a href="m02-2-session-cookie.html#session-cookie">M02</a></td></tr>
+<tr><td><b>Signature</b><br><small>chữ ký số</small></td><td>Ký bằng <b>private key</b>, ai có public key cũng kiểm được. Chứng minh nguồn gốc và không bị sửa, nhưng không che giấu nội dung.<br><i>Ví dụ:</i> JWT ký <code>RS256</code>, API kiểm bằng public key trong JWKS.</td><td><a href="m02-1-crypto.html#signature">M02</a></td></tr>
+<tr><td><b>SSO</b><br><small>Single Sign-On — đăng nhập một lần</small></td><td>Đăng nhập <b>một lần</b> rồi dùng nhiều ứng dụng mà không phải gõ lại mật khẩu. Mỗi app vẫn có phiên riêng.<br><i>Ví dụ:</i> đăng nhập Outlook xong mở Teams không bị hỏi lại.</td><td><a href="m01-2-sso-federation-mfa.html#sso">M01</a></td></tr>
+<tr><td><b>State</b><br><small>tham số trạng thái</small></td><td>Giá trị ngẫu nhiên app gửi đi khi bắt đầu đăng nhập và kiểm lại khi IdP trả về, để chắc rằng phản hồi thuộc đúng lần đăng nhập của chính người dùng này.<br><i>Ví dụ:</i> gửi <code>state=a91f</code> → callback phải có <code>state=a91f</code>.</td><td><a href="m03-4-state-nonce-redirect.html#state-nonce">M03</a></td></tr>
+<tr><td><b>TLS</b><br><small>Transport Layer Security</small></td><td>Lớp mã hóa đường truyền (chữ “S” trong HTTPS) và chứng minh server là thật. Mọi luồng đăng nhập đều phải chạy trên TLS.<br><i>Ví dụ:</i> <code>https://</code> và biểu tượng ổ khóa.</td><td><a href="m02-1-crypto.html#tls">M02</a></td></tr>
+<tr><td><b>Token Exchange</b><br><small>đổi token</small></td><td>Một API đổi token đang có lấy token mới để <b>gọi tiếp API khác</b> thay mặt người dùng.<br><i>Ví dụ:</i> API đơn hàng đổi token của An để gọi API kho hàng (Entra ID gọi là On-Behalf-Of).</td><td><a href="appendix-2-resources.html#advanced">Phụ lục</a></td></tr>
+<tr><td><b>UP / UV</b><br><small>User Presence / User Verification</small></td><td>UP: xác nhận <b>có người</b> đang ở đó (chạm vào khóa). UV: xác nhận <b>đúng người</b> (PIN, vân tay).<br><i>Ví dụ:</i> chạm YubiKey = UP; quét vân tay mở passkey = UV.</td><td><a href="m05-4-passkey.html#up-uv">M05</a></td></tr>
+<tr><td><b>WebAuthn</b><br><small>Web Authentication</small></td><td>API của trình duyệt cho phép website đăng ký và đăng nhập bằng <b>khóa công khai</b> thay mật khẩu; là nền tảng của passkey.<br><i>Ví dụ:</i> <code>navigator.credentials.create()</code> khi bấm “Tạo passkey”.</td><td><a href="m05-3-webauthn.html#webauthn">M05</a></td></tr>
+<tr><td><b>XSS</b><br><small>Cross-Site Scripting — chèn mã độc vào trang</small></td><td>Kẻ tấn công chèn được JavaScript chạy trong trang của bạn. Script đó có thể <b>đọc token</b> trong localStorage hoặc gửi request thay người dùng.<br><i>Ví dụ:</i> ô bình luận không lọc, ai đó gửi <code>&lt;script&gt;...&lt;/script&gt;</code>.</td><td><a href="m06-3-web-threats.html#xss">M06</a></td></tr>
+</tbody></table></div>
+
+</main>
+<script>
+(function () {
+  /* ---------- Rubric widget ---------- */
+  var KEY = "auth-roadmap:rubric:v1";
+  var ITEMS = [
+    { name: "Fundamentals và terminology", link: "m01-fundamentals.html", crit: false },
+    { name: "Cryptography, session, token (gồm token validation)", link: "m02-3-token-jwt.html#jwt-validation", crit: true },
+    { name: "OAuth/OIDC", link: "m03-oauth-oidc.html", crit: true },
+    { name: "SAML", link: "m04-saml.html", crit: false },
+    { name: "Enterprise/passwordless", link: "m05-enterprise-passwordless.html", crit: false },
+    { name: "Authorization/security", link: "m06-authz-security.html", crit: true },
+    { name: "Architecture/troubleshooting", link: "m07-architecture.html", crit: false },
+    { name: "Hands-on Lab (demo chạy được)", link: "lab.html", crit: true }
+  ];
+  function load() {
+    try { var v = JSON.parse(localStorage.getItem(KEY)); return (v && typeof v === "object") ? v : {}; }
+    catch (e) { return {}; }
+  }
+  function save(v) { try { localStorage.setItem(KEY, JSON.stringify(v)); } catch (e) { /* ignore */ } }
+
+  var body = document.getElementById("rubric-body");
+  var out = document.getElementById("rubric-out");
+  if (body && out) {
+    var state = load();
+    ITEMS.forEach(function (it, i) {
+      var tr = document.createElement("tr");
+      if (it.crit) tr.className = "crit";
+      var td1 = document.createElement("td"); td1.textContent = it.name;
+      var td2 = document.createElement("td"); td2.className = "pick";
+      [0, 1, 2].forEach(function (s) {
+        var lab = document.createElement("label"); lab.className = "r";
+        var inp = document.createElement("input");
+        inp.type = "radio"; inp.name = "rub" + i; inp.value = String(s);
+        if (state[i] === s) inp.checked = true;
+        inp.addEventListener("change", function () { state[i] = s; save(state); render(); });
+        lab.appendChild(inp); lab.appendChild(document.createTextNode(String(s)));
+        td2.appendChild(lab);
+      });
+      var td3 = document.createElement("td");
+      var a = document.createElement("a"); a.href = it.link; a.textContent = "Ôn lại";
+      td3.appendChild(a);
+      tr.appendChild(td1); tr.appendChild(td2); tr.appendChild(td3);
+      body.appendChild(tr);
+    });
+
+    function render() {
+      var total = 0, answered = 0, zeroCrit = [];
+      ITEMS.forEach(function (it, i) {
+        var v = state[i];
+        if (v === 0 || v === 1 || v === 2) {
+          answered++; total += v;
+          if (it.crit && v === 0) zeroCrit.push(it.name);
+        }
+      });
+      var html = '<div class="rubric-score">' + total + ' / 16</div>' +
+        '<div class="rubric-bar"><span style="width:' + Math.round(total / 16 * 100) + '%"></span></div>';
+      if (answered < ITEMS.length) {
+        html += '<span class="verdict-wait">Đã chấm ' + answered + '/' + ITEMS.length + ' năng lực — chấm đủ để xem kết luận.</span>';
+      } else if (total >= 12 && zeroCrit.length === 0) {
+        html += '<span class="verdict-ok">✅ Đạt mốc khuyến nghị: phù hợp để chia sẻ overview/technical sharing.</span>' +
+          '<br><small>Với câu hỏi chuyên sâu về giao thức, hãy tra specification/tài liệu nhà cung cấp thay vì suy đoán.</small>';
+      } else {
+        var reasons = [];
+        if (total < 12) reasons.push("tổng điểm " + total + "/16 &lt; 12 (còn thiếu " + (12 - total) + " điểm)");
+        if (zeroCrit.length) reasons.push("điểm 0 ở năng lực bắt buộc: <b>" + zeroCrit.join(", ") + "</b>");
+        html += '<span class="verdict-bad">⚠️ Chưa đạt mốc khuyến nghị</span><ul><li>' + reasons.join("</li><li>") + '</li></ul>' +
+          '<small>Ưu tiên ôn các năng lực đánh dấu ★ và các mục đang 0–1 điểm (dùng link “Ôn lại”).</small>';
+      }
+      out.innerHTML = html;
+    }
+    var reset = document.getElementById("rubric-reset");
+    if (reset) reset.addEventListener("click", function () {
+      state = {}; save(state);
+      body.querySelectorAll("input[type=radio]").forEach(function (r) { r.checked = false; });
+      render();
+    });
+    render();
+  }
+
+  /* ---------- Glossary filter ---------- */
+  var q = document.getElementById("gl-search");
+  var table = document.getElementById("gl-table");
+  var count = document.getElementById("gl-count");
+  if (q && table) {
+    var rows = Array.prototype.slice.call(table.tBodies[0].rows);
+    function norm(s) {
+      s = s.toLowerCase();
+      try { s = s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d"); } catch (e) { /* ignore */ }
+      return s;
+    }
+    var texts = rows.map(function (r) { return norm(r.textContent); });
+    function filter() {
+      var term = norm(q.value.trim()), shown = 0;
+      rows.forEach(function (r, i) {
+        var ok = !term || texts[i].indexOf(term) !== -1;
+        r.style.display = ok ? "" : "none";
+        if (ok) shown++;
+      });
+      if (count) count.textContent = "Hiển thị " + shown + " / " + rows.length + " thuật ngữ";
+    }
+    q.addEventListener("input", filter);
+    filter();
+  }
+})();
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="assets/pages.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

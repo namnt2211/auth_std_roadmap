@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M05 · Bài 5.1 · LDAP &amp; Active Directory</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<main class="content">
+
+<div class="page-head">
+  <div class="breadcrumb"><a href="index.html">Lộ trình</a> / <a href="m05-enterprise-passwordless.html">Module 05</a> / Bài 5.1</div>
+  <h1>Bài 5.1 — LDAP &amp; Active Directory</h1>
+  <p class="lead">Công ty nào cũng có một “danh bạ nhân viên” điện tử: ai là ai, thuộc phòng nào, nhóm nào. Bài này giải thích danh bạ đó (directory) là gì, ứng dụng hỏi nó bằng LDAP ra sao (bind, search), và Active Directory của Microsoft khác LDAP ở đâu.</p>
+  <div class="meta-row">
+    <span class="chip">⏱ ~15 phút</span>
+    <span class="chip">📘 <a href="m05-enterprise-passwordless.html">Module 05 · Enterprise Auth &amp; Passwordless</a></span>
+  </div>
+</div>
+
+<!-- ===================================================== -->
+<h2 id="enterprise-directory">Enterprise identity và directory</h2>
+
+<div class="terms"><span class="terms-title">📖 Thuật ngữ trong bài</span><dl>
+<dt>Directory</dt><dd>“Danh bạ” của tổ chức: lưu người dùng, nhóm, máy tính dạng cây; đọc rất nhiều, ít khi sửa.</dd>
+<dt>LDAP</dt><dd>Giao thức (cách nói chuyện) để hỏi và sửa directory — không phải bản thân directory.</dd>
+<dt>Active Directory (AD)</dt><dd>Sản phẩm directory của Microsoft cho mạng Windows; trả lời được câu hỏi LDAP, và còn làm nhiều việc khác (Kerberos, Group Policy).</dd>
+<dt>Entry</dt><dd>Một bản ghi trong directory: một người, một nhóm, một máy.</dd>
+<dt>DN</dt><dd>“Địa chỉ đầy đủ” duy nhất của một entry trong cây, vd. <code>CN=Nguyen Van An,OU=RnD,…</code>.</dd>
+<dt>Bind</dt><dd>Bước “đăng nhập” vào LDAP server để server biết ai đang hỏi.</dd>
+<dt>Search</dt><dd>Câu truy vấn tìm entry theo điều kiện (filter), giống <code>SELECT … WHERE</code>.</dd>
+<dt>Domain Controller (DC)</dt><dd>Máy chủ chạy Active Directory; một công ty thường có nhiều DC sao chép dữ liệu cho nhau.</dd>
+</dl></div>
+
+<h3 id="ldap">A. LDAP <span class="badge must">Must</span></h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Một <b>directory</b> (thư mục) giống <b>danh bạ điện thoại khổng lồ của công ty</b>, sắp theo cây: công ty → phòng ban → nhân viên. <b>LDAP</b> là “ngôn ngữ” để tra cứu và sửa danh bạ đó: “tìm người có username an.nv, cho tôi email và nhóm của anh ta”. LDAP <b>là cách hỏi</b>, không phải bản thân cuốn danh bạ, và cũng không phải hệ thống đăng nhập một lần.</div>
+
+<p><b>LDAP</b> (Lightweight Directory Access Protocol — giao thức truy cập thư mục “nhẹ”) là giao thức chuẩn (LDAPv3, bộ RFC 4510–4519) để truy vấn và thao tác với <b>directory service</b>.</p>
+<p>Directory service là một kiểu cơ sở dữ liệu đặc biệt: tối ưu cho việc <i>đọc nhiều, ghi ít</i>, lưu thông tin về người dùng, nhóm, máy tính, thiết bị.</p>
+
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: Directory vs Database thông thường</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Directory (AD, OpenLDAP)</th><th>Database quan hệ (SQL Server, PostgreSQL)</th></tr></thead>
+<tbody>
+<tr><td>Mục đích</td><td>Lưu <b>danh tính</b> dùng chung cho cả tổ chức: user, nhóm, máy</td><td>Lưu dữ liệu nghiệp vụ của <b>một ứng dụng</b>: đơn hàng, bảng lương…</td></tr>
+<tr><td>Cấu trúc</td><td>Cây (DIT), mỗi entry có thuộc tính nhiều giá trị, theo schema chung</td><td>Bảng, hàng, cột, quan hệ khóa ngoại</td></tr>
+<tr><td>Kiểu truy cập</td><td>Đọc rất nhiều, ghi ít; nhân bản giữa nhiều server</td><td>Đọc/ghi đều nhiều, cần transaction</td></tr>
+<tr><td>Ngôn ngữ hỏi</td><td>LDAP (filter kiểu <code>(&amp;(objectClass=user)(mail=…))</code>)</td><td>SQL</td></tr>
+<tr><td>Ai dùng</td><td>Hàng chục ứng dụng, thiết bị, máy Windows cùng hỏi</td><td>Thường chỉ ứng dụng sở hữu nó</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> thông tin “An thuộc nhóm <code>HR-Readers</code>, email <code>an.nv@company.com</code>” nằm trong <b>directory</b> vì app HR, Wi-Fi, email, máy in đều cần biết. Còn “bảng lương tháng 10 của An” nằm trong <b>database</b> riêng của Kaopiz HR.</p>
+<span class="rule">Directory trả lời “ai là ai, thuộc nhóm nào” cho cả công ty; database lưu dữ liệu nghiệp vụ của từng app.</span>
+</div>
+
+<h4 id="dit">Directory Information Tree (DIT)</h4>
+<p>Dữ liệu được tổ chức thành cây gọi là <b>DIT</b> (Directory Information Tree — cây thông tin thư mục):</p>
+<div class="diagram">
+<pre class="mermaid">
+flowchart TD
+  R["DC=corp,DC=company,DC=com<br/>(gốc domain)"]
+  R --> U["OU=Users"]
+  R --> G["OU=Groups"]
+  R --> S["OU=Service Accounts"]
+  R --> C["OU=Computers"]
+  U --> RD["OU=RnD"]
+  U --> AC["OU=Accounting"]
+  RD --> AN["CN=Nguyen Van An<br/>objectClass: user<br/>sAMAccountName: an.nv<br/>mail: an.nv@company.com"]
+  G --> HR["CN=HR-Readers<br/>objectClass: group<br/>member: CN=Nguyen Van An,..."]
+  S --> SVC["CN=svc-hr<br/>(tài khoản dịch vụ của app HR)"]
+  C --> PC["CN=LAPTOP-AN01"]
+</pre>
+<div class="caption">Cây DIT của domain corp.company.com. Mỗi nút là một <b>entry</b>; đường đi từ nút lên gốc tạo thành <b>DN</b> của nó.</div>
+</div>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Khái niệm</th><th>Ý nghĩa</th><th>Ví dụ</th></tr></thead>
+<tbody>
+<tr><td><b>Entry</b></td><td>Một “bản ghi” trong directory (một người, một nhóm, một máy).</td><td>Entry của An.</td></tr>
+<tr><td><b>DN</b> (Distinguished Name — tên phân biệt)</td><td>“Địa chỉ đầy đủ” duy nhất của entry, đọc từ entry lên gốc.</td><td><code>CN=Nguyen Van An,OU=RnD,OU=Users,DC=corp,DC=company,DC=com</code></td></tr>
+<tr><td><b>RDN</b> (Relative DN — tên tương đối)</td><td>Phần tên của entry trong nút cha (thành phần đầu tiên của DN).</td><td><code>CN=Nguyen Van An</code></td></tr>
+<tr><td><b>Attribute</b> (thuộc tính)</td><td>Cặp tên–giá trị của entry; có thể nhiều giá trị.</td><td><code>mail</code>, <code>telephoneNumber</code>, <code>memberOf</code></td></tr>
+<tr><td><b>objectClass</b></td><td>“Loại” của entry, quyết định thuộc tính nào bắt buộc/được phép (theo <b>schema</b>).</td><td><code>user</code>, <code>group</code>, <code>inetOrgPerson</code></td></tr>
+<tr><td><b>Bind</b></td><td>Thao tác “đăng nhập” vào LDAP server để xác định ai đang truy vấn. <i>Simple bind</i> = DN + mật khẩu; <i>SASL bind</i> = cơ chế khác (vd. Kerberos/GSSAPI); <i>anonymous bind</i> = không danh tính.</td><td>App HR bind bằng <code>svc-hr</code>.</td></tr>
+<tr><td><b>Search</b></td><td>Tìm entry theo <b>base DN</b> (bắt đầu từ đâu), <b>scope</b> (một cấp hay cả cây con) và <b>filter</b>.</td><td><code>(&amp;(objectClass=user)(sAMAccountName=an.nv))</code></td></tr>
+</tbody></table></div>
+<p class="small muted">Viết tắt trong DN: <b>CN</b> = Common Name, <b>OU</b> = Organizational Unit (đơn vị tổ chức), <b>DC</b> = Domain Component (từng phần của tên miền).</p>
+
+<div class="compare" id="ldap-names"><span class="compare-title">Phân biệt dễ nhầm: DN vs CN vs OU vs sAMAccountName vs UPN</span>
+<p>Cùng một người An nhưng có tới 5 kiểu “tên”. Mỗi kiểu dùng ở một chỗ khác nhau:</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Tên</th><th>Là gì</th><th>Ví dụ của An</th><th>Dùng ở đâu</th></tr></thead>
+<tbody>
+<tr><td><b>DN</b></td><td>Đường dẫn đầy đủ, duy nhất trong cây</td><td><code>CN=Nguyen Van An,OU=RnD,OU=Users,DC=corp,DC=company,DC=com</code></td><td>Bind, tham chiếu giữa các entry (vd. thuộc tính <code>member</code> của nhóm)</td></tr>
+<tr><td><b>CN</b></td><td>Tên hiển thị của entry, chỉ là <b>một mảnh</b> của DN</td><td><code>Nguyen Van An</code></td><td>Hiển thị; <b>không</b> duy nhất trong toàn domain (hai người cùng tên ở hai OU khác nhau)</td></tr>
+<tr><td><b>OU</b></td><td>“Thư mục” chứa entry, để gom và quản trị (áp chính sách)</td><td><code>OU=RnD</code></td><td>Tổ chức cây, phạm vi search (base DN), áp Group Policy. OU <b>không</b> phải group phân quyền</td></tr>
+<tr><td><b>sAMAccountName</b></td><td>Tên đăng nhập kiểu cũ của AD (thuộc tính riêng của AD)</td><td><code>an.nv</code> → gõ <code>CORP\an.nv</code></td><td>Màn hình đăng nhập Windows, filter tìm user</td></tr>
+<tr><td><b>UPN</b> (userPrincipalName)</td><td>Tên đăng nhập dạng email của AD</td><td><code>an.nv@corp.company.com</code> (hoặc suffix khác do admin cấu hình)</td><td>Đăng nhập Windows/Microsoft 365, đồng bộ lên Entra ID</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ nhầm thì hỏng gì:</b> code tìm user bằng <code>(cn=an.nv)</code> sẽ không ra gì, vì <code>cn</code> của An là “Nguyen Van An”; phải dùng <code>(sAMAccountName=an.nv)</code>. Và nếu dùng CN làm khóa định danh trong DB của app, hai người trùng tên sẽ bị gộp làm một.</p>
+<span class="rule">DN = địa chỉ đầy đủ; CN/OU = từng mảnh của địa chỉ; sAMAccountName/UPN = tên người dùng gõ khi đăng nhập.</span>
+</div>
+
+<p>Hai thao tác bạn sẽ gặp nhiều nhất là <b>bind</b> và <b>search</b>. Ứng dụng thường làm cả hai, theo thứ tự: bind trước, search sau.</p>
+<div class="compare" id="bind-vs-search"><span class="compare-title">Phân biệt dễ nhầm: LDAP bind vs LDAP search</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Bind</th><th>Search</th></tr></thead>
+<tbody>
+<tr><td>Câu hỏi trả lời</td><td>“<b>Ai</b> đang nói chuyện với tôi?” (xác thực)</td><td>“<b>Tìm</b> cho tôi entry thỏa điều kiện X” (truy vấn)</td></tr>
+<tr><td>Gửi gì</td><td>DN (hoặc tên đăng nhập) + mật khẩu, hoặc Kerberos</td><td>Base DN, scope, filter, danh sách thuộc tính</td></tr>
+<tr><td>Kết quả</td><td>Thành công/thất bại</td><td>Danh sách entry và thuộc tính</td></tr>
+<tr><td>Tương tự SQL</td><td>Kết nối DB bằng user/password</td><td>Câu <code>SELECT … WHERE …</code></td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> app HR kiểu cũ đăng nhập An bằng LDAP: (1) bind bằng tài khoản dịch vụ <code>svc-hr</code>; (2) search <code>(sAMAccountName=an.nv)</code> để lấy DN của An; (3) bind lại bằng DN đó + mật khẩu An vừa gõ — bind thành công nghĩa là mật khẩu đúng.</p>
+<span class="rule">Bind = xưng danh; Search = tra cứu. “Kiểm tra mật khẩu bằng LDAP” chính là thử bind.</span>
+</div>
+
+<p>Đoạn lệnh dưới đây làm đúng bước (1) và (2) ở trên, qua kết nối mã hóa LDAPS. Bạn chỉ cần nhận ra: <b>ai bind</b> (<code>-D</code>), <b>tìm từ đâu</b> (<code>-b</code>), <b>tìm gì</b> (filter) và <b>lấy thuộc tính nào</b>.</p>
+
+<pre data-title="ldapsearch — tìm thông tin của An qua LDAPS"><code class="language-bash">ldapsearch -H ldaps://dc01.corp.company.com:636 \
+  -D "CN=svc-hr,OU=Service Accounts,DC=corp,DC=company,DC=com" -W \
+  -b "OU=Users,DC=corp,DC=company,DC=com" \
+  "(&amp;(objectClass=user)(sAMAccountName=an.nv))" \
+  cn mail memberOf
+
+# Kết quả (rút gọn, định dạng LDIF):
+# dn: CN=Nguyen Van An,OU=RnD,OU=Users,DC=corp,DC=company,DC=com
+# cn: Nguyen Van An
+# mail: an.nv@company.com
+# memberOf: CN=HR-Readers,OU=Groups,DC=corp,DC=company,DC=com</code></pre>
+<p class="small muted"><code>-D</code> = DN để bind, <code>-W</code> = hỏi mật khẩu, <code>-b</code> = base DN, sau đó là filter và danh sách thuộc tính cần lấy. Nếu dùng <code>ldap://…:389</code> thì thêm <code>-ZZ</code> để bắt buộc StartTLS.</p>
+
+<h4 id="ldap-tls">Cổng, LDAPS và StartTLS</h4>
+<p>Simple bind gửi mật khẩu đi. Vì vậy câu hỏi quan trọng là: kết nối có được <b>mã hóa bằng TLS</b> (lớp mã hóa giống HTTPS) hay không?</p>
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: LDAP vs LDAPS vs StartTLS</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Cách kết nối</th><th>Cổng</th><th>Mô tả</th><th>Đánh giá</th></tr></thead>
+<tbody>
+<tr><td>LDAP thường</td><td>TCP 389</td><td>Không mã hóa. Simple bind gửi mật khẩu <b>dạng rõ</b> qua mạng.</td><td>❌ Không gửi credential qua kết nối này.</td></tr>
+<tr><td><b>StartTLS</b></td><td>TCP 389</td><td>Kết nối thường, rồi gửi lệnh StartTLS để <b>nâng cấp</b> lên TLS trước khi bind.</td><td>✅ Nếu client <b>bắt buộc</b> StartTLS thành công (không “thử rồi bỏ qua”).</td></tr>
+<tr><td><b>LDAPS</b></td><td>TCP 636</td><td>TLS ngay từ đầu (giống HTTPS).</td><td>✅ Đơn giản, phổ biến với AD.</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> <code>ldap://dc01:389</code> giống gọi điện bằng loa ngoài giữa văn phòng — ai đứng gần (bắt gói tin) cũng nghe mật khẩu. <code>ldaps://dc01:636</code> là gọi trong phòng kín ngay từ đầu. StartTLS là bắt đầu ngoài hành lang rồi bước vào phòng kín <b>trước khi</b> nói mật khẩu — chỉ an toàn nếu client <b>bắt buộc</b> phải vào phòng (vd. <code>ldapsearch -ZZ</code>), không “vào được thì tốt, không thì nói luôn ngoài hành lang”.</p>
+<span class="rule">LDAPS và StartTLS đều là LDAP có TLS; khác nhau ở thời điểm bật TLS (ngay từ đầu vs nâng cấp giữa chừng). LDAP trần không có TLS.</span>
+</div>
+<p>Với AD, Microsoft khuyến nghị bật thêm <b>LDAP signing</b> (ký từng gói tin để không bị sửa) và <b>LDAP channel binding</b> (gắn xác thực với đúng kết nối TLS) trên domain controller để chống tấn công relay (kẻ đứng giữa chuyển tiếp lượt xác thực của bạn sang server khác).</p>
+<p>Đoạn code .NET dưới đây làm cùng việc như lệnh <code>ldapsearch</code> ở trên: mở LDAPS → bind bằng <code>svc-hr</code> → search user. Chú ý dòng <code>EscapeLdapFilter</code> — lý do có ở khung đỏ ngay sau.</p>
+
+<pre data-title="LdapAuth.cs — .NET (System.DirectoryServices.Protocols)"><code class="language-csharp">using System.DirectoryServices.Protocols;
+using System.Net;
+
+var conn = new LdapConnection(new LdapDirectoryIdentifier("dc01.corp.company.com", 636));
+conn.SessionOptions.SecureSocketLayer = true;   // LDAPS
+conn.SessionOptions.ProtocolVersion = 3;
+conn.AuthType = AuthType.Basic;                 // simple bind — CHỈ an toàn vì đã có TLS
+conn.Bind(new NetworkCredential(
+    "CN=svc-hr,OU=Service Accounts,DC=corp,DC=company,DC=com", secretFromVault));
+
+var req = new SearchRequest(
+    "OU=Users,DC=corp,DC=company,DC=com",
+    $"(&amp;(objectClass=user)(sAMAccountName={EscapeLdapFilter(username)}))",
+    SearchScope.Subtree, "mail", "memberOf");
+var res = (SearchResponse)conn.SendRequest(req);</code></pre>
+
+<div class="callout danger"><span class="callout-title">🛑 LDAP injection</span>
+Giống SQL injection nhưng xảy ra trong filter LDAP. Nếu ghép thẳng input người dùng vào filter, kẻ tấn công nhập <code>*)(objectClass=*</code> hoặc <code>*</code> để thay đổi ý nghĩa truy vấn (liệt kê toàn bộ user, vượt qua kiểm tra). Ví dụ: <code>(sAMAccountName=*)</code> khớp với <b>mọi</b> user thay vì một người. Luôn <b>escape</b> các ký tự đặc biệt theo RFC 4515: <code>*</code> → <code>\2a</code>, <code>(</code> → <code>\28</code>, <code>)</code> → <code>\29</code>, <code>\</code> → <code>\5c</code>, NUL → <code>\00</code>. Tài khoản bind của ứng dụng chỉ nên có quyền <b>đọc tối thiểu</b>.</div>
+
+<div class="callout warn"><span class="callout-title">⚠️ LDAP không phải SSO</span>
+Khi một web app “đăng nhập bằng LDAP”, app <b>tự hiện form</b>, <b>nhận mật khẩu</b> của người dùng rồi bind thử với LDAP. Hệ quả:
+<ul>
+<li>App <b>thấy mật khẩu</b> của người dùng (app bị hack = lộ mật khẩu domain).</li>
+<li>Mỗi app hỏi lại mật khẩu — <b>không có SSO</b>.</li>
+<li>Khó áp MFA/passkey, và không có token chuẩn để gọi API.</li>
+</ul>
+Với OIDC thì ngược lại: app chuyển người dùng sang IdP (vd. Keycloak realm <code>kaopiz</code>), app <b>không bao giờ</b> thấy mật khẩu và chỉ nhận về ID token. Đó là lý do LDAP <b>không tương đương OIDC</b> — xem <a href="m05-2-kerberos-enterprise.html#enterprise-compare">bảng phân biệt</a>.</div>
+
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Đăng nhập bằng LDAP là SSO, tương đương OIDC.</span><span class="f-label">Thực tế</span><span>LDAP bind bắt app tự nhận mật khẩu; không có redirect tới IdP, không token, không SSO tập trung. An mở 5 app “login bằng LDAP” thì gõ mật khẩu 5 lần, và cả 5 app đều thấy mật khẩu đó.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Bind trả về thành công nghĩa là mật khẩu đúng — kể cả khi mật khẩu để trống.</span><span class="f-label">Thực tế</span><span>Simple bind có DN nhưng mật khẩu <b>rỗng</b> là “unauthenticated bind” (RFC 4513): nhiều server, kể cả AD nếu chưa bật tùy chọn chặn, trả về <i>thành công</i> nhưng thực chất chỉ là phiên ẩn danh. App kiểm mật khẩu bằng bind phải <b>từ chối mật khẩu rỗng trước khi bind</b>, nếu không ai cũng vào được tài khoản của An bằng cách để trống ô mật khẩu.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Trong mạng nội bộ thì dùng <code>ldap://…:389</code> không TLS cũng được.</span><span class="f-label">Thực tế</span><span>Simple bind gửi mật khẩu dạng rõ; bất kỳ máy nào bắt được gói tin trong mạng (máy nhiễm malware, Wi-Fi khách cấu hình sai) đều đọc được. Luôn dùng LDAPS hoặc StartTLS <b>bắt buộc</b>.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>OU là nhóm để phân quyền, cứ cho user vào <code>OU=HR</code> là có quyền HR.</span><span class="f-label">Thực tế</span><span>OU chỉ là “thư mục” để tổ chức cây và áp Group Policy; quyền truy cập dựa vào <b>group</b> (thuộc tính <code>memberOf</code>), vd. <code>CN=HR-Readers</code>.</span></div>
+
+<h3 id="ad">B. Active Directory (AD) <span class="badge must">Must</span></h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Nếu LDAP là “ngôn ngữ để hỏi danh bạ”, thì <b>Active Directory</b> là <b>cả tòa nhà văn phòng hành chính</b> của Microsoft: có cuốn danh bạ (directory), có quầy cấp vé ra vào (Kerberos), có bảng nội quy áp cho mọi máy (Group Policy). Bạn có thể đến hỏi danh bạ bằng tiếng LDAP — nhưng tòa nhà làm được nhiều việc hơn thế.</div>
+<p><b>Active Directory Domain Services (AD DS)</b> là dịch vụ directory của Microsoft cho môi trường <b>Windows domain</b>.</p>
+<p><b>Windows domain</b> là một nhóm máy tính và tài khoản được quản lý tập trung. Khi laptop của An “join domain” <code>corp.company.com</code>, An đăng nhập máy bằng tài khoản công ty (<code>CORP\an.nv</code>) thay vì tài khoản cục bộ, và admin áp được chính sách lên máy đó từ xa.</p>
+<div class="grid cols-2">
+  <div class="card acc"><span class="icon">🏛️</span><h4>Domain &amp; Domain Controller</h4><p><b>Domain</b> = ranh giới quản trị chung (vd. <code>corp.company.com</code>). <b>Domain Controller (DC)</b> = máy chủ chạy AD DS, lưu bản sao cơ sở dữ liệu directory và đóng vai trò KDC của Kerberos. Thường có nhiều DC đồng bộ (replication) với nhau.</p></div>
+  <div class="card acc"><span class="icon">🗂️</span><h4>Đối tượng</h4><p><b>Users</b>, <b>Computers</b> (máy tính cũng có account trong domain!), <b>Groups</b> (dùng để phân quyền), <b>OU</b>, và <b>GPO</b> (Group Policy Object — chính sách cấu hình áp xuống máy/người dùng, vd. bắt khóa màn hình sau 10 phút).</p></div>
+  <div class="card"><span class="icon">🔌</span><h4>Giao thức AD hỗ trợ</h4><p>LDAP/LDAPS (truy vấn directory), Kerberos (xác thực chính, cổng 88), NTLM (tương thích ngược), DNS (AD phụ thuộc nặng vào DNS để tìm DC), và các giao thức Windows khác.</p></div>
+  <div class="card"><span class="icon">☁️</span><h4>AD ≠ Microsoft Entra ID</h4><p>Entra ID (trước đây Azure AD) là IdP trên cloud, nói <b>OIDC/OAuth/SAML</b>, không phải AD DS chạy trên cloud. Hai bên thường được đồng bộ (vd. Entra Connect) trong mô hình hybrid.</p></div>
+</div>
+<div class="diagram">
+<pre class="mermaid">
+flowchart LR
+  subgraph AD["Active Directory Domain Services (trên Domain Controller)"]
+    direction TB
+    DB[("Directory database<br/>users, groups, computers, GPO")]
+    KDC["KDC (Kerberos)"]
+    LDAPS["LDAP / LDAPS server"]
+    NTLMS["NTLM (legacy)"]
+    DB --- KDC
+    DB --- LDAPS
+    DB --- NTLMS
+  end
+  PC["💻 Laptop domain-joined"] -- "Kerberos (88)" --> KDC
+  APP["App HR (.NET)"] -- "LDAPS (636): tra nhóm, email" --> LDAPS
+  OLD["Ứng dụng cũ"] -- "NTLM" --> NTLMS
+  DNS["DNS"] -.-|"tìm DC (SRV record)"| PC
+</pre>
+<div class="caption">AD là một <b>sản phẩm</b> gồm nhiều dịch vụ; LDAP chỉ là <b>một trong các giao thức</b> để truy cập nó.</div>
+</div>
+
+<div class="compare" id="ldap-ad-entra"><span class="compare-title">Phân biệt dễ nhầm: LDAP vs Active Directory vs Microsoft Entra ID</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>LDAP</th><th>Active Directory (AD DS)</th><th>Microsoft Entra ID</th></tr></thead>
+<tbody>
+<tr><td>Loại</td><td><b>Giao thức</b> (một chuẩn RFC)</td><td><b>Sản phẩm</b> on-premises của Microsoft</td><td><b>Dịch vụ cloud</b> (IdP) của Microsoft</td></tr>
+<tr><td>Chạy ở đâu</td><td>Bất kỳ directory nào hỗ trợ: AD, OpenLDAP, 389 Directory Server…</td><td>Domain Controller trong mạng công ty</td><td>Hạ tầng cloud của Microsoft</td></tr>
+<tr><td>App nói chuyện bằng</td><td>—</td><td>LDAP, Kerberos, NTLM</td><td><b>OIDC, OAuth 2.0, SAML</b> (qua HTTPS)</td></tr>
+<tr><td>Có OU, GPO, domain join kiểu cũ?</td><td>—</td><td>Có</td><td>Không theo kiểu AD (quản lý thiết bị qua Intune/Entra join)</td></tr>
+<tr><td>Ví dụ dùng</td><td>App HR tra nhóm của An qua <code>ldaps://dc01…</code></td><td>Laptop của An đăng nhập domain <code>corp.company.com</code></td><td>An đăng nhập Microsoft 365, Teams bằng <code>an.nv@company.com</code></td></tr>
+</tbody></table></div>
+<p><b>Ví dụ nhầm thì hỏng gì:</b> một team định “chuyển app HR lên Entra ID” và giữ nguyên code LDAP bind. Không chạy được, vì Entra ID không phải AD trên cloud — app phải chuyển sang OIDC. (Microsoft có dịch vụ riêng là Entra Domain Services cho nhu cầu LDAP/Kerberos kiểu cũ trên cloud, nhưng đó là sản phẩm khác.)</p>
+<span class="rule">LDAP là ngôn ngữ; AD là tòa nhà nói được ngôn ngữ đó; Entra ID là tòa nhà khác trên cloud, nói OIDC/SAML.</span>
+</div>
+
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>LDAP và Active Directory là một.</span><span class="f-label">Thực tế</span><span>AD là sản phẩm directory + dịch vụ domain (Kerberos, GPO, DNS…); LDAP là một giao thức để truy cập AD và nhiều directory khác như OpenLDAP. “Công ty dùng LDAP” chưa nói được directory phía sau là gì.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Microsoft Entra ID là Active Directory chạy trên cloud, nên app LDAP cứ trỏ sang là chạy.</span><span class="f-label">Thực tế</span><span>Entra ID là IdP cloud nói OIDC/OAuth/SAML, mặc định không có endpoint LDAP cho app; app dùng LDAP bind phải chuyển sang OIDC (hoặc dùng sản phẩm riêng Entra Domain Services). Xem <a href="#ldap-ad-entra">so sánh</a> ở trên.</span></div>
+
+<div class="callout tip"><span class="callout-title">✅ Tự kiểm tra nhanh</span><ul>
+<li>Đồng nghiệp nói “công ty mình dùng LDAP”. Bạn hỏi lại câu gì để biết họ đang dùng sản phẩm directory nào?</li>
+<li>Vì sao filter <code>(cn=an.nv)</code> không tìm thấy An, còn <code>(sAMAccountName=an.nv)</code> thì có?</li>
+<li>Trong luồng “đăng nhập bằng LDAP”, bước nào thực sự kiểm tra mật khẩu: bind hay search?</li>
+</ul></div>
+
+<h2 id="quiz-bai">Quiz nhanh — Bài 5.1</h2>
+<div id="quiz"></div>
+
+</main>
+<script>
+window.QUIZ = [
+  { q: "App HR kiểu cũ đăng nhập theo 3 bước: bind bằng <code>svc-hr</code> → search <code>(sAMAccountName=an.nv)</code> → bind bằng DN của An + mật khẩu An gõ. An gõ đúng username nhưng <b>sai mật khẩu</b>. Bước nào báo lỗi?",
+    options: ["Bước 1 — bind bằng <code>svc-hr</code>", "Bước 2 — search không tìm thấy An", "Bước 3 — bind bằng DN của An thất bại vì sai mật khẩu", "Không bước nào lỗi, app phải tự so mật khẩu với thuộc tính <code>userPassword</code>"],
+    answer: 2,
+    why: ["Bước 1 dùng mật khẩu của tài khoản dịch vụ lấy từ vault, không liên quan mật khẩu An gõ.", "Username đúng nên search vẫn trả về DN của An; search không kiểm mật khẩu.", "“Kiểm tra mật khẩu bằng LDAP” chính là thử bind bằng DN + mật khẩu của người dùng; sai mật khẩu thì bind thất bại (invalidCredentials).", "AD không cho đọc mật khẩu ra để so; app không bao giờ được tự so mật khẩu, việc đó là của server qua bind."],
+    explain: "Bind = xưng danh (kiểm mật khẩu), search = tra cứu. Xem <a href='m05-1-ldap-ad.html#bind-vs-search'>bind vs search</a>." },
+  { q: "Bình nhập username <code>an.nv</code> và <b>để trống</b> ô mật khẩu. Code app search ra DN của An rồi bind với DN đó + chuỗi rỗng, và server trả về <i>success</i>. Chuyện gì đã xảy ra?", tricky: true,
+    options: ["Tài khoản của An chưa đặt mật khẩu nên mật khẩu rỗng là đúng", "Đây là “unauthenticated bind”: có DN nhưng mật khẩu rỗng, server coi như phiên ẩn danh và vẫn trả success; app phải chặn mật khẩu rỗng trước khi bind", "Server bị lỗi, bind rỗng luôn phải thất bại theo chuẩn", "Do dùng LDAPS nên bước kiểm mật khẩu bị bỏ qua"],
+    answer: 1,
+    why: ["Tài khoản domain của An có mật khẩu; success ở đây không phải vì mật khẩu rỗng “khớp”.", "RFC 4513 định nghĩa simple bind có tên mà không mật khẩu là unauthenticated bind; nhiều server (kể cả AD nếu chưa bật chặn) trả success nhưng không xác thực ai cả. App coi success là “đúng mật khẩu” sẽ cho Bình vào tài khoản An.", "RFC 4513 chỉ khuyến nghị server mặc định từ chối, không bảo đảm; thực tế nhiều server vẫn chấp nhận, nên trách nhiệm chặn nằm ở app.", "LDAPS chỉ mã hóa đường truyền, không thay đổi cách server xử lý bind."],
+    explain: "Bẫy nằm ở chỗ “bind thành công” không phải lúc nào cũng có nghĩa “mật khẩu đúng”. Luôn từ chối mật khẩu rỗng trước khi bind. Xem <a href='m05-1-ldap-ad.html#bind-vs-search'>bind vs search</a>." },
+  { q: "Code cần tìm entry của An theo <b>tên đăng nhập</b>. Filter nào tìm đúng An? (chọn nhiều)",
+    options: ["<code>(sAMAccountName=an.nv)</code>", "<code>(userPrincipalName=an.nv@corp.company.com)</code>", "<code>(cn=an.nv)</code>", "<code>(ou=an.nv)</code>"],
+    answer: [0, 1],
+    why: ["sAMAccountName là tên đăng nhập kiểu cũ của AD, giá trị của An là <code>an.nv</code>.", "UPN là tên đăng nhập dạng email của AD, giá trị của An là <code>an.nv@corp.company.com</code>.", "<code>cn</code> của An là “Nguyen Van An” (tên hiển thị), không phải tên đăng nhập, nên filter không ra gì.", "OU là thư mục chứa entry (vd. <code>OU=RnD</code>), không phải thuộc tính tên của người dùng."],
+    explain: "Một người có nhiều kiểu tên: DN, CN, OU, sAMAccountName, UPN. Xem <a href='m05-1-ldap-ad.html#ldap-names'>bảng phân biệt</a>." },
+  { q: "Thư viện LDAP của app được cấu hình StartTLS kiểu “thử bật TLS, lỗi thì tiếp tục không TLS”. Kẻ tấn công đứng giữa mạng chặn lệnh StartTLS. Điều gì xảy ra?",
+    options: ["Kết nối bị hủy, không có rủi ro", "App tiếp tục simple bind qua kết nối không mã hóa, mật khẩu <code>svc-hr</code> lộ dạng rõ", "Server tự chuyển sang LDAPS cổng 636", "TLS vẫn được bật vì server bắt buộc"],
+    answer: 1,
+    why: ["Chỉ đúng khi client <b>bắt buộc</b> StartTLS; cấu hình “thử rồi bỏ qua” thì kết nối không bị hủy.", "Đây là tấn công hạ cấp (downgrade): StartTLS thất bại, client vẫn gửi DN + mật khẩu qua cổng 389 dạng rõ.", "Server không tự đổi cổng; LDAPS là kết nối riêng mà client phải chủ động mở tới 636.", "Kẻ đứng giữa đã chặn lệnh nâng cấp nên kết nối chưa từng có TLS; server bắt buộc ở bước sau cũng không cứu được mật khẩu đã gửi."],
+    explain: "StartTLS chỉ an toàn khi bắt buộc (vd. <code>ldapsearch -ZZ</code>); hoặc dùng LDAPS. Xem <a href='m05-1-ldap-ad.html#ldap-tls'>LDAP vs LDAPS vs StartTLS</a>." },
+  { q: "Team định “chuyển app HR sang Entra ID” mà app đang kiểm mật khẩu bằng LDAP bind với AD. Lựa chọn nào khả thi? (chọn nhiều)",
+    options: ["Đổi địa chỉ LDAP sang <code>ldaps://login.microsoftonline.com:636</code>", "Chuyển app sang OIDC, đăng ký app trong Entra ID", "Dùng Microsoft Entra Domain Services (sản phẩm riêng cung cấp LDAP/Kerberos kiểu domain trên cloud)", "Giữ nguyên code, vì Entra Connect sẽ mở cổng LDAP trên cloud"],
+    answer: [1, 2],
+    why: ["Entra ID không cung cấp endpoint LDAP cho app; đó là địa chỉ đăng nhập web OIDC/SAML.", "Entra ID là IdP nói OIDC/OAuth/SAML, nên chuyển app sang OIDC là hướng chuẩn.", "Entra Domain Services là dịch vụ managed domain riêng, có LDAP — khả thi cho app cũ chưa sửa được, dù là sản phẩm khác Entra ID.", "Entra Connect chỉ đồng bộ danh tính từ AD lên Entra ID, không biến Entra ID thành LDAP server."],
+    explain: "Entra ID ≠ AD trên cloud. Xem <a href='m05-1-ldap-ad.html#ldap-ad-entra'>LDAP vs AD vs Entra ID</a>." }
+];
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="assets/pages.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M04 · Bài 4.2 · Assertion &amp; Response</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<main class="content">
+
+<div class="page-head">
+  <div class="breadcrumb"><a href="index.html">Lộ trình</a> / <a href="m04-saml.html">Module 04</a> / Bài 4.2</div>
+  <h1>Bài 4.2 — Assertion &amp; Response</h1>
+  <p class="lead">Mở “lá thư” SAML ra đọc: Assertion gồm những mục (statement) nào, vì sao Response (phong bì) khác Assertion (lá thư), và cách đọc từng dòng của một SAML Response và AuthnRequest thật.</p>
+  <div class="meta-row">
+    <span class="chip">⏱ ~15 phút</span>
+    <span class="chip">📘 <a href="m04-saml.html">Module 04 · SAML 2.0 &amp; Enterprise SSO</a></span>
+  </div>
+</div>
+
+<div class="terms"><span class="terms-title">📖 Thuật ngữ trong bài</span><dl>
+<dt>Assertion</dt><dd>“Lá thư” IdP ký, nói về người dùng: là ai, đăng nhập thế nào, có thuộc tính gì.</dd>
+<dt>Statement</dt><dd>Một “mục” trong assertion (mục đăng nhập, mục thuộc tính…).</dd>
+<dt>Response</dt><dd>“Phong bì” giao thức chứa assertion, có trạng thái thành công/thất bại và địa chỉ nhận.</dd>
+<dt>AuthnRequest</dt><dd>“Phiếu yêu cầu xác thực” SP gửi sang IdP qua trình duyệt.</dd>
+<dt>InResponseTo</dt><dd>Số phiếu của AuthnRequest mà Response này trả lời — SP dùng để đối chiếu.</dd>
+<dt>Subject</dt><dd>Người được nói tới trong assertion (ở đây là An), gồm NameID và cách xác nhận.</dd>
+<dt>Bearer</dt><dd>Kiểu “ai cầm giấy thì được coi là chủ giấy” — giống bearer token, nên lộ là nguy hiểm.</dd>
+<dt>EncryptedAssertion</dt><dd>Assertion đã được mã hóa bằng public key của SP, chỉ SP đọc được.</dd>
+</dl></div>
+
+<!-- ===================================================== -->
+<h2 id="assertion-statements">C. Thành phần của SAML Assertion <span class="badge must">Must</span></h2>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+<b>Assertion</b> (tuyên bố/xác nhận) là tờ giấy IdP ký. Trên đó có thể có nhiều “mục” (<b>statement</b>): mục “người này đã đăng nhập lúc mấy giờ, bằng cách nào”, mục “thông tin cá nhân: email, phòng ban”, và hiếm khi có mục “được phép làm việc X”.</div>
+<p>Một assertion luôn có phần “đầu thư”: <code>Issuer</code> (ai viết), <code>Signature</code> (chữ ký), <code>Subject</code> (nói về ai), <code>Conditions</code> (hiệu lực). Sau đó là một hoặc nhiều <b>statement</b> — phần “nội dung”. Có 3 loại:</p>
+<div class="compare" id="statement-types"><span class="compare-title">Phân biệt dễ nhầm: Authentication vs Attribute vs Authorization Decision statement</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>🔑 AuthnStatement</th><th>🏷️ AttributeStatement</th><th>⚖️ AuthzDecisionStatement</th></tr></thead>
+<tbody>
+<tr><td>Trả lời câu hỏi</td><td>Người này đăng nhập <b>lúc nào, bằng cách nào</b>?</td><td>Người này <b>có thông tin gì</b>?</td><td>Người này <b>có được làm X</b> trên tài nguyên Y không?</td></tr>
+<tr><td>Trường chính</td><td><code>AuthnInstant</code> (lúc đăng nhập), <code>AuthnContextClassRef</code> (cách đăng nhập), <code>SessionIndex</code> (mã phiên tại IdP)</td><td><code>Attribute Name="email"</code>, <code>displayName</code>, <code>groups</code>/<code>Role</code>…</td><td><code>Resource</code>, <code>Decision</code> (Permit/Deny/Indeterminate), <code>Action</code></td></tr>
+<tr><td>SP dùng để</td><td>Tạo session; kiểm tra có MFA không; lưu SessionIndex cho logout.</td><td>Tạo/cập nhật account, map nhóm → role.</td><td>— (hầu như không dùng)</td></tr>
+<tr><td>Mức phổ biến</td><td>Gần như luôn có — cốt lõi của SSO.</td><td>Rất phổ biến.</td><td><b>Hiếm</b>; SAML 2.0 đã “đóng băng” tính năng này, gợi ý dùng XACML nếu cần phân quyền phức tạp. Chỉ cần biết tên.</td></tr>
+<tr><td>Tương đương OIDC</td><td><code>auth_time</code>, <code>acr</code>, <code>amr</code></td><td><code>email</code>, <code>name</code>, <code>groups</code></td><td>Không có</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> Assertion Keycloak gửi cho Expense có AuthnStatement “An đăng nhập lúc 09:00:03 bằng mật khẩu qua TLS” và AttributeStatement “email = an.nv@company.com, groups = accounting”. Expense tạo session từ mục thứ nhất, và cấp quyền “duyệt chi phí” dựa vào <code>groups</code> ở mục thứ hai — <b>Expense tự quyết quyền</b>, không cần AuthzDecisionStatement.</p>
+<span class="rule">Authn = “đã vào bằng cửa nào”; Attribute = “là người thế nào”; AuthzDecision = “được làm gì” (gần như không ai dùng).</span>
+</div>
+<div class="callout tip"><span class="callout-title">💡 Liên hệ OIDC</span>
+AuthnStatement ≈ các claim <code>auth_time</code>, <code>acr</code>, <code>amr</code> trong ID token; AttributeStatement ≈ các claim như <code>email</code>, <code>name</code>, <code>groups</code>; NameID ≈ <code>sub</code>; Issuer ≈ <code>iss</code>; Audience ≈ <code>aud</code>; InResponseTo đóng vai trò tương tự <code>state</code>/<code>nonce</code> (<a href="m03-4-state-nonce-redirect.html#state-nonce">M03</a>).</div>
+
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>SP nên chờ IdP gửi AuthzDecisionStatement để biết người dùng được làm gì.</span><span class="f-label">Thực tế</span><span>AuthzDecisionStatement gần như không ai dùng. IdP chỉ cung cấp thông tin (attribute như <code>groups</code>); <b>SP tự quyết quyền</b> — vd. Expense map <code>groups=accounting</code> → quyền duyệt chi phí.</span></div>
+
+<!-- ===================================================== -->
+<h2 id="response-vs-assertion">Response vs Assertion <span class="badge must">Must</span></h2>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+<b>Response</b> là <b>phong bì</b> bưu điện: ghi địa chỉ người nhận, “đây là thư trả lời cho thư số _a1b2 của bạn”, và dấu “giao thành công/thất bại”. <b>Assertion</b> là <b>lá thư có chữ ký</b> bên trong, nói về người dùng. Phong bì có thể được niêm phong (ký Response), lá thư có thể được ký riêng (ký Assertion), hoặc cả hai. <i>Giới hạn của phép so sánh:</i> khác với phong bì thật, một Response có thể chứa nhiều “lá thư”, và chữ ký chỉ bảo vệ đúng phần nó trỏ tới.</div>
+<ul>
+<li><b>SAML Response</b> là <b>message giao thức</b> bao ngoài (“phong bì”). Nó trả lời cho một AuthnRequest, có <code>Status</code> (thành công/thất bại) và <code>Destination</code>.</li>
+<li><b>Assertion</b> là <b>nội dung tuyên bố</b> bên trong (“lá thư”) — nói về subject (người dùng).</li>
+<li>Một Response có thể chứa 0, 1 hoặc nhiều assertion (hoặc <code>EncryptedAssertion</code> — assertion đã mã hóa).</li>
+<li>Chữ ký có thể nằm ở Response, ở Assertion, hoặc cả hai — SP phải biết <b>chính xác phần nào được ký</b>.</li>
+</ul>
+
+<div class="diagram">
+<pre class="mermaid">
+flowchart TB
+  subgraph R["samlp:Response — message bao ngoài"]
+    direction TB
+    R1["ID, InResponseTo, Destination, IssueInstant, Version"]
+    R2["saml:Issuer"]
+    R3["ds:Signature (ký Response, tùy cấu hình)"]
+    R4["samlp:Status / StatusCode = Success"]
+    subgraph A["saml:Assertion — nội dung tuyên bố"]
+      direction TB
+      A1["ID, IssueInstant, Version"]
+      A2["saml:Issuer"]
+      A3["ds:Signature (ký Assertion)"]
+      A4["Subject: NameID + SubjectConfirmation<br/>(bearer, Recipient, NotOnOrAfter, InResponseTo)"]
+      A5["Conditions: NotBefore, NotOnOrAfter,<br/>AudienceRestriction/Audience"]
+      A6["AuthnStatement: AuthnInstant, SessionIndex,<br/>AuthnContextClassRef"]
+      A7["AttributeStatement: email, name, groups..."]
+    end
+  end
+  R1 --- R2 --- R3 --- R4 --- A
+  A1 --- A2 --- A3 --- A4 --- A5 --- A6 --- A7
+</pre>
+<div class="caption">Cấu trúc lồng nhau: Response (phong bì) chứa Assertion (lá thư). Cả hai đều có Issuer và có thể có chữ ký riêng.</div>
+</div>
+
+<div class="compare" id="response-assertion-compare"><span class="compare-title">Phân biệt dễ nhầm: Response vs Assertion</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Response (<code>samlp:Response</code>)</th><th>Assertion (<code>saml:Assertion</code>)</th></tr></thead>
+<tbody>
+<tr><td>Nói về</td><td><b>Cuộc trao đổi</b>: trả lời request nào, gửi đi đâu, thành công hay không.</td><td><b>Người dùng</b>: là ai, đăng nhập thế nào, dành cho ứng dụng nào, hiệu lực đến khi nào.</td></tr>
+<tr><td>Trường đặc trưng</td><td><code>InResponseTo</code>, <code>Destination</code>, <code>Status</code></td><td><code>Subject/NameID</code>, <code>Conditions</code>, <code>Audience</code>, các statement</td></tr>
+<tr><td>Namespace prefix thường thấy</td><td><code>samlp:</code> (protocol)</td><td><code>saml:</code> (assertion)</td></tr>
+<tr><td>Có thể thiếu bên kia?</td><td>Có — Response báo lỗi thường không chứa assertion nào.</td><td>Có thể nằm ngoài SAML Response — vd. được bọc trong token của <a href="m04-1-saml-components.html#ws-federation">WS-Federation</a>.</td></tr>
+<tr><td>Nhầm thì hỏng gì</td><td colspan="2">Code kiểm chữ ký trên Response nhưng đọc dữ liệu từ một Assertion không nằm trong phần được ký (hoặc ngược lại) → mở đường cho <a href="m04-4-security.html#xsw">XML Signature Wrapping</a>.</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> Expense gửi AuthnRequest có <code>IsPassive="true"</code> (“đừng hiện màn hình đăng nhập”) trong khi An chưa đăng nhập Keycloak. Keycloak trả một Response với <code>StatusCode</code> = <code>…:status:Responder</code> kèm sub-status <code>…:status:NoPassive</code> và <b>không có Assertion nào</b> — phong bì vẫn đến, nhưng bên trong không có lá thư. Khi đăng nhập thành công, phong bì chứa đúng 1 Assertion về An.</p>
+<span class="rule">Response = phong bì (samlp, “gửi cho ai, trả lời thư nào”); Assertion = lá thư (saml, “nói về ai”).</span>
+</div>
+
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>SAML Response và Assertion là một.</span><span class="f-label">Thực tế</span><span>Response là message giao thức bao ngoài (có Status, Destination, InResponseTo); Assertion là tuyên bố bên trong. Chữ ký có thể chỉ nằm ở một trong hai — nên SP phải biết chính xác phần nào được ký.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Response nào cũng chứa một Assertion.</span><span class="f-label">Thực tế</span><span>Response báo lỗi (vd. <code>NoPassive</code>, <code>AuthnFailed</code>) thường không có assertion nào. SP phải kiểm <code>Status</code> trước, không “cố đọc” NameID từ một response thất bại.</span></div>
+
+<h3 id="saml-response-example">Ví dụ SAML Response đầy đủ (rút gọn)</h3>
+<p>Đây là Response mà Keycloak POST về ACS của Expense sau khi An đăng nhập. Giá trị base64 và chữ ký được rút gọn bằng <code>...</code>.</p>
+<div class="callout info"><span class="callout-title">👀 Đọc khối XML này thế nào?</span>
+Khối dài, nhưng bạn chỉ cần dò theo các số <code>(1)</code>…<code>(13)</code> ở cuối dòng — mỗi số được giải thích trong <a href="#response-annotation">bảng chú giải</a> ngay dưới. Đọc theo 3 tầng:
+<ol>
+<li><b>Phong bì</b> (từ đầu tới <code>&lt;/samlp:Status&gt;</code>): số (1)–(5) — trả lời request nào, gửi tới đâu, ai gửi, thành công không.</li>
+<li><b>Chữ ký của Assertion</b> (khối <code>&lt;ds:Signature&gt;</code> thứ hai): chỉ cần nhìn số (6) — <code>Reference URI</code> trỏ tới ID nào. Các dòng thuật toán còn lại để thư viện lo.</li>
+<li><b>Nội dung lá thư</b>: số (7)–(13) — An là ai, nộp ở đâu, hiệu lực đến khi nào, cho ứng dụng nào, đăng nhập thế nào, thuộc tính gì.</li>
+</ol>
+Mẹo: so sánh giá trị ở (2) với <code>ID</code> của <a href="#authnrequest">AuthnRequest</a> bên dưới — chúng phải giống nhau.</div>
+<pre data-title="SAMLResponse (sau khi base64-decode)"><code class="language-xml">&lt;samlp:Response xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol"
+    xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion"
+    ID="_r8f2c1a0e5b7d4"                                       &lt;!-- (1) --&gt;
+    InResponseTo="_a1b2c3d4e5f60718"                           &lt;!-- (2) --&gt;
+    Destination="https://expense.example.com/saml/acs"         &lt;!-- (3) --&gt;
+    IssueInstant="2026-11-10T02:00:05Z" Version="2.0"&gt;
+  &lt;saml:Issuer&gt;https://sso.company.com/realms/corp&lt;/saml:Issuer&gt;   &lt;!-- (4) --&gt;
+  &lt;ds:Signature xmlns:ds="http://www.w3.org/2000/09/xmldsig#"&gt;...ký toàn bộ Response...&lt;/ds:Signature&gt;
+  &lt;samlp:Status&gt;
+    &lt;samlp:StatusCode Value="urn:oasis:names:tc:SAML:2.0:status:Success"/&gt;  &lt;!-- (5) --&gt;
+  &lt;/samlp:Status&gt;
+
+  &lt;saml:Assertion ID="_as9d8e7f6a5b4c3" IssueInstant="2026-11-10T02:00:05Z" Version="2.0"&gt;
+    &lt;saml:Issuer&gt;https://sso.company.com/realms/corp&lt;/saml:Issuer&gt;
+    &lt;ds:Signature xmlns:ds="http://www.w3.org/2000/09/xmldsig#"&gt;
+      &lt;ds:SignedInfo&gt;
+        &lt;ds:CanonicalizationMethod Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/&gt;
+        &lt;ds:SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#rsa-sha256"/&gt;
+        &lt;ds:Reference URI="#_as9d8e7f6a5b4c3"&gt;                &lt;!-- (6) trỏ tới ID của Assertion --&gt;
+          &lt;ds:Transforms&gt;
+            &lt;ds:Transform Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature"/&gt;
+            &lt;ds:Transform Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/&gt;
+          &lt;/ds:Transforms&gt;
+          &lt;ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/&gt;
+          &lt;ds:DigestValue&gt;q3Xk...=&lt;/ds:DigestValue&gt;
+        &lt;/ds:Reference&gt;
+      &lt;/ds:SignedInfo&gt;
+      &lt;ds:SignatureValue&gt;Yt5P...==&lt;/ds:SignatureValue&gt;
+      &lt;ds:KeyInfo&gt;&lt;ds:X509Data&gt;&lt;ds:X509Certificate&gt;MIIC...IdP...&lt;/ds:X509Certificate&gt;&lt;/ds:X509Data&gt;&lt;/ds:KeyInfo&gt;
+    &lt;/ds:Signature&gt;
+
+    &lt;saml:Subject&gt;
+      &lt;saml:NameID Format="urn:oasis:names:tc:SAML:2.0:nameid-format:persistent"&gt;
+        f3a9c2e1-7b44-4d0e-9a51-2c8e6b1d0a77                     &lt;!-- (7) --&gt;
+      &lt;/saml:NameID&gt;
+      &lt;saml:SubjectConfirmation Method="urn:oasis:names:tc:SAML:2.0:cm:bearer"&gt;  &lt;!-- (8) --&gt;
+        &lt;saml:SubjectConfirmationData
+            Recipient="https://expense.example.com/saml/acs"     &lt;!-- (9) --&gt;
+            NotOnOrAfter="2026-11-10T02:05:05Z"
+            InResponseTo="_a1b2c3d4e5f60718"/&gt;
+      &lt;/saml:SubjectConfirmation&gt;
+    &lt;/saml:Subject&gt;
+
+    &lt;saml:Conditions NotBefore="2026-11-10T01:59:35Z" NotOnOrAfter="2026-11-10T02:05:05Z"&gt;  &lt;!-- (10) --&gt;
+      &lt;saml:AudienceRestriction&gt;
+        &lt;saml:Audience&gt;https://expense.example.com/saml&lt;/saml:Audience&gt;   &lt;!-- (11) --&gt;
+      &lt;/saml:AudienceRestriction&gt;
+    &lt;/saml:Conditions&gt;
+
+    &lt;saml:AuthnStatement AuthnInstant="2026-11-10T02:00:03Z"
+        SessionIndex="_sess-4c1d9e"&gt;                              &lt;!-- (12) --&gt;
+      &lt;saml:AuthnContext&gt;
+        &lt;saml:AuthnContextClassRef&gt;urn:oasis:names:tc:SAML:2.0:ac:classes:PasswordProtectedTransport&lt;/saml:AuthnContextClassRef&gt;
+      &lt;/saml:AuthnContext&gt;
+    &lt;/saml:AuthnStatement&gt;
+
+    &lt;saml:AttributeStatement&gt;                                     &lt;!-- (13) --&gt;
+      &lt;saml:Attribute Name="email"&gt;&lt;saml:AttributeValue&gt;an.nv@company.com&lt;/saml:AttributeValue&gt;&lt;/saml:Attribute&gt;
+      &lt;saml:Attribute Name="displayName"&gt;&lt;saml:AttributeValue&gt;Nguyễn Văn An&lt;/saml:AttributeValue&gt;&lt;/saml:Attribute&gt;
+      &lt;saml:Attribute Name="groups"&gt;&lt;saml:AttributeValue&gt;accounting&lt;/saml:AttributeValue&gt;&lt;/saml:Attribute&gt;
+    &lt;/saml:AttributeStatement&gt;
+  &lt;/saml:Assertion&gt;
+&lt;/samlp:Response&gt;</code></pre>
+<p class="small muted">Các chú thích <code>&lt;!-- (n) --&gt;</code> đặt trong thẻ mở chỉ để minh họa — XML thật không cho phép comment trong thẻ. Thứ tự phần tử con tuân theo schema: trong Response là Issuer → Signature → Status → Assertion; trong Assertion là Issuer → Signature → Subject → Conditions → các Statement.</p>
+
+<h3 id="response-annotation">Chú giải từng trường (Deliverable 2)</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>#</th><th>Trường</th><th>Ý nghĩa</th><th>SP phải kiểm tra</th></tr></thead>
+<tbody>
+<tr><td>1</td><td><code>Response/@ID</code>, <code>IssueInstant</code>, <code>Version</code></td><td>ID duy nhất của message; thời điểm phát hành; luôn là <code>2.0</code>.</td><td>Version = 2.0; IssueInstant hợp lý (không quá cũ/tương lai).</td></tr>
+<tr><td>2</td><td><code>InResponseTo</code></td><td>ID của AuthnRequest mà response này trả lời.</td><td>SP-initiated: phải khớp ID request <b>do chính SP gửi, còn chờ</b>, gắn với phiên trình duyệt này; dùng xong xóa.</td></tr>
+<tr><td>3</td><td><code>Destination</code></td><td>URL mà IdP định gửi Response tới.</td><td>Bằng đúng URL ACS đang nhận.</td></tr>
+<tr><td>4</td><td><code>Issuer</code></td><td>Entity ID của IdP phát hành (có ở cả Response và Assertion).</td><td>Bằng entity ID IdP đã cấu hình; và certificate ký phải là cert <b>của IdP đó</b> trong metadata.</td></tr>
+<tr><td>5</td><td><code>Status/StatusCode</code></td><td>Kết quả xử lý. Lỗi thường gặp: <code>…:status:Requester</code>, <code>…:status:Responder</code>, kèm sub-status như <code>AuthnFailed</code>.</td><td>Chỉ tiếp tục khi <code>Success</code>.</td></tr>
+<tr><td>6</td><td><code>ds:Signature</code> + <code>Reference URI</code></td><td>Chữ ký XML; Reference trỏ tới ID của phần tử được ký.</td><td>Chữ ký hợp lệ bằng cert tin cậy; phần tử được ký <b>chính là</b> phần tử ứng dụng đọc dữ liệu (chống XSW); thuật toán mạnh (RSA-SHA256+, không SHA-1).</td></tr>
+<tr><td>7</td><td><code>Subject/NameID</code> (+ <code>Format</code>)</td><td>Định danh của An theo format thỏa thuận.</td><td>Dùng (Issuer + NameID persistent) làm khóa account; không tự động liên kết theo email chưa xác minh.</td></tr>
+<tr><td>8</td><td><code>SubjectConfirmation Method="…:cm:bearer"</code></td><td>“Ai cầm assertion này đều được coi là subject” — giống bearer token.</td><td>Phải có ít nhất một SubjectConfirmation bearer hợp lệ.</td></tr>
+<tr><td>9</td><td><code>SubjectConfirmationData</code>: <code>Recipient</code>, <code>NotOnOrAfter</code>, <code>InResponseTo</code></td><td>Giới hạn nơi nộp, hạn chót nộp, và request tương ứng.</td><td>Recipient = ACS; chưa quá NotOnOrAfter; InResponseTo khớp (nếu có).</td></tr>
+<tr><td>10</td><td><code>Conditions NotBefore / NotOnOrAfter</code></td><td>Cửa sổ hiệu lực của assertion.</td><td>Thời gian hiện tại nằm trong cửa sổ (± clock skew nhỏ).</td></tr>
+<tr><td>11</td><td><code>AudienceRestriction/Audience</code></td><td>Entity ID của SP được phép tiêu thụ.</td><td>Chứa entity ID của chính SP.</td></tr>
+<tr><td>12</td><td><code>AuthnStatement</code>: <code>AuthnInstant</code>, <code>SessionIndex</code>, <code>AuthnContextClassRef</code></td><td>Lúc đăng nhập; mã phiên tại IdP (dùng cho SLO); cách xác thực (ví dụ <code>PasswordProtectedTransport</code> = mật khẩu qua kênh TLS).</td><td>Nếu yêu cầu MFA/độ mạnh nhất định thì kiểm tra AuthnContext; nếu cần “đăng nhập gần đây” thì kiểm tra AuthnInstant. Lưu SessionIndex cho logout.</td></tr>
+<tr><td>13</td><td><code>AttributeStatement</code></td><td>Thuộc tính: email, tên, nhóm…</td><td>Chỉ dùng thuộc tính từ assertion đã được xác minh; map nhóm → role có kiểm soát.</td></tr>
+</tbody></table></div>
+
+<h3 id="signing-options">Ký Response, ký Assertion hay mã hóa Assertion?</h3>
+<p>Trong ví dụ trên, Keycloak ký <b>cả hai</b>. Khi cấu hình IdP/SP bạn sẽ gặp các tùy chọn kiểu “Sign documents”, “Sign assertions”, “Encrypt assertions”. Chúng bảo vệ những thứ khác nhau:</p>
+<div class="compare" id="signed-vs-encrypted"><span class="compare-title">Phân biệt dễ nhầm: Signed Response vs Signed Assertion vs Encrypted Assertion</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Signed Response</th><th>Signed Assertion</th><th>Encrypted Assertion</th></tr></thead>
+<tbody>
+<tr><td>Làm gì</td><td>IdP ký cả phong bì (<code>ds:Signature</code> ngay dưới <code>Response</code>).</td><td>IdP ký riêng lá thư (<code>ds:Signature</code> bên trong <code>Assertion</code>).</td><td>Assertion được mã hóa (XML Encryption), thay bằng <code>&lt;saml:EncryptedAssertion&gt;</code>.</td></tr>
+<tr><td>Dùng khóa nào</td><td>Private key của IdP (SP kiểm bằng cert IdP).</td><td>Private key của IdP (SP kiểm bằng cert IdP).</td><td><b>Public key của SP</b> (cert <code>use="encryption"</code> trong metadata SP); SP giải mã bằng private key của mình.</td></tr>
+<tr><td>Bảo vệ điều gì</td><td><b>Toàn vẹn + nguồn gốc</b> của Destination, InResponseTo, Status và mọi thứ bên trong.</td><td><b>Toàn vẹn + nguồn gốc</b> của dữ liệu người dùng (NameID, attribute, Audience…).</td><td><b>Bí mật</b>: trình duyệt, extension, log, proxy không đọc được nội dung.</td></tr>
+<tr><td>Không bảo vệ</td><td>Không giấu nội dung.</td><td>Không bảo vệ các trường của phong bì; không giấu nội dung.</td><td><b>Không</b> chứng minh IdP viết — ai có public key của SP (công khai) cũng mã hóa được. Vẫn cần chữ ký.</td></tr>
+<tr><td>Khi nào dùng</td><td>Khi SP/thư viện yêu cầu, hoặc muốn bảo vệ cả phong bì.</td><td>Mức tối thiểu nên có — nhiều SP bắt buộc (<code>WantAssertionsSigned="true"</code>).</td><td>Khi assertion chứa dữ liệu nhạy cảm, hoặc chính sách yêu cầu.</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> Kế toán muốn Keycloak gửi thêm attribute <code>salaryGrade</code> cho Expense. Nếu chỉ ký, An bật DevTools vẫn đọc được giá trị này (base64 không phải mã hóa). Bật <b>Encrypt assertions</b> thì trình duyệt chỉ thấy một khối mã hóa — nhưng Keycloak <b>vẫn phải ký</b> assertion (thường ký trước rồi mới mã hóa), nếu không kẻ xấu có thể tự tạo assertion giả và mã hóa bằng public key của Expense.</p>
+<span class="rule">Ký = “chứng minh ai viết, không ai sửa”. Mã hóa = “không ai khác đọc được”. Mã hóa không thay được chữ ký.</span>
+</div>
+
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Đã mã hóa assertion (EncryptedAssertion) thì không cần ký nữa.</span><span class="f-label">Thực tế</span><span>Mã hóa dùng public key của SP — ai cũng có, nên ai cũng tạo được assertion giả rồi mã hóa. Mã hóa chỉ giữ <b>bí mật</b>; chữ ký mới chứng minh <b>IdP viết</b>.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span><code>SAMLResponse</code> là chuỗi base64 khó đọc nên người dùng không xem được nội dung.</span><span class="f-label">Thực tế</span><span>Base64 chỉ là cách <b>mã hóa ký tự</b> (encode), không phải mã hóa bảo mật. An mở DevTools hay SAML tracer là thấy ngay NameID và mọi attribute. Muốn giấu thì phải bật Encrypt assertions.</span></div>
+
+<h3 id="authnrequest">Ví dụ AuthnRequest</h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+<b>AuthnRequest</b> (Authentication Request — yêu cầu xác thực) là “phiếu yêu cầu” SP đưa cho trình duyệt mang sang IdP: “Tôi là Expense, phiếu số _a1b2, nhờ xác thực người này rồi gửi kết quả về quầy …/saml/acs”. SP giữ lại cuống phiếu (ID) để lúc nhận kết quả đối chiếu.</div>
+<p>Đây là thứ SP gửi sang IdP (bước 2 của <a href="m04-3-flows-bindings.html#sp-initiated">SP-initiated</a>). Nó nhỏ hơn nhiều so với Response. <b>Cần nhìn 3 dòng:</b> <code>ID</code> (số phiếu), <code>AssertionConsumerServiceURL</code> (xin gửi kết quả về đâu) và <code>&lt;saml:Issuer&gt;</code> (SP nào hỏi). Chú giải ngay dưới khối XML.</p>
+<pre data-title="AuthnRequest (trước khi DEFLATE + base64)"><code class="language-xml">&lt;samlp:AuthnRequest xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol"
+    xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion"
+    ID="_a1b2c3d4e5f60718"
+    Version="2.0"
+    IssueInstant="2026-11-10T01:59:58Z"
+    Destination="https://sso.company.com/realms/corp/protocol/saml"
+    AssertionConsumerServiceURL="https://expense.example.com/saml/acs"
+    ProtocolBinding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST"&gt;
+  &lt;saml:Issuer&gt;https://expense.example.com/saml&lt;/saml:Issuer&gt;
+  &lt;samlp:NameIDPolicy Format="urn:oasis:names:tc:SAML:2.0:nameid-format:persistent" AllowCreate="true"/&gt;
+&lt;/samlp:AuthnRequest&gt;</code></pre>
+<ul>
+<li><code>ID</code>: SP <b>lưu lại</b> (gắn với phiên trình duyệt) để sau này so với <code>InResponseTo</code>.</li>
+<li><code>AssertionConsumerServiceURL</code> + <code>ProtocolBinding</code>: “hãy POST response về đây”. IdP phải đối chiếu với ACS đã đăng ký trong metadata, không tin mù quáng.</li>
+<li><code>Issuer</code>: entity ID của SP — IdP dùng để tìm cấu hình client tương ứng.</li>
+<li><code>NameIDPolicy</code>: SP xin loại NameID (ở đây persistent); <code>AllowCreate="true"</code> cho phép IdP tạo định danh mới nếu An chưa từng có NameID cho Expense.</li>
+<li>Tùy chọn: <code>ForceAuthn="true"</code> (bắt đăng nhập lại), <code>IsPassive="true"</code> (không được hiện UI), <code>RequestedAuthnContext</code> (yêu cầu mức xác thực, vd. MFA).</li>
+</ul>
+
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>IdP cứ gửi Response về đúng <code>AssertionConsumerServiceURL</code> ghi trong AuthnRequest.</span><span class="f-label">Thực tế</span><span>AuthnRequest đi qua trình duyệt nên có thể bị sửa (nhất là khi không ký). IdP phải đối chiếu URL này với ACS <b>đã đăng ký trong metadata SP</b>; nếu không, kẻ xấu đổi thành <code>https://evil.example/acs</code> để hút assertion của nạn nhân.</span></div>
+
+<div class="callout tip"><span class="callout-title">✅ Tự kiểm tra nhanh</span><ul>
+<li>Trong Response mẫu, trường nào thuộc phong bì, trường nào thuộc lá thư: <code>Destination</code>, <code>Audience</code>, <code>Status</code>, <code>NameID</code>?</li>
+<li>Bật mã hóa assertion rồi thì có bỏ chữ ký được không? Vì sao?</li>
+<li>Giá trị nào trong AuthnRequest phải xuất hiện lại trong Response?</li>
+</ul></div>
+
+<h2 id="quiz-bai">Quiz nhanh — Bài 4.2</h2>
+<div id="quiz"></div>
+
+</main>
+<script>
+window.QUIZ = [
+  { q: "Trong Response mẫu Keycloak gửi Expense, trường nào thuộc “phong bì” (<code>samlp:Response</code>) chứ không thuộc “lá thư” (Assertion)? (chọn nhiều)",
+    options: ["<code>Destination</code>", "<code>Status/StatusCode</code>", "<code>Audience</code>", "<code>NameID</code>"],
+    answer: [0, 1],
+    why: ["Destination là thuộc tính của thẻ Response — địa chỉ ghi trên phong bì.", "Status cho biết cả cuộc trao đổi thành công hay không — thuộc message giao thức bao ngoài.", "Audience nằm trong <code>Conditions/AudienceRestriction</code> của Assertion — nhầm vì nó cũng giống “địa chỉ nhận”.", "NameID nằm trong <code>Subject</code> của Assertion — nói về người dùng, là nội dung lá thư."],
+    explain: "Response nói về cuộc trao đổi (gửi đâu, trả lời request nào, thành công không); Assertion nói về người dùng. Xem <a href='m04-2-assertion.html#response-assertion-compare'>Response vs Assertion</a>." },
+  { q: "Để “tối ưu”, Expense bật <b>Encrypt assertions</b> nhưng tắt mọi chữ ký (không ký Response, không ký Assertion), vì nghĩ “chỉ Expense giải mã được thì chắc chắn là thật”. Certificate mã hóa của Expense nằm trong metadata SP công khai. Kẻ tấn công làm được gì?", tricky: true,
+    options: ["Không làm được gì, vì chỉ Expense có private key để giải mã", "Tự viết một assertion NameID = admin, mã hóa bằng public key của Expense rồi POST vào ACS — Expense giải mã thành công và không có gì chứng minh assertion không phải do IdP viết", "Giải mã assertion của người dùng khác để đọc attribute", "Phải giả được chữ ký của Keycloak thì mới tấn công được"],
+    answer: 1,
+    why: ["Private key của SP chỉ giúp <b>đọc</b>; nó không chứng minh ai là người <b>viết</b>. Giải mã thành công chỉ nói “được mã hóa cho tôi”.", "Mã hóa dùng public key của SP — ai cũng có. Không có chữ ký thì assertion giả mã hóa đúng cách trông y như thật.", "Giải mã cần private key của Expense, kẻ tấn công không có — đây là thứ mã hóa thực sự bảo vệ được.", "Không có chữ ký nào để giả cả; chính việc tắt chữ ký mới là lỗ hổng."],
+    explain: "Bẫy: “chỉ tôi giải mã được” nghe như “chỉ IdP viết được”. Mã hóa = bí mật, chữ ký = nguồn gốc; bật mã hóa vẫn phải ký. Xem <a href='m04-2-assertion.html#signed-vs-encrypted'>Signed vs Encrypted</a>." },
+  { q: "Expense gửi AuthnRequest có <code>IsPassive=\"true\"</code> trong khi An chưa có phiên đăng nhập ở Keycloak. Keycloak trả về gì?",
+    options: ["Response <code>Success</code> chứa một assertion ẩn danh", "Response có StatusCode <code>…:status:Responder</code> kèm sub-status <code>NoPassive</code>, không có assertion", "Trang đăng nhập để An nhập mật khẩu", "Không trả gì, trình duyệt dừng ở Keycloak"],
+    answer: 1,
+    why: ["SAML không có “assertion ẩn danh” cho trường hợp này; chưa xác thực thì không có gì để xác nhận.", "IsPassive cấm IdP hiện UI; không xác thực được mà không cần UI → trả lỗi NoPassive, phong bì rỗng.", "Hiện trang đăng nhập chính là điều <code>IsPassive=\"true\"</code> cấm (nhầm với <code>ForceAuthn</code> hoặc request bình thường).", "IdP vẫn phải trả một Response (báo lỗi) về ACS để SP biết kết quả."],
+    explain: "Response báo lỗi không chứa assertion — SP phải kiểm Status trước. Xem ví dụ ở <a href='m04-2-assertion.html#response-assertion-compare'>Response vs Assertion</a>." },
+  { q: "Expense chỉ cho duyệt khoản chi trên 50 triệu khi người dùng đăng nhập có MFA. Expense nên đọc thông tin này ở đâu trong assertion?",
+    options: ["<code>AuthnContextClassRef</code> trong AuthnStatement", "<code>AuthzDecisionStatement</code> do IdP quyết định", "Thuộc tính <code>Format</code> của NameID", "<code>SessionIndex</code> trong AuthnStatement"],
+    answer: 0,
+    why: ["AuthnContextClassRef cho biết người dùng đã xác thực bằng cách nào — tương đương <code>acr</code> của OIDC; SP kiểm nó (và có thể yêu cầu qua <code>RequestedAuthnContext</code>).", "AuthzDecisionStatement hầu như không được dùng; quyết định quyền là việc của Expense.", "Format chỉ nói loại định danh (persistent/transient/email), không nói về cách xác thực.", "SessionIndex là mã phiên tại IdP, dùng cho Single Logout, không chứa thông tin MFA."],
+    explain: "AuthnStatement trả lời “đăng nhập lúc nào, bằng cách nào”. Xem <a href='m04-2-assertion.html#statement-types'>3 loại statement</a> và dòng 12 của <a href='m04-2-assertion.html#response-annotation'>bảng chú giải</a>." },
+  { q: "Kẻ xấu chặn AuthnRequest (không ký) của Expense và sửa <code>AssertionConsumerServiceURL</code> thành <code>https://evil.example/acs</code>, rồi gửi link cho An. Một IdP cấu hình đúng sẽ làm gì?",
+    options: ["Gửi Response về <code>https://evil.example/acs</code> vì request ghi như vậy", "Đối chiếu với các ACS đã đăng ký trong metadata của Expense; không khớp → từ chối", "Gửi về evil nhưng mã hóa assertion nên vẫn an toàn", "Chấp nhận vì <code>Issuer</code> của request vẫn là entity ID của Expense"],
+    answer: 1,
+    why: ["Tin mù quáng URL trong request là cho kẻ xấu hút assertion của An về server hắn.", "ACS hợp lệ phải nằm trong metadata SP đã đăng ký — đây là kiểm tra phía IdP.", "Mã hóa chỉ giấu nội dung, không biến một endpoint lạ thành hợp lệ; IdP không được gửi credential của An tới nơi chưa đăng ký, dù có mã hóa hay không.", "Request không ký thì Issuer cũng do ai ghi cũng được; Issuer đúng không chứng minh URL đúng."],
+    explain: "IdP không tin URL trong AuthnRequest mà đối chiếu metadata. Xem <a href='m04-2-assertion.html#authnrequest'>AuthnRequest</a>." }
+];
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="assets/pages.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

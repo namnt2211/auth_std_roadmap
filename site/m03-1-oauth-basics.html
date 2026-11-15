@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M03 · Bài 3.1 · OAuth: vấn đề, vai trò &amp; thuật ngữ</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<main class="content">
+
+<div class="page-head">
+  <div class="breadcrumb"><a href="index.html">Lộ trình</a> / <a href="m03-oauth-oidc.html">Module 03</a> / Bài 3.1</div>
+  <h1>Bài 3.1 — OAuth: vấn đề, vai trò &amp; thuật ngữ</h1>
+  <p class="lead">Bài “bản đồ” của module: OAuth sinh ra để giải quyết vấn đề gì, có những <b>ai</b> tham gia (4 vai trò), họ nói chuyện với nhau qua <b>đường nào</b> (trình duyệt hay gọi thẳng server), và các thuật ngữ bạn sẽ gặp ở mọi bài sau. Chưa có HTTP request phức tạp — chỉ cần hiểu bức tranh.</p>
+  <div class="meta-row">
+    <span class="chip">⏱ ~25 phút</span>
+    <span class="chip">📘 <a href="m03-oauth-oidc.html">Module 03 · OAuth 2.0 / 2.1 &amp; OpenID Connect</a></span>
+  </div>
+</div>
+
+<div class="terms"><span class="terms-title">📖 Thuật ngữ trong bài</span><dl>
+<dt>OAuth 2.0</dt><dd>Chuẩn cho phép một app được dùng dữ liệu của bạn ở dịch vụ khác <b>mà không cần mật khẩu của bạn</b>.</dd>
+<dt>Delegated authorization</dt><dd>“Ủy quyền”: bạn cho phép app làm <b>một phần</b> việc thay bạn, trong thời gian giới hạn.</dd>
+<dt>Client</dt><dd>App xin quyền (vd. PrintNow). Chữ “client” ở đây không có nghĩa là “trình duyệt”.</dd>
+<dt>Authorization Server (AS)</dt><dd>Máy chủ cho bạn đăng nhập, hỏi bạn có đồng ý không, rồi phát token (vd. Keycloak).</dd>
+<dt>Resource Server (RS)</dt><dd>API giữ dữ liệu, kiểm tra token trước khi trả dữ liệu.</dd>
+<dt>Consent</dt><dd>Màn hình “App X muốn đọc ảnh của bạn — Cho phép / Từ chối?”.</dd>
+<dt>Scope</dt><dd>Danh sách quyền app xin, vd. <code>photos.read</code> (chỉ đọc ảnh).</dd>
+<dt>Authorization code</dt><dd>“Phiếu hẹn” dùng một lần, sống vài phút; app đổi nó lấy token.</dd>
+<dt>Access token</dt><dd>“Vé” app gửi kèm mỗi lần gọi API; sống ngắn, có phạm vi.</dd>
+<dt>Front-channel / Back-channel</dt><dd>Đi vòng qua trình duyệt (dễ bị nhìn thấy) / server gọi thẳng server (riêng tư).</dd>
+</dl></div>
+
+<!-- ===================================================== -->
+<h2 id="oauth-van-de">A. OAuth giải quyết vấn đề gì? <span class="badge must">Must</span></h2>
+
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>Bạn gửi xe ở khách sạn. Thay vì đưa cả chùm chìa khóa nhà + xe cho nhân viên, bạn đưa một <b>chìa khóa phụ chỉ nổ máy được</b>, không mở được cốp. OAuth chính là cách cấp “chìa khóa phụ” (access token) cho một app, thay vì đưa mật khẩu thật. <i>Giới hạn của phép so sánh:</i> chìa khóa OAuth còn tự <b>hết hạn</b> và có thể bị <b>thu hồi từ xa</b>.</div>
+
+<h3 id="password-anti-pattern">Password anti-pattern: “đưa mật khẩu cho app khác”</h3>
+<p>Trước OAuth, nếu PrintNow muốn đọc ảnh của An trên PhotoCloud, cách “dễ” nhất là hỏi thẳng: <i>“Nhập username/password PhotoCloud của bạn vào đây”</i>. PrintNow lưu mật khẩu đó và đăng nhập PhotoCloud thay An.</p>
+<p>Cách này gọi là <b>password anti-pattern</b> (anti-pattern = cách làm phổ biến nhưng sai). Nó có hàng loạt vấn đề:</p>
+<div class="grid cols-2">
+  <div class="card bad"><span class="icon">🔓</span><h4>Quyền vô hạn</h4><p>Có mật khẩu là làm được <b>mọi thứ</b>: xóa ảnh, đổi mật khẩu, đọc email… trong khi PrintNow chỉ cần “đọc album”.</p></div>
+  <div class="card bad"><span class="icon">⏳</span><h4>Không thu hồi riêng lẻ</h4><p>Muốn chặn PrintNow, An phải <b>đổi mật khẩu</b> — và mọi app khác dùng mật khẩu đó cũng hỏng theo.</p></div>
+  <div class="card bad"><span class="icon">💥</span><h4>Bề mặt tấn công lớn</h4><p>PrintNow bị hack → lộ mật khẩu gốc của An (và người dùng hay dùng lại mật khẩu ở nơi khác).</p></div>
+  <div class="card bad"><span class="icon">📵</span><h4>Phá vỡ MFA / SSO</h4><p>PhotoCloud bật MFA, passkey hay SSO doanh nghiệp thì app trung gian không thể “gõ hộ” được nữa; người dùng cũng được “dạy” nhập mật khẩu vào trang lạ (phishing).</p></div>
+</div>
+
+<p><b>OAuth 2.0</b> (RFC 6749) giải quyết bằng cách tách thành hai bước:</p>
+<ol>
+<li>An <b>đăng nhập và đồng ý (consent)</b> trực tiếp trên trang của PhotoCloud — không phải trên trang của PrintNow.</li>
+<li>PhotoCloud cấp cho PrintNow một <b>access token</b> — “chìa khóa phụ” chỉ mở được đúng phần được phép (<code>scope</code>), có <b>thời hạn</b>, và <b>thu hồi được</b> riêng lẻ.</li>
+</ol>
+<p>Kết quả: PrintNow <b>không bao giờ thấy mật khẩu</b> của An.</p>
+
+<div class="diagram">
+<pre class="mermaid">
+flowchart LR
+  subgraph Bad["❌ Password anti-pattern"]
+    direction TB
+    U1(("👤 An")) -- "mật khẩu PhotoCloud" --> P1["PrintNow<br/>(lưu mật khẩu)"]
+    P1 -- "đăng nhập bằng mật khẩu của An<br/>= toàn quyền" --> R1["PhotoCloud"]
+  end
+  subgraph Good["✅ OAuth 2.0"]
+    direction TB
+    U2(("👤 An")) -- "đăng nhập + đồng ý<br/>tại PhotoCloud" --> AS2["Authorization Server<br/>của PhotoCloud"]
+    AS2 -- "access token<br/>scope = photos.read" --> P2["PrintNow"]
+    P2 -- "Bearer token<br/>chỉ đọc ảnh" --> R2["PhotoCloud API"]
+  end
+</pre>
+<div class="caption">OAuth thay “đưa mật khẩu” bằng “cấp token có phạm vi, có hạn, thu hồi được”.</div>
+</div>
+
+<h3 id="authz-vs-authn">Authorization framework, không phải giao thức đăng nhập</h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>Thẻ ra vào tòa nhà (access token) cho biết “người cầm thẻ được vào tầng 5”, nhưng <b>không</b> cho lễ tân biết người cầm thẻ là ai — thẻ có thể được nhặt, được cho mượn. Muốn biết “ai đang đứng trước mặt” thì cần xem <b>CCCD</b> — đó là vai trò của ID token trong OIDC.</div>
+<p>OAuth 2.0 tự gọi mình là <b>authorization framework</b> (khung ủy quyền). Nó chỉ trả lời một câu hỏi: <i>“client X có được phép truy cập tài nguyên Y thay mặt người dùng không?”</i></p>
+<p>Access token là thông điệp gửi cho <b>API</b>, không phải cho client. Client thậm chí <b>không cần hiểu</b> nội dung access token — với client, token có thể “mờ” (opaque: một chuỗi không đọc được bên trong).</p>
+
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: Delegated authorization (OAuth) vs Authentication (OIDC)</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Delegated authorization — OAuth</th><th>Authentication — OIDC</th></tr></thead>
+<tbody>
+<tr><td>Câu hỏi trả lời</td><td>“App này <b>được làm gì</b> với dữ liệu của người dùng?”</td><td>“Người đang dùng app <b>là ai</b>, đăng nhập lúc nào, bằng cách nào?”</td></tr>
+<tr><td>Kết quả chính</td><td><b>Access token</b></td><td><b>ID token</b> (thêm vào kết quả của OAuth)</td></tr>
+<tr><td>Ai đọc kết quả</td><td><b>API</b> (Resource Server)</td><td><b>Client</b> (chính app của bạn)</td></tr>
+<tr><td>Câu mẫu</td><td>“PrintNow được <b>đọc ảnh</b> của An trong 1 giờ.”</td><td>“Người đang dùng app <b>là An</b> (<code>sub</code> = …), đăng nhập lúc 09:20 bằng passkey, tại OP X.”</td></tr>
+<tr><td>Nhầm thì hỏng gì</td><td colspan="2">Coi “có access token” = “đã đăng nhập” → dính lỗ hổng token substitution (xem cảnh báo dưới).</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> PrintNow chỉ cần in ảnh → OAuth là đủ (scope <code>photos.read</code>). Nhưng nếu PrintNow muốn có nút “Đăng nhập bằng PhotoCloud” để tạo tài khoản cho An → cần OIDC (thêm scope <code>openid</code>, nhận ID token). Chi tiết OIDC ở <a href="m03-5-oidc.html#oidc">Bài 3.5</a>.</p>
+<span class="rule">OAuth = chìa khóa (được mở cửa nào). OIDC = CCCD (bạn là ai). OIDC chạy <i>trên</i> OAuth, không thay thế nó.</span>
+</div>
+
+<div class="callout warn"><span class="callout-title">⚠️ Vì sao “đăng nhập bằng OAuth thuần” là sai</span>
+Nếu client coi “có access token” = “người dùng đã đăng nhập”, nó gặp các lỗ hổng kinh điển:
+<ul>
+<li>Token có thể được cấp cho <b>app khác</b> rồi bị đem sang (token substitution — client không kiểm tra được token dành cho ai).</li>
+<li>Không có cách chuẩn để biết <b>ai</b> đăng nhập, <b>khi nào</b>, bằng <b>phương thức gì</b>. Mỗi nhà cung cấp từng tự chế endpoint “/me” khác nhau.</li>
+</ul>
+<b>OpenID Connect</b> ra đời để chuẩn hóa phần này bằng <b>ID token</b> có <code>aud</code> = client_id của bạn (xem <a href="m03-5-oidc.html#oidc">mục OIDC</a>).</div>
+
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Có access token nghĩa là người dùng đã đăng nhập vào app của tôi.</span><span class="f-label">Thực tế</span><span>Access token là để <b>gọi API</b>; nó có thể được cấp cho app khác rồi bị đem tới app bạn. Đăng nhập cần <b>ID token</b> đã validate (<code>aud</code> = client_id của bạn, <code>nonce</code> khớp) — xem <a href="m03-5-oidc.html#oidc">Bài 3.5</a>.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Client cứ giải mã access token để lấy tên, email người dùng là xong.</span><span class="f-label">Thực tế</span><span>Access token viết cho <b>API</b> đọc, không phải cho client. Với client nó có thể là chuỗi opaque (vd. <code>2YotnFZFEjr1zCsicMWpAA</code>), và nếu là JWT thì định dạng/claim có thể đổi bất cứ lúc nào mà AS không cần báo. Muốn biết “ai” → dùng ID token / UserInfo của OIDC.</span></div>
+
+<!-- ===================================================== -->
+<h2 id="oauth-roles">B. Các role trong OAuth <span class="badge must">Must</span></h2>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>Bạn (<b>Resource Owner</b> — chủ tài nguyên) nhờ dịch vụ in ảnh (<b>Client</b>) lấy ảnh từ kho (<b>Resource Server</b> — máy chủ tài nguyên). Bảo vệ kho không tin lời dịch vụ in ảnh; họ chỉ tin <b>giấy ủy quyền</b> do <b>phòng cấp phép</b> (<b>Authorization Server</b> — máy chủ cấp quyền) phát hành sau khi chính bạn đến ký xác nhận.</div>
+<div class="table-wrap"><table>
+<thead><tr><th>Role</th><th>Ý nghĩa</th><th>Ví dụ PrintNow</th><th>Ví dụ Lab (Keycloak)</th></tr></thead>
+<tbody>
+<tr><td><b>Resource Owner</b></td><td>Thực thể có quyền cấp quyền truy cập tài nguyên; thường là người dùng cuối.</td><td>An (chủ album ảnh)</td><td>User test trong realm <code>demo</code></td></tr>
+<tr><td><b>Client</b></td><td>Ứng dụng yêu cầu quyền truy cập <i>thay mặt</i> resource owner (hoặc thay mặt chính nó).</td><td>PrintNow (web app có backend)</td><td><code>demo-client</code> (WPF), <code>worker</code> (service)</td></tr>
+<tr><td><b>Authorization Server (AS)</b></td><td>Xác thực người dùng, hỏi consent theo cấu hình, <b>phát hành token</b>.</td><td>Máy chủ OAuth của PhotoCloud</td><td>Keycloak realm <code>demo</code></td></tr>
+<tr><td><b>Resource Server (RS)</b></td><td>API bảo vệ tài nguyên, <b>kiểm tra access token</b> mỗi request.</td><td>PhotoCloud Photos API</td><td>ASP.NET Core <code>demo-api</code> (<a href="lab-2-api-jwt.html#lab2">Lab 2</a>)</td></tr>
+</tbody></table></div>
+<p>Lưu ý <b>user-agent</b> (trình duyệt) không phải một role nhưng là “đường ống” mang các redirect giữa client và AS — và là nơi nhiều tấn công xảy ra.</p>
+<div class="callout example"><span class="callout-title">🧪 Ví dụ: tìm 4 vai trò khi An bấm “In album Đà Lạt”</span>
+<ul>
+<li>An bấm nút trên PrintNow → <b>Client</b> (PrintNow) muốn đọc ảnh.</li>
+<li>Ảnh thuộc về An → An là <b>Resource Owner</b>.</li>
+<li>Trình duyệt chuyển An sang <code>auth.photocloud.example</code> để đăng nhập và bấm “Cho phép” → đó là <b>Authorization Server</b>.</li>
+<li>PrintNow gọi <code>api.photocloud.example/photos</code> kèm token → đó là <b>Resource Server</b>.</li>
+</ul>
+Mẹo: AS và RS thường của <b>cùng một công ty</b> (PhotoCloud) nhưng là <b>hai server khác nhau</b> với hai nhiệm vụ khác nhau: một bên <i>phát</i> vé, một bên <i>soát</i> vé.</div>
+
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Trình duyệt là “client” trong OAuth.</span><span class="f-label">Thực tế</span><span>Client là <b>ứng dụng</b> xin quyền (PrintNow, <code>demo-client</code>). Trình duyệt chỉ là <b>user-agent</b> — “người đưa thư” chở các redirect. Với web có backend như PrintNow, client là phần code chạy trên server, trình duyệt không giữ token.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>API (Resource Server) tự đăng nhập người dùng và phát token.</span><span class="f-label">Thực tế</span><span>Chỉ <b>Authorization Server</b> xác thực người dùng và phát token; API chỉ <b>kiểm tra</b> token. Ví dụ Lab: Keycloak phát, <code>demo-api</code> soát — <code>demo-api</code> không có trang đăng nhập nào.</span></div>
+
+<h3 id="nen-tang-flow">Năm ý nền tảng trước khi đọc bất kỳ sơ đồ OAuth nào</h3>
+<p>Mọi flow ở các bài sau đều ghép từ 5 ý dưới đây. Đọc kỹ đoạn này, các sơ đồ sẽ dễ hơn nhiều.</p>
+<ol>
+<li><b>Redirect (chuyển hướng):</b> server trả về <code>302</code> + <code>Location: &lt;URL khác&gt;</code>, trình duyệt <b>tự động</b> mở URL đó. Client dùng redirect để “gửi” An sang trang đăng nhập của AS; AS lại dùng redirect để “trả” An về client. Client và AS <b>không gọi nhau trực tiếp</b> ở bước này — trình duyệt làm người đưa thư.</li>
+<li><b>Consent (đồng ý):</b> sau khi An đăng nhập, AS hiện màn hình “PrintNow muốn: xem ảnh của bạn — Cho phép / Từ chối”. An bấm Cho phép thì AS mới cấp quyền. (Ứng dụng nội bộ doanh nghiệp thường tắt màn hình này vì admin đã đồng ý thay.)</li>
+<li><b>Scope (phạm vi):</b> danh sách quyền client xin, viết cách nhau bởi dấu cách, vd. <code>photos.read</code>. Màn hình consent hiển thị chính danh sách này. AS có thể cấp <b>ít hơn</b> số đã xin.</li>
+<li><b>Authorization code:</b> sau consent, AS <b>chưa</b> đưa token ngay mà redirect An về client kèm một mã ngắn <code>code=…</code> (dùng một lần, hết hạn sau vài phút). Code tự nó không gọi được API.</li>
+<li><b>Front-channel vs back-channel:</b> code đi qua trình duyệt (<b>front-channel</b> — có thể bị lộ qua lịch sử, log, extension). Sau đó client <b>gọi thẳng</b> AS (<b>back-channel</b> — server nói chuyện với server qua HTTPS, trình duyệt không thấy) để đổi code lấy access token. Nhờ vậy token không bao giờ nằm trên URL.</li>
+</ol>
+
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant RO as 👤 Resource Owner (An)
+  participant C as Client (PrintNow)
+  participant AZ as Authorization Server
+  participant RS as Resource Server (API)
+  C->>RO: Xin phép truy cập (qua redirect tới AS)
+  RO->>AZ: Đăng nhập + đồng ý cấp quyền
+  AZ-->>C: Authorization grant (vd. authorization code)
+  C->>AZ: Đổi grant lấy token
+  AZ-->>C: Access token (+ refresh token)
+  C->>RS: Gọi API kèm access token
+  RS-->>C: Tài nguyên được bảo vệ
+</pre>
+<div class="caption">“Abstract protocol flow” của OAuth 2.0: các flow cụ thể khác nhau ở cách lấy <i>grant</i> (bước 1–3). Bước 1–3 đi qua trình duyệt (front-channel), bước 4–5 là back-channel.</div>
+</div>
+
+<!-- ===================================================== -->
+<h2 id="thuat-ngu">C. Thuật ngữ, loại client và endpoint <span class="badge must">Must</span></h2>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span><b>Access token</b> ≈ thẻ ra vào tòa nhà có hạn dùng (vài phút đến 1 giờ). <b>Scope</b> ≈ danh sách tầng thẻ được mở. <b>Refresh token</b> ≈ giấy hẹn để đổi thẻ mới khi thẻ cũ hết hạn, chỉ đưa cho phòng cấp thẻ chứ không quẹt ở cửa. <b>client_id</b> ≈ tên công ty in trên đơn xin (công khai), <b>client_secret</b> ≈ con dấu của công ty (bí mật).</div>
+<p>Bảng dưới là “từ điển tra cứu” — bạn không cần nhớ ngay, các bài sau sẽ gặp lại từng tham số trong request thật.</p>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Tham số / thuật ngữ</th><th>Ý nghĩa</th><th>Ví dụ</th></tr></thead>
+<tbody>
+<tr><td><code>client_id</code></td><td>Định danh công khai của client tại AS. <b>Không phải bí mật.</b></td><td><code>demo-client</code></td></tr>
+<tr><td><code>client_secret</code></td><td>Bí mật dùng để <b>xác thực client</b> với token endpoint. Chỉ <b>confidential client</b> mới giữ được.</td><td>Chuỗi ngẫu nhiên do Keycloak sinh cho <code>worker</code></td></tr>
+<tr><td><code>redirect_uri</code></td><td>Địa chỉ của client nhận <b>authorization response</b> (code, state…). Phải đăng ký trước và so khớp chính xác.</td><td><code>http://127.0.0.1:7890/</code></td></tr>
+<tr><td><code>scope</code></td><td>Phạm vi quyền client yêu cầu, cách nhau bởi dấu cách. AS có thể cấp ít hơn yêu cầu.</td><td><code>openid profile orders.read</code></td></tr>
+<tr><td><code>state</code></td><td>Giá trị ngẫu nhiên client tạo, gửi trong request và nhận lại nguyên vẹn trong response → <b>correlation</b> (ghép đúng response với request) và <b>chống CSRF</b> ở redirect URI (<a href="m03-4-state-nonce-redirect.html#state-nonce">Bài 3.4</a>).</td><td><code>af0ifjsldkj</code></td></tr>
+<tr><td><code>nonce</code></td><td>(OIDC) Giá trị ngẫu nhiên gửi trong authentication request; OP chép vào <b>ID token</b> → liên kết ID token với đúng request, <b>chống replay</b> (dùng lại token cũ).</td><td><code>n-0S6_WzA2Mj</code></td></tr>
+<tr><td><code>response_type</code></td><td>Authorization endpoint trả về gì. Hiện đại: <code>code</code>. (Cũ: <code>token</code> = Implicit, <code>id_token</code>…)</td><td><code>code</code></td></tr>
+<tr><td><code>response_mode</code></td><td>Response được trả <b>bằng cách nào</b>: <code>query</code> (mặc định với code), <code>fragment</code>, <code>form_post</code> (POST form tự submit — tránh để tham số trên URL).</td><td><code>form_post</code></td></tr>
+<tr><td><code>grant_type</code></td><td>Loại grant khi gọi <b>token endpoint</b>.</td><td><code>authorization_code</code>, <code>refresh_token</code>, <code>client_credentials</code>, <code>urn:ietf:params:oauth:grant-type:device_code</code></td></tr>
+<tr><td><b>Authorization code</b></td><td>Mã dùng một lần, sống ngắn (RFC 6749 khuyến nghị tối đa 10 phút), client đổi lấy token qua kênh back-channel.</td><td><code>SplxlOBeZQQYbYS6WxSbIA</code></td></tr>
+<tr><td><b>Access token</b></td><td>Credential để gọi API; thường sống ngắn (vài phút–1 giờ). JWT hoặc opaque (<a href="m02-3-token-jwt.html#tokens">M02</a>).</td><td><code>eyJhbGciOi…</code></td></tr>
+<tr><td><b>Refresh token</b></td><td>Credential để xin access token mới mà không bắt người dùng đăng nhập lại; chỉ gửi tới AS, <b>không</b> gửi tới API.</td><td><code>grant_type=refresh_token</code></td></tr>
+</tbody></table></div>
+
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: Authorization code vs Access token</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Authorization code</th><th>Access token</th></tr></thead>
+<tbody>
+<tr><td>Mục đích</td><td>“Phiếu hẹn” để <b>đổi lấy</b> token</td><td>“Vé” để <b>gọi API</b></td></tr>
+<tr><td>Ai nhận, ai dùng</td><td>AS phát → đi qua trình duyệt → client gửi lại <b>chỉ cho AS</b> (token endpoint)</td><td>AS phát cho client → client gửi tới <b>API</b> (Resource Server)</td></tr>
+<tr><td>Đi qua kênh nào</td><td>Front-channel (URL callback)</td><td>Back-channel (response của token endpoint), rồi header <code>Authorization: Bearer</code></td></tr>
+<tr><td>Sống bao lâu</td><td>Vài giây–tối đa ~10 phút, <b>dùng đúng một lần</b></td><td>Vài phút–1 giờ, dùng nhiều lần đến khi hết hạn</td></tr>
+<tr><td>Nhầm thì hỏng gì</td><td colspan="2">Gửi code lên API → 401. Đưa token lên URL như code → token lộ qua history/log (đó chính là lỗi của Implicit grant).</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> callback <code>https://printnow.example/callback?code=SplxlOBeZQQYbYS6WxSbIA</code> chỉ chứa code. PrintNow backend POST code này tới <code>/token</code> và nhận về <code>"access_token": "2YotnFZFEjr1zCsicMWpAA"</code> — chuỗi này mới dùng để gọi <code>GET /photos</code>.</p>
+<span class="rule">Code = phiếu gửi xe (đổi một lần ở quầy). Token = chìa khóa xe (dùng để chạy).</span>
+</div>
+
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: Scope vs Permission / Role</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Scope (OAuth)</th><th>Permission / Role (của ứng dụng)</th></tr></thead>
+<tbody>
+<tr><td>Trả lời câu hỏi</td><td>“<b>App</b> này được người dùng cho phép làm loại việc gì?”</td><td>“<b>Người dùng</b> này được làm gì trong hệ thống?”</td></tr>
+<tr><td>Ai quyết định</td><td>Client xin, người dùng (hoặc admin) đồng ý, AS cấp</td><td>Admin/nghiệp vụ gán cho người dùng</td></tr>
+<tr><td>Độ chi tiết</td><td>Thô: <code>photos.read</code>, <code>orders.read</code></td><td>Có thể rất chi tiết: “chỉ sửa đơn của phòng mình”</td></tr>
+<tr><td>Nhầm thì hỏng gì</td><td colspan="2">Chỉ kiểm tra scope mà không kiểm tra quyền của user → An có token <code>orders.read</code> đọc được đơn của người khác (IDOR — <a href="m06-2-api-authz.html#idor-bola">M06</a>).</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> token của <code>demo-client</code> có scope <code>orders.read</code>. API vẫn phải kiểm tra thêm: user trong token có phải chủ đơn hàng / có role <code>manager</code> không. Quyền thực tế = <b>giao</b> của scope (app được phép) và permission (user được phép). Xem thêm <a href="m06-1-authz-models.html#authz-models">M06 — mô hình phân quyền</a>.</p>
+<span class="rule">Scope giới hạn <i>app</i>; role/permission giới hạn <i>người</i>. API phải kiểm tra cả hai.</span>
+</div>
+
+<h3 id="client-types">Public client vs Confidential client</h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span><b>Confidential client</b> (client giữ được bí mật) giống quầy giao dịch ngân hàng: chìa khóa két nằm sau quầy, khách không với tới. <b>Public client</b> (client công khai) giống tờ rơi phát cho mọi người: thứ gì in trên đó — kể cả “mật khẩu” — ai cầm tờ rơi cũng đọc được.</div>
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: Confidential client vs Public client</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>🏢 Confidential client</th><th>📱 Public client</th></tr></thead>
+<tbody>
+<tr><td>Code chạy ở đâu</td><td>Trên <b>server bạn kiểm soát</b></td><td>Trên <b>thiết bị người dùng</b> → ai cũng có thể giải nén/decompile/xem DevTools</td></tr>
+<tr><td>Giữ được bí mật?</td><td>Có: <code>client_secret</code>, <code>private_key_jwt</code>, mTLS certificate</td><td><b>Không</b></td></tr>
+<tr><td>AS xác thực client bằng</td><td>Secret / khóa riêng / certificate</td><td>Không xác thực được — dựa vào <b>PKCE</b> + redirect URI chính xác</td></tr>
+<tr><td>Ví dụ</td><td>ASP.NET Core MVC/Razor Pages, BFF (<a href="m07-1-design-web.html#bff">M07</a>), worker/daemon trên server (<code>worker</code>)</td><td>SPA trong browser (<a href="m07-1-design-web.html#spa">M07</a>), WPF/WinForms/console (<a href="m07-2-native-s2s.html#desktop">M07</a>), mobile app, CLI (<code>demo-client</code>)</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> PrintNow có backend → confidential, gửi <code>client_secret</code> khi đổi code. App WPF <code>demo-client</code> cài trên máy An → public, không có secret, thay bằng PKCE (<a href="m03-2-auth-code-pkce.html#auth-code-pkce">Bài 3.2</a>).</p>
+<span class="rule">Hỏi: “Người dùng có thể mở được file chứa code này không?” Có → public client.</span>
+</div>
+<div class="callout danger"><span class="callout-title">🚫 “Secret” nhúng trong app desktop/SPA không còn là secret</span>
+Một <code>client_secret</code> nằm trong file .exe/.dll (dù đã obfuscate) hay trong bundle JavaScript thì mọi người dùng đều có — kẻ tấn công trích xuất bằng ILSpy/dnSpy hoặc DevTools trong vài phút. Với public client, AS <b>không thể xác thực client</b>; thứ bảo vệ authorization code là <b>PKCE</b> + redirect URI chính xác.</div>
+
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Obfuscate thì giấu được client_secret trong WPF/SPA.</span><span class="f-label">Thực tế</span><span>Public client không giữ được bí mật: ILSpy/dnSpy hay DevTools lấy ra trong vài phút. Dùng Authorization Code + PKCE, không secret (hoặc BFF/backend giữ secret thay).</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>App chỉ chạy trong mạng nội bộ công ty thì là confidential client.</span><span class="f-label">Thực tế</span><span>Phân loại dựa vào <b>code chạy ở đâu</b>, không dựa vào mạng. App WPF nội bộ vẫn cài trên máy nhân viên → nhân viên nào cũng mở được file → <b>public</b>.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span><code>client_id</code> cũng phải giấu như mật khẩu.</span><span class="f-label">Thực tế</span><span><code>client_id</code> là định danh <b>công khai</b> — nó nằm ngay trên URL authorization request mà ai cũng thấy. Thứ cần giấu là <code>client_secret</code> / private key (chỉ confidential client có).</span></div>
+
+<h3 id="endpoints">Các endpoint chính</h3>
+<p>Endpoint = một URL trên server có nhiệm vụ riêng. Hai endpoint bạn gặp nhiều nhất là <b>authorization endpoint</b> (trình duyệt mở) và <b>token endpoint</b> (client gọi thẳng).</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Endpoint</th><th>Ai gọi, qua kênh nào</th><th>Dùng để</th><th>Keycloak (realm <code>demo</code>)</th></tr></thead>
+<tbody>
+<tr><td><b>Authorization endpoint</b></td><td>Browser (front-channel, redirect GET)</td><td>Người dùng đăng nhập/consent, AS trả <code>code</code></td><td><code>/realms/demo/protocol/openid-connect/auth</code></td></tr>
+<tr><td><b>Token endpoint</b></td><td>Client gọi trực tiếp (back-channel, POST form)</td><td>Đổi code / refresh token / client credentials lấy token</td><td><code>…/protocol/openid-connect/token</code></td></tr>
+<tr><td>Redirection endpoint</td><td>Thuộc <b>client</b></td><td>Nhận authorization response</td><td><code>http://127.0.0.1:7890/</code></td></tr>
+<tr><td>Device authorization endpoint</td><td>Thiết bị gọi trực tiếp</td><td>Bắt đầu Device flow</td><td><code>…/protocol/openid-connect/auth/device</code></td></tr>
+<tr><td>Introspection / Revocation</td><td>RS / client gọi trực tiếp</td><td>Hỏi token còn hiệu lực / thu hồi token (<a href="m02-4-token-lifecycle.html#introspection-revocation">M02</a>)</td><td><code>…/token/introspect</code>, <code>…/revoke</code></td></tr>
+<tr><td>UserInfo, JWKS, Discovery, End session</td><td colspan="2">Thuộc OIDC — xem <a href="m03-5-oidc.html#oidc">phần OIDC</a></td><td><code>…/userinfo</code>, <code>…/certs</code>, <code>/realms/demo/.well-known/openid-configuration</code>, <code>…/logout</code></td></tr>
+</tbody></table></div>
+
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: Authorization endpoint vs Token endpoint</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Authorization endpoint</th><th>Token endpoint</th></tr></thead>
+<tbody>
+<tr><td>Ai “gọi”</td><td><b>Trình duyệt</b> của người dùng (bị redirect tới)</td><td><b>Code của client</b> (backend, app desktop…) gọi bằng HTTP client</td></tr>
+<tr><td>Kiểu request</td><td><code>GET</code>, tham số trên URL</td><td><code>POST</code>, tham số trong body form</td></tr>
+<tr><td>Có giao diện?</td><td>Có: trang đăng nhập, MFA, consent</td><td>Không: chỉ trả JSON</td></tr>
+<tr><td>Trả về gì</td><td>Redirect về client kèm <code>code</code></td><td><code>access_token</code>, <code>refresh_token</code>, <code>id_token</code>…</td></tr>
+<tr><td>Kênh</td><td>Front-channel</td><td>Back-channel</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> mở <code>http://localhost:8080/realms/demo/protocol/openid-connect/auth?...</code> trên trình duyệt → thấy form đăng nhập Keycloak. Mở <code>…/token</code> trên trình duyệt → lỗi, vì endpoint này chỉ nhận POST từ code.</p>
+<span class="rule">Authorization endpoint = nơi <i>người</i> đến. Token endpoint = nơi <i>máy</i> đến.</span>
+</div>
+
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span><b>Front-channel</b> giống nhắn lời qua người đưa thư (trình duyệt) — có thể bị nhìn trộm. <b>Back-channel</b> giống gọi điện thẳng cho nhau qua đường dây riêng (TLS) — chỉ hai bên nghe.</div>
+<div class="callout info"><span class="callout-title">ℹ️ Front-channel vs back-channel</span>
+<b>Front-channel</b> (qua trình duyệt: URL, redirect) có thể bị lộ qua history, log, extension, Referer. <b>Back-channel</b> (client gọi thẳng AS qua TLS) an toàn hơn. Quy tắc thiết kế hiện đại: front-channel chỉ mang <b>code</b> ngắn hạn, dùng-một-lần; <b>token</b> chỉ đi qua back-channel.</div>
+
+<div class="callout tip"><span class="callout-title">✅ Tự kiểm tra nhanh</span><ul>
+<li>Trong ví dụ PrintNow/PhotoCloud, ai là Resource Server? Ai là Authorization Server?</li>
+<li>Vì sao AS trả về <code>code</code> qua trình duyệt rồi mới đổi lấy token, thay vì trả token luôn?</li>
+<li>App React chạy hoàn toàn trong trình duyệt là public hay confidential client? Vì sao?</li>
+</ul></div>
+
+<h2 id="quiz-bai">Quiz nhanh — Bài 3.1</h2>
+<div id="quiz"></div>
+
+</main>
+<script>
+window.QUIZ = [
+  { q: "PrintNow làm flow OAuth thuần (scope <code>photos.read</code>, không có <code>openid</code>) và nhận về một access token opaque. Dev muốn hiện “Xin chào, An” trên trang. Phát biểu nào đúng?", tricky: true,
+    options: ["Giải mã access token, đọc claim <code>name</code> là xong", "Có access token chứng tỏ An vừa đăng nhập vào PrintNow, chỉ cần lưu token làm phiên đăng nhập", "OAuth thuần không chuẩn hóa cách cho client biết ai đăng nhập; muốn biết “là ai” phải dùng OIDC (scope <code>openid</code>, ID token)", "Gọi lại token endpoint để hỏi tên người dùng"],
+    answer: 2,
+    why: ["Token opaque không có nội dung để đọc; kể cả là JWT thì access token viết cho API, client không nên dựa vào định dạng của nó.", "Access token chỉ nói “được làm gì”, không nói “ai vừa đăng nhập vào app nào”; token có thể được cấp cho app khác rồi đem sang (token substitution).", "OAuth là khung ủy quyền; phần “là ai” do OIDC chuẩn hóa bằng ID token có <code>aud</code> = client_id.", "Token endpoint chỉ phát token, không trả thông tin hồ sơ người dùng (đó là UserInfo của OIDC)."],
+    explain: "Bẫy: “có token” nghe như “đã đăng nhập”. Access token trả lời <i>được làm gì</i>, không trả lời <i>là ai</i>. Xem <a href='m03-1-oauth-basics.html#authz-vs-authn'>OAuth vs OIDC</a>." },
+  { q: "An bấm “In album Đà Lạt” trên PrintNow; trình duyệt chuyển sang <code>auth.photocloud.example</code>, sau đó PrintNow gọi <code>api.photocloud.example/photos</code>. Những phát biểu nào đúng?",
+    options: ["<code>api.photocloud.example</code> là Resource Server", "PrintNow là Resource Owner vì nó tạo đơn in", "<code>auth.photocloud.example</code> là Authorization Server", "Trình duyệt của An là Client"],
+    answer: [0, 2],
+    why: ["Đây là API giữ ảnh và kiểm tra access token trước khi trả dữ liệu.", "Ảnh thuộc về An nên An mới là Resource Owner; PrintNow là Client xin quyền.", "Đây là nơi An đăng nhập, bấm “Cho phép” và nơi phát token.", "Trình duyệt chỉ là user-agent chở redirect; Client là ứng dụng PrintNow."],
+    explain: "Một bên <i>phát</i> vé (AS), một bên <i>soát</i> vé (RS), dù cùng công ty. Xem <a href='m03-1-oauth-basics.html#oauth-roles'>các role</a>." },
+  { q: "Công ty có hai ứng dụng nội bộ: (1) SPA React chỉ truy cập được trong mạng LAN, (2) web ASP.NET Core MVC chạy trên server của công ty. Phân loại client nào đúng?",
+    options: ["Cả hai đều confidential vì chỉ chạy trong mạng nội bộ", "SPA là public client, MVC là confidential client", "Cả hai đều là public client vì người dùng mở bằng trình duyệt", "SPA là confidential nếu secret được đưa vào biến môi trường lúc build"],
+    answer: 1,
+    why: ["Mạng nội bộ không quyết định; câu hỏi là người dùng có đọc được code/secret không.", "Code SPA tải về trình duyệt nên ai cũng đọc được; code MVC chạy trên server công ty giữ được secret.", "Với MVC, trình duyệt chỉ nhận HTML; code đổi token và secret nằm trên server, nên nó là confidential.", "Biến môi trường lúc build bị nhúng thẳng vào bundle JavaScript; mở DevTools là thấy."],
+    explain: "Hỏi “người dùng có mở được file chứa code này không?”. Xem <a href='m03-1-oauth-basics.html#client-types'>Public vs Confidential</a>." },
+  { q: "Dev thử nhanh: copy giá trị <code>code</code> trên URL callback rồi gửi <code>Authorization: Bearer &lt;code&gt;</code> tới Photos API. Kết quả là gì?",
+    options: ["API trả dữ liệu vì code do chính AS phát", "API trả 401: code không phải access token, nó chỉ đổi được ở token endpoint", "API tự đổi code lấy token rồi trả dữ liệu", "AS khóa tài khoản của An"],
+    answer: 1,
+    why: ["Code là “phiếu hẹn”, không phải “vé”; API không chấp nhận nó như access token.", "Code chỉ có ý nghĩa với token endpoint của AS; API chỉ nhận access token hợp lệ.", "API không có nhiệm vụ đổi code; việc đó là của client (back-channel tới AS).", "Gửi sai loại credential tới API chỉ bị từ chối, không ảnh hưởng tài khoản người dùng."],
+    explain: "Code = phiếu gửi xe, token = chìa khóa xe. Xem <a href='m03-1-oauth-basics.html#thuat-ngu'>Code vs Access token</a>." },
+  { q: "Trong thiết kế OAuth hiện đại, những giá trị nào được phép đi qua <b>front-channel</b> (URL trên trình duyệt)?",
+    options: ["Authorization code", "<code>state</code>", "Access token", "<code>client_secret</code>"],
+    answer: [0, 1],
+    why: ["Code ngắn hạn, dùng một lần và (với PKCE) vô dụng nếu thiếu verifier, nên được đi qua trình duyệt.", "<code>state</code> được thiết kế để đi một vòng qua trình duyệt rồi quay lại cho client so khớp.", "Token trên URL lộ qua history, log, Referer — đó là lỗi của Implicit grant; token chỉ đi back-channel.", "Secret chỉ gửi từ server của confidential client tới token endpoint, không bao giờ qua trình duyệt."],
+    explain: "Front-channel chỉ mang thứ ngắn hạn, dùng một lần; token và secret đi back-channel. Xem <a href='m03-1-oauth-basics.html#endpoints'>endpoint &amp; kênh</a>." },
+  { q: "Token của An có scope <code>orders.read</code>. An gọi <code>GET /orders/1234</code> — đơn hàng của Bình. API nên làm gì?",
+    options: ["Trả 200 vì token có đúng scope <code>orders.read</code>", "Kiểm tra thêm quyền của người dùng (có phải chủ đơn / có role phù hợp); không có thì từ chối (403, hoặc 404 để không lộ đơn tồn tại)", "Trả 401 vì token không hợp lệ", "Yêu cầu AS cấp thêm scope cho An"],
+    answer: 1,
+    why: ["Scope chỉ giới hạn <i>app</i>; chỉ dựa vào scope là lỗ hổng IDOR.", "Quyền thực tế = scope (app được phép) giao với permission (người dùng được phép).", "Token vẫn hợp lệ — vấn đề là quyền trên đối tượng cụ thể, không phải xác thực thất bại.", "Scope không thay cho phân quyền theo dữ liệu; AS không biết đơn 1234 thuộc về ai."],
+    explain: "Scope giới hạn app, role/permission giới hạn người. Xem <a href='m06-2-api-authz.html#idor-bola'>M06 — IDOR</a>." }
+];
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="assets/pages.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

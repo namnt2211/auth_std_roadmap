@@ -7,18 +7,18 @@
 (function () {
   "use strict";
 
-  var PAGES = [
-    { file: "index.html", num: "⌂", title: "Tổng quan lộ trình", hours: "" },
-    { file: "m01-fundamentals.html", num: "01", title: "Identity & Authentication Fundamentals", hours: "Full 1h · Core 45′" },
-    { file: "m02-crypto-session-token.html", num: "02", title: "Cryptography, Session, Token & HTTP Auth", hours: "Full 2h · Core 1.5h" },
-    { file: "m03-oauth-oidc.html", num: "03", title: "OAuth 2.0 / 2.1 & OpenID Connect", hours: "Full 3h · Core 2.5h" },
-    { file: "lab.html", num: "LAB", title: "Hands-on OAuth/OIDC với ASP.NET Core", hours: "Full 2h · Core 1.5h" },
-    { file: "m04-saml.html", num: "04", title: "SAML 2.0 & Enterprise SSO", hours: "Full 1.5h · Core 45′" },
-    { file: "m05-enterprise-passwordless.html", num: "05", title: "Enterprise Auth & Passwordless", hours: "Full 1.5h · Core 45′" },
-    { file: "m06-authz-security.html", num: "06", title: "Authorization & Auth Security", hours: "Full 2h · Core 1.5h" },
-    { file: "m07-architecture.html", num: "07", title: "Architecture & Practical Cases", hours: "Full 2h · Core 45′" },
-    { file: "appendix.html", num: "+", title: "Phụ lục: .NET, tài liệu, rubric", hours: "" }
-  ];
+  // Module/lesson structure comes from assets/pages.js (window.AUTH_MODULES).
+  var MODULES = window.AUTH_MODULES || [];
+  var PAGES = [{ file: "index.html", num: "⌂", title: "Tổng quan lộ trình", kind: "home" }];
+  MODULES.forEach(function (m) {
+    m.overview = m.pages[0].file;
+    m.quiz = null;
+    m.pages.forEach(function (p) {
+      p.module = m;
+      if (p.kind === "quiz") m.quiz = p.file;
+      PAGES.push(p);
+    });
+  });
   window.AUTH_PAGES = PAGES;
 
   // ---------- safe storage ----------
@@ -30,6 +30,16 @@
 
   var current = (location.pathname.split("/").pop() || "index.html").toLowerCase();
   if (current === "") current = "index.html";
+  var currentPage = null;
+  PAGES.forEach(function (p) { if (p.file === current) currentPage = p; });
+  var currentModule = currentPage && currentPage.module ? currentPage.module : null;
+
+  // Quiz progress used to be stored under the single module page (now the overview page).
+  MODULES.forEach(function (m) {
+    if (!m.quiz) return;
+    var old = store.get("auth.quiz." + m.overview, null);
+    if (old && store.get("auth.quiz." + m.quiz, null) === null) store.set("auth.quiz." + m.quiz, old);
+  });
 
   // ---------- theme ----------
   var root = document.documentElement;
@@ -62,12 +72,24 @@
     var side = document.createElement("nav");
     side.className = "sidebar";
     side.setAttribute("aria-label", "Danh sách module");
-    var html = "<h4>Lộ trình</h4>";
-    PAGES.forEach(function (p) {
-      var active = p.file === current ? " active" : "";
-      var done = quizDone(p.file) ? '<span class="done-mark" title="Đã đạt quiz">✓</span>' : "";
-      html += '<a class="nav-item' + active + '" href="' + p.file + '"><span class="num">' + p.num + "</span><span>" +
-        p.title + (p.hours ? '<span class="hours">' + p.hours + "</span>" : "") + "</span>" + done + "</a>";
+    var html = "<h4>Lộ trình</h4>" +
+      '<a class="nav-item' + (current === "index.html" ? " active" : "") + '" href="index.html"><span class="num">⌂</span><span>Tổng quan lộ trình</span></a>';
+    MODULES.forEach(function (m) {
+      var open = m === currentModule;
+      var done = m.quiz && quizDone(m.quiz) ? '<span class="done-mark" title="Đã đạt quiz">✓</span>' : "";
+      html += '<a class="nav-item' + (open ? " active" : "") + '" href="' + m.overview + '"><span class="num">' + m.num + "</span><span>" +
+        m.title + (m.hours ? '<span class="hours">' + m.hours + " · " + m.pages.filter(function (p) { return p.kind === "lesson"; }).length + " bài</span>" : "") + "</span>" + done + "</a>";
+      if (open) {
+        html += '<div class="nav-sub">';
+        m.pages.forEach(function (p) {
+          var label = p.kind === "overview" && m.key !== "app" ? "Tổng quan module" : p.title;
+          html += '<a class="nav-subitem' + (p.file === current ? " active" : "") + (p.kind === "quiz" ? " quiz" : "") + '" href="' + p.file + '">' +
+            '<span class="snum">' + (p.kind === "quiz" ? "✎" : p.kind === "overview" && m.key !== "app" ? "•" : p.num) + "</span><span>" + label +
+            (p.mins ? '<span class="hours">~' + p.mins + " phút</span>" : "") + "</span>" +
+            (quizDone(p.file) ? '<span class="done-mark" title="Đã đạt quiz">✓</span>' : "") + "</a>";
+        });
+        html += "</div>";
+      }
     });
     side.innerHTML = html;
 
@@ -90,6 +112,7 @@
       renderMermaid();
     });
 
+    buildLessonStrip(main);
     buildToc(main, toc);
     buildPager(main);
     updateProgressPill();
@@ -130,6 +153,27 @@
     links.forEach(function (l) { obs.observe(l.h); });
   }
 
+  // Step strip under the page head: where am I inside this module?
+  function buildLessonStrip(main) {
+    if (!currentModule || currentModule.pages.length < 2) return;
+    var nav = document.createElement("nav");
+    nav.className = "lesson-strip";
+    nav.setAttribute("aria-label", "Các trang trong module");
+    var idx = currentModule.pages.indexOf(currentPage);
+    var h = "";
+    currentModule.pages.forEach(function (p, i) {
+      var label = p.kind === "overview" ? (currentModule.key === "app" ? p.num : "Tổng quan") : p.kind === "quiz" ? "Ôn tập & Quiz" : p.num;
+      var cls = "ls-step" + (i === idx ? " current" : i < idx ? " past" : "") + (p.kind === "quiz" ? " quiz" : "");
+      h += '<a class="' + cls + '" href="' + p.file + '" title="' + p.title.replace(/"/g, "&quot;") + '"' +
+        (i === idx ? ' aria-current="page"' : "") + ">" + label + "</a>";
+    });
+    nav.innerHTML = '<span class="ls-label">' + (currentModule.key === "app" ? "Phụ lục" : currentModule.key === "lab" ? "Lab" : "Module " + currentModule.num) +
+      " · " + (idx + 1) + "/" + currentModule.pages.length + "</span>" + h;
+    var head = main.querySelector(".page-head");
+    if (head) head.parentNode.insertBefore(nav, head.nextSibling);
+    else main.insertBefore(nav, main.firstChild);
+  }
+
   function buildPager(main) {
     var idx = -1;
     PAGES.forEach(function (p, i) { if (p.file === current) idx = i; });
@@ -137,9 +181,17 @@
     var pager = document.createElement("div");
     pager.className = "pager";
     var prev = PAGES[idx - 1], next = PAGES[idx + 1];
+    function label(p) {
+      var m = p.module;
+      if (!m) return p.title;
+      if (m.key === "app") return "Phụ lục " + p.num + " — " + p.title;
+      if (p.kind === "overview") return (m.key === "lab" ? "Lab" : "Module " + m.num) + " — " + m.title;
+      if (p.kind === "quiz") return (m.key === "lab" ? "Lab" : "Module " + m.num) + " — " + p.title;
+      return m.key === "lab" ? p.title : "Bài " + p.num + " — " + p.title;
+    }
     var h = "";
-    if (prev) h += '<a class="prev" href="' + prev.file + '"><span class="lbl">← Trước</span>' + prev.title + "</a>";
-    if (next) h += '<a class="next" href="' + next.file + '"><span class="lbl">Tiếp theo →</span>' + next.title + "</a>";
+    if (prev) h += '<a class="prev" href="' + prev.file + '"><span class="lbl">← Trước</span>' + label(prev) + "</a>";
+    if (next) h += '<a class="next" href="' + next.file + '"><span class="lbl">Tiếp theo →</span>' + label(next) + "</a>";
     pager.innerHTML = h;
     main.appendChild(pager);
   }
@@ -251,11 +303,13 @@
   }
 
   function renderQuiz() {
-    var host = document.getElementById("quiz");
+    // Older pages also carry id="quiz" on the <h2>, so pick the container <div>.
+    var host = document.querySelector("div#quiz") || document.getElementById("quiz");
     var data = window.QUIZ;
     if (!host || !data || !data.length) return;
     var saved = store.get(quizKey(current), { answers: {} });
     var state = saved.answers || {};
+    var isLesson = currentPage && currentPage.kind === "lesson";
 
     var head = document.createElement("div");
     head.className = "quiz-box";
@@ -264,7 +318,8 @@
       '<span class="btn-row" style="margin:0"><button class="btn ghost" id="quizCheckAll">Chấm tất cả</button>' +
       '<button class="btn ghost" id="quizReset">Làm lại</button></span></div>' +
       '<div class="quiz-bar"><span id="quizBar"></span></div>' +
-      '<p class="small muted">Chọn đáp án rồi bấm <b>Kiểm tra</b> để xem giải thích. Câu có ô vuông ☐ là câu <b>chọn nhiều đáp án</b>. Đạt ≥ 80% để đánh dấu hoàn thành module.</p>';
+      '<p class="small muted">Chọn đáp án rồi bấm <b>Kiểm tra</b>: mỗi lựa chọn sẽ hiện lý do <b>vì sao đúng / vì sao sai</b>. Câu có ô vuông ☐ là câu <b>chọn nhiều đáp án</b>; câu gắn nhãn <span class="q-tricky">🧠 Hack não</span> có bẫy, đọc kỹ từng chữ. Đạt ≥ 80% để đánh dấu hoàn thành ' +
+      (isLesson ? "bài" : "module") + ".</p>";
     host.appendChild(head);
 
     var qEls = [];
@@ -273,11 +328,16 @@
       var correct = multi ? item.answer : [item.answer];
       var el = document.createElement("div");
       el.className = "q";
+      // item.why (optional): one reason per option, shown after grading.
+      var why = Array.isArray(item.why) ? item.why : [];
       var opts = item.options.map(function (o, j) {
-        return '<label class="opt"><input type="' + (multi ? "checkbox" : "radio") + '" name="q' + i + '" value="' + j + '"><span>' + o + "</span></label>";
+        return '<label class="opt"><input type="' + (multi ? "checkbox" : "radio") + '" name="q' + i + '" value="' + j + '"><span>' + o +
+          (why[j] ? '<span class="why">' + why[j] + "</span>" : "") + "</span></label>";
       }).join("");
+      if (item.tricky) el.classList.add("tricky");
       el.innerHTML =
-        '<div class="q-text"><span class="q-num">' + (i + 1) + '.</span><span>' + item.q +
+        '<div class="q-text"><span class="q-num">' + (i + 1) + '.</span><span>' +
+        (item.tricky ? '<span class="q-tricky">🧠 Hack não</span> ' : "") + item.q +
         (multi ? '<span class="q-hint">(chọn nhiều đáp án)</span>' : "") + "</span></div>" + opts +
         '<div class="q-actions"><button class="btn" data-check>Kiểm tra</button></div>' +
         '<div class="explain"></div>';
@@ -328,6 +388,7 @@
         e.classList.remove("answered", "is-correct", "is-wrong");
         e.querySelectorAll("input").forEach(function (x) { x.checked = false; });
         e.querySelectorAll("label.opt").forEach(function (x) { x.classList.remove("correct", "wrong"); });
+        e.querySelector(".explain").innerHTML = "";
       });
       var prev = store.get(quizKey(current), {});
       store.set(quizKey(current), { answers: {}, passed: !!prev.passed, best: prev.best || 0 });
@@ -355,9 +416,9 @@
     var pill = document.getElementById("progressPill");
     if (!pill) return;
     var total = 0, done = 0;
-    PAGES.forEach(function (p) {
-      if (p.file === "index.html" || p.file === "appendix.html") return;
-      total++; if (quizDone(p.file)) done++;
+    MODULES.forEach(function (m) {
+      if (!m.quiz) return;
+      total++; if (quizDone(m.quiz)) done++;
     });
     pill.textContent = "Hoàn thành quiz: " + done + "/" + total;
   }

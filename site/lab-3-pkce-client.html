@@ -1,0 +1,428 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LAB · Lab 3 — Client Authorization Code + PKCE</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<main class="content">
+
+<div class="page-head">
+  <div class="breadcrumb"><a href="index.html">Lộ trình</a> / <a href="lab.html">Lab</a> / L3</div>
+  <h1>Lab 3 — Client Authorization Code + PKCE</h1>
+  <p class="lead">Bạn viết một console app để alice đăng nhập bằng trình duyệt thật (system browser), nhận <code>code</code> qua một “server tí hon” trên máy (loopback redirect), đổi lấy token và gọi API. Trên đường đi, bạn tự nhìn thấy <code>code_challenge</code>, <code>state</code>, <code>nonce</code> và so sánh ID token với access token bằng dữ liệu thật.</p>
+  <div class="meta-row">
+    <span class="chip">⏱ ~30 phút</span>
+    <span class="chip">📘 <a href="lab.html">Lab · Hands-on OAuth/OIDC với ASP.NET Core</a></span>
+  </div>
+</div>
+
+<div class="terms"><span class="terms-title">📖 Thuật ngữ trong bài</span><dl>
+<dt>System browser</dt><dd>Trình duyệt mặc định của máy (Edge, Chrome…), không phải khung web nhúng trong app. App không đọc được mật khẩu user gõ vào đó.</dd>
+<dt>Loopback redirect</dt><dd>Redirect URI trỏ về chính máy mình (<code>http://127.0.0.1:7890/</code>); app mở một listener ở cổng đó để “hứng” <code>code</code>.</dd>
+<dt>Authorization request</dt><dd>URL app mở trên trình duyệt tới <code>/auth</code> của Keycloak, chứa <code>client_id</code>, <code>scope</code>, <code>redirect_uri</code>, PKCE, <code>state</code>, <code>nonce</code>.</dd>
+<dt>Authorization code</dt><dd>Mã dùng một lần, sống rất ngắn, Keycloak trả về qua redirect; app đổi nó lấy token.</dd>
+<dt><code>code_verifier</code> / <code>code_challenge</code></dt><dd>Chuỗi bí mật ngẫu nhiên app giữ / hash SHA-256 của chuỗi đó gửi trước cho Keycloak (PKCE).</dd>
+<dt><code>state</code></dt><dd>Giá trị ngẫu nhiên app gửi đi và phải nhận lại y nguyên ở callback — chống giả mạo callback.</dd>
+<dt><code>nonce</code></dt><dd>Giá trị ngẫu nhiên app gửi đi và phải thấy lại trong ID token — gắn ID token với lần đăng nhập này.</dd>
+<dt>Front channel / back channel</dt><dd>Front = đi qua trình duyệt (URL, redirect — người khác có thể thấy). Back = app gọi thẳng server (token endpoint), trình duyệt không thấy.</dd>
+<dt>OidcClient</dt><dd>Thư viện <code>Duende.IdentityModel.OidcClient</code> lo phần sinh PKCE/state, dựng URL, đổi code lấy token.</dd>
+<dt>PAR</dt><dd>Pushed Authorization Requests: app POST tham số lên Keycloak trước, URL trên trình duyệt chỉ còn <code>request_uri</code>.</dd>
+</dl></div>
+
+<!-- ===================================================== -->
+<div class="lab-task" id="lab3-box">
+<div class="lab-head"><h3 id="lab3">Lab 3 — Client dùng Authorization Code + PKCE</h3><span class="badge must">Must</span><span class="chip">⏱ 30 phút</span></div>
+<div class="lab-body">
+
+<h4>(a) Mục tiêu</h4>
+<p>Viết một console app .NET (có thể chuyển sang WPF) đăng nhập alice qua <b>system browser</b> + <b>loopback redirect</b>, dùng thư viện <code>Duende.IdentityModel.OidcClient</code> (trước đây tên <code>IdentityModel.OidcClient</code>). Tự bắt và đọc từng gói tin của flow; so sánh ID token với access token; gọi API.</p>
+
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+<b>PKCE</b> giống xé đôi một tấm vé: app giữ nửa bí mật (<code>code_verifier</code>), chỉ gửi trước cho Keycloak “dấu vân tay” của nửa đó (<code>code_challenge</code> = SHA-256 của verifier). Khi đổi <code>code</code> lấy token, app phải đưa nửa vé thật ra; kẻ trộm chỉ nhặt được <code>code</code> trên đường redirect thì không có nửa vé nên không đổi được. <b>state</b> là “số thứ tự” để app biết phản hồi quay về đúng là của lần đăng nhập mình khởi tạo. <b>nonce</b> là “mã niêm phong” app gửi đi và phải thấy lại y nguyên bên trong ID token. <i>Giới hạn của phép so sánh:</i> verifier không bị “xé” thật — challenge là hash một chiều của nó.</div>
+
+<h4>(b) Yêu cầu / đề bài</h4>
+<ol>
+<li>Console app <code>DemoClient</code> mở trình duyệt mặc định, alice đăng nhập, app nhận <code>code</code> qua <code>http://127.0.0.1:7890/</code>, đổi lấy token.</li>
+<li>Ghi lại (bằng console log + DevTools/Fiddler): <b>authorization request</b> (<code>code_challenge</code>, <code>code_challenge_method</code>, <code>state</code>, <code>nonce</code>, <code>redirect_uri</code>, <code>scope</code>), <b>callback</b> (<code>code</code>, <code>state</code>), <b>token response</b>.</li>
+<li>Decode ID token và access token, điền bảng so sánh <code>aud</code>, <code>azp</code>, <code>nonce</code>, <code>scope</code>.</li>
+<li>Gọi <code>/me</code> và <code>/orders</code> của DemoApi bằng access token → cả hai 200.</li>
+<li><b>Nộp:</b> ghi chú/ảnh chụp request–response của Authorization Code + PKCE (<b>Deliverable 3, Core</b>) + source code client.</li>
+</ol>
+
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  actor U as alice
+  participant App as DemoClient (console)
+  participant L as Loopback listener 127.0.0.1:7890
+  participant B as System browser
+  participant KC as Keycloak realm demo
+  participant API as DemoApi :5005
+  App->>App: Sinh state, nonce, code_verifier<br/>code_challenge = BASE64URL(SHA256(verifier))
+  App->>L: Start listener
+  App->>B: Mở /auth?response_type=code&amp;client_id=demo-client<br/>&amp;redirect_uri=http://127.0.0.1:7890/&amp;scope=openid profile email orders.read<br/>&amp;code_challenge=...&amp;code_challenge_method=S256&amp;state=...&amp;nonce=...
+  B->>KC: GET /protocol/openid-connect/auth
+  KC-->>B: Trang đăng nhập
+  U->>B: Nhập username + password
+  B->>KC: POST form đăng nhập
+  KC-->>B: 302 Location http://127.0.0.1:7890/?state=...&amp;code=...
+  B->>L: GET /?state=...&amp;code=...
+  L-->>B: HTML - bạn có thể đóng tab
+  App->>App: So sánh state nhận về với state đã gửi
+  App->>KC: POST /token grant_type=authorization_code<br/>code, code_verifier, redirect_uri, client_id
+  KC->>KC: SHA256(code_verifier) khớp code_challenge?
+  KC-->>App: id_token, access_token, refresh_token
+  App->>App: Kiểm tra nonce trong ID token
+  App->>API: GET /orders + Authorization Bearer access_token
+  API-->>App: 200 order-1
+</pre>
+<div class="caption">Sequence thực tế của Lab 3 (loopback 127.0.0.1:7890). Bước 13 là “back channel”: browser không nhìn thấy token.</div>
+</div>
+
+<h4>(c) Hướng dẫn từng bước</h4>
+<ol class="steps">
+<li><b>Tạo project.</b>
+<pre data-title="Terminal (trong thư mục auth-lab)"><code class="language-bash">dotnet new console -n DemoClient
+cd DemoClient
+dotnet add package Duende.IdentityModel.OidcClient</code></pre>
+<ul><li><i>Vì sao dùng thư viện:</i> tự viết PKCE, kiểm tra <code>state</code>, đổi code… rất dễ sai một chi tiết nhỏ. OidcClient làm phần đó; bạn tập trung <b>quan sát</b>.</li>
+<li><i>Kiểm tra:</i> package phiên bản 7.x (tại thời điểm viết: 7.1.1 — code mẫu ghim đúng bản này). Nó kéo theo <code>Duende.IdentityModel</code>.</li></ul></li>
+
+<li><b>Hiểu 3 quyết định thiết kế trong code</b> trước khi dán:
+<ul>
+<li><b>Tách <code>PrepareLoginAsync</code> / <code>ProcessResponseAsync</code></b> thay vì <code>LoginAsync</code> + <code>IBrowser</code>: để <b>in ra URL authorization</b> và <b>URL callback</b> — đúng mục đích quan sát của lab. (Cách <code>LoginAsync</code> + <code>IBrowser</code> được ghi ở bước 5.)</li>
+<li><b><code>DisablePushedAuthorization = true</code>:</b> Keycloak quảng bá endpoint PAR (Pushed Authorization Requests) trong discovery, và OidcClient <b>tự động dùng PAR</b> nếu có. Khi đó URL trên browser chỉ còn <code>client_id</code> + <code>request_uri</code>, bạn sẽ không thấy <code>code_challenge</code>. Tắt PAR <b>chỉ để quan sát</b>; PAR là tính năng bảo mật tốt cho production.</li>
+<li><b>Tự gửi <code>nonce</code>:</b> OidcClient 7.x (đã kiểm tra mã nguồn) chỉ gửi <code>state</code> + PKCE, <b>không</b> tự gửi <code>nonce</code>. Ta thêm <code>nonce</code> qua tham số front-channel và tự kiểm tra trong ID token — để thấy cơ chế này hoạt động (<a href="m03-4-state-nonce-redirect.html#state-nonce">M03 — state &amp; nonce</a>).</li>
+</ul>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Desktop app nên dùng client secret cho “an toàn hơn”.</span><span class="f-label">Thực tế</span><span>Secret trong app cài trên máy người dùng không còn là bí mật (dịch ngược file <code>.exe</code> là thấy). Dùng public client + PKCE (<a href="m07-2-native-s2s.html#desktop">M07 — Desktop</a>).</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Lab tắt PAR vì PAR không an toàn hoặc Keycloak không hỗ trợ.</span><span class="f-label">Thực tế</span><span>Keycloak có hỗ trợ và PAR còn <b>an toàn hơn</b> (tham số không nằm trên URL). Lab tắt <b>chỉ để nhìn thấy</b> <code>code_challenge</code>, <code>state</code>… trên URL.</span></div></li>
+
+<li><b>Dán <code>Program.cs</code> và tạo thêm <code>Loopback.cs</code></b> (hai file, cùng thư mục <code>DemoClient</code>).
+<p>Code chạy theo đúng 7 bước đánh số trong comment, khớp với sequence diagram ở trên: (1) sinh <code>nonce</code> → (2) OidcClient sinh <code>state</code> + PKCE và dựng URL → (3) mở listener rồi mở trình duyệt → (4) nhận callback → (5) kiểm tra <code>state</code>, đổi code lấy token → (6) kiểm tra <code>nonce</code>, in bảng so sánh claim, lưu token ra file → (7) gọi API.</p>
+<pre data-title="DemoClient/Program.cs"><code class="language-csharp">using System.Diagnostics;
+using System.Net.Http.Headers;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using Duende.IdentityModel.Client;      // Parameters
+using Duende.IdentityModel.OidcClient;  // OidcClient, OidcClientOptions
+
+const string Authority   = "http://localhost:8080/realms/demo";
+const string RedirectUri = "http://127.0.0.1:7890/";   // PHẢI khớp tuyệt đối với Keycloak
+const string ApiBase     = "http://localhost:5005";
+
+var options = new OidcClientOptions
+{
+    Authority   = Authority,
+    ClientId    = "demo-client",                       // public client: KHÔNG có secret
+    RedirectUri = RedirectUri,
+    Scope       = "openid profile email orders.read",  // orders.read -&gt; aud demo-api
+    DisablePushedAuthorization = true,                  // [LAB] để thấy tham số trên URL
+    LoadProfile = false                                 // không gọi userinfo, giữ output gọn
+};
+// Ghi chú: mặc định OidcClient KHÔNG kiểm tra chữ ký ID token (Policy.RequireIdentityTokenSignature = false)
+// vì ID token nhận trực tiếp từ token endpoint. Production nên dùng HTTPS và cân nhắc gắn IdentityTokenValidator.
+var oidc = new OidcClient(options);
+
+// 1) nonce do ta tự sinh và gửi kèm
+var nonce = Base64Url(RandomNumberGenerator.GetBytes(16));
+var extra = new Parameters();
+extra.Add("nonce", nonce);
+
+// 2) Chuẩn bị: OidcClient sinh state + code_verifier + code_challenge và dựng URL
+var state = await oidc.PrepareLoginAsync(extra);
+if (state.IsError) { Console.WriteLine($"Lỗi chuẩn bị: {state.Error} {state.ErrorDescription}"); return; }
+
+Console.WriteLine("=== AUTHORIZATION REQUEST ===");
+Console.WriteLine(state.StartUrl);
+Console.WriteLine($"state         = {state.State}");
+Console.WriteLine($"code_verifier = {state.CodeVerifier}  (bí mật - KHÔNG nằm trong URL)");
+Console.WriteLine($"nonce         = {nonce}");
+
+// 3) Mở listener loopback TRƯỚC khi mở browser (lớp Loopback ở file Loopback.cs bên dưới).
+//    Gọi hàm là listener chạy ngay; ta giữ Task lại và await SAU khi đã mở browser.
+var waitForCallback = Loopback.WaitForCallbackAsync(new Uri(RedirectUri).Port);
+
+Process.Start(new ProcessStartInfo(state.StartUrl) { UseShellExecute = true });
+Console.WriteLine("\nĐã mở trình duyệt, đang chờ callback...");
+
+// 4) Nhận callback từ browser: phần "/?state=...&amp;code=..." của URL
+var callback = await waitForCallback;
+Console.WriteLine("\n=== CALLBACK ===");
+Console.WriteLine("http://127.0.0.1:7890" + callback);
+
+// 5) Kiểm tra state + đổi code lấy token (gửi code_verifier)
+var result = await oidc.ProcessResponseAsync(callback, state);
+if (result.IsError) { Console.WriteLine($"Lỗi: {result.Error} {result.ErrorDescription}"); return; }
+
+Console.WriteLine("\n=== TOKEN RESPONSE (raw) ===");
+Console.WriteLine(result.TokenResponse.Raw);
+
+// 6) Kiểm tra nonce bằng tay + so sánh claim
+var idPayload = DecodePayload(result.IdentityToken);
+var atPayload = DecodePayload(result.AccessToken);
+var nonceInToken = idPayload.TryGetProperty("nonce", out var n) ? n.GetString() : null;
+Console.WriteLine($"\nnonce khớp? {nonceInToken == nonce}");
+
+Console.WriteLine("\n=== SO SÁNH ===");
+foreach (var claim in new[] { "aud", "azp", "nonce", "scope", "typ", "sub", "iss" })
+    Console.WriteLine($"{claim,-6} | ID token: {Show(idPayload, claim),-40} | Access token: {Show(atPayload, claim)}");
+
+// Lưu token ra file để dùng ở Lab 2 (kịch bản 5) và Lab 4 (refresh). CHỈ LAB.
+Directory.CreateDirectory("tokens");
+File.WriteAllText("tokens/id_token.txt", result.IdentityToken);
+File.WriteAllText("tokens/access_token.txt", result.AccessToken);
+File.WriteAllText("tokens/refresh_token.txt", result.RefreshToken ?? "");
+
+// 7) Gọi API
+using var api = new HttpClient { BaseAddress = new Uri(ApiBase) };
+api.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", result.AccessToken);
+foreach (var path in new[] { "/me", "/orders" })
+{
+    var resp = await api.GetAsync(path);
+    Console.WriteLine($"\nGET {path} -&gt; {(int)resp.StatusCode} {resp.StatusCode}");
+    Console.WriteLine($"WWW-Authenticate: {resp.Headers.WwwAuthenticate}");
+    Console.WriteLine(await resp.Content.ReadAsStringAsync());
+}
+
+// ---------- helpers ----------
+static string Base64Url(byte[] bytes) =&gt;
+    Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+
+static JsonElement DecodePayload(string jwt)
+{
+    var p = jwt.Split('.')[1].Replace('-', '+').Replace('_', '/');
+    p = p.PadRight(p.Length + (4 - p.Length % 4) % 4, '=');
+    return JsonDocument.Parse(Convert.FromBase64String(p)).RootElement.Clone();
+}
+
+static string Show(JsonElement e, string name) =&gt;
+    e.TryGetProperty(name, out var v) ? v.ToString() : "(không có)";</code></pre>
+<p>Thêm file <code>Loopback.cs</code> cùng thư mục — một “web server” tí hon chỉ nghe <code>127.0.0.1:7890</code> để nhận đúng một callback:</p>
+<pre data-title="DemoClient/Loopback.cs"><code class="language-csharp">using System.Net;
+using System.Net.Sockets;
+using System.Text;
+
+// Vì sao TcpListener mà không phải HttpListener? Trên Windows, HttpListener chạy qua http.sys;
+// prefix http://127.0.0.1:port/ có thể bị "Access is denied" nếu chưa đăng ký URL ACL (netsh, cần admin).
+// TcpListener chỉ mở socket trên 127.0.0.1 -&gt; không cần quyền đặc biệt.
+public static class Loopback
+{
+    public static async Task&lt;string&gt; WaitForCallbackAsync(int port, CancellationToken ct = default)
+    {
+        var listener = new TcpListener(IPAddress.Loopback, port);
+        listener.Start();   // chạy ngay khi hàm được gọi (trước await đầu tiên)
+        try
+        {
+            while (true)
+            {
+                using var client = await listener.AcceptTcpClientAsync(ct);
+                try
+                {
+                    using var stream = client.GetStream();
+                    var reader = new StreamReader(stream, Encoding.ASCII);
+                    // Dòng đầu của HTTP request, ví dụ: "GET /?state=...&amp;code=... HTTP/1.1"
+                    var requestLine = await reader.ReadLineAsync(ct);
+                    while (!string.IsNullOrEmpty(await reader.ReadLineAsync(ct))) { } // bỏ qua các header
+
+                    var parts = requestLine?.Split(' ');
+                    var target = parts is { Length: &gt;= 2 } ? parts[1] : "";
+                    var isCallback = target.StartsWith("/?");
+
+                    var body = Encoding.UTF8.GetBytes(isCallback
+                        ? "&lt;html&gt;&lt;body&gt;&lt;h3&gt;Đăng nhập xong. Bạn có thể đóng tab này.&lt;/h3&gt;&lt;/body&gt;&lt;/html&gt;" : "");
+                    var head = Encoding.ASCII.GetBytes(
+                        $"HTTP/1.1 {(isCallback ? "200 OK" : "404 Not Found")}\r\n" +
+                        $"Content-Type: text/html; charset=utf-8\r\nContent-Length: {body.Length}\r\nConnection: close\r\n\r\n");
+                    await stream.WriteAsync(head, ct);
+                    await stream.WriteAsync(body, ct);
+
+                    if (isCallback) return target;   // request khác (favicon...) -&gt; 404, chờ tiếp
+                }
+                catch (IOException) { /* browser đóng kết nối sớm -&gt; bỏ qua, chờ request tiếp */ }
+            }
+        }
+        finally
+        {
+            listener.Stop();
+        }
+    }
+}</code></pre>
+</li>
+
+<li><b>Chạy.</b> Bật DemoApi (Lab 2) ở terminal khác, rồi:
+<pre data-title="Terminal"><code class="language-bash">dotnet run</code></pre>
+<ul>
+<li><i>Song song:</i> trước khi đăng nhập, mở DevTools (F12) trên tab browser vừa bật → tab <b>Network</b> → bật <b>Preserve log</b>. Tìm request <code>auth?...</code>, request POST đăng nhập, và response <b>302</b> có header <code>Location: http://127.0.0.1:7890/?state=...&amp;code=...</code>. Token request (bước 13) đi từ app, <b>không</b> hiện trong DevTools — muốn thấy thì dùng Fiddler, hoặc xem dòng “TOKEN RESPONSE” trong console.</li>
+<li><i>Kiểm tra:</i> console in ra 3 khối REQUEST / CALLBACK / TOKEN RESPONSE, <code>nonce khớp? True</code>, khối SO SÁNH, và 2 lời gọi API đều <code>200</code>. Tab trình duyệt hiện “Đăng nhập xong. Bạn có thể đóng tab này.”</li>
+<li><i>File token:</i> code ghi <code>tokens/id_token.txt</code>, <code>tokens/access_token.txt</code>, <code>tokens/refresh_token.txt</code> theo đường dẫn <b>tương đối với thư mục hiện tại</b> khi chạy. Trang này giả định bạn chạy <code>dotnet run</code> bên trong thư mục <code>DemoClient</code> — Lab 2 (kịch bản 5) và Lab 4 đọc file từ <code>../DemoClient/tokens/</code>.</li>
+</ul>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Mở DevTools là thấy hết, kể cả request đổi code lấy token.</span><span class="f-label">Thực tế</span><span>DevTools chỉ thấy những gì <b>trình duyệt</b> gửi (front channel). Lời gọi <code>POST /token</code> do app gửi (back channel) nên không có trong tab Network — xem dòng TOKEN RESPONSE trong console hoặc dùng Fiddler.</span></div></li>
+
+<li><b>(Tùy chọn) Chuyển sang <code>LoginAsync</code> + <code>IBrowser</code>.</b> Đây là cách “gọn” khi đưa vào WPF thật (xem <a href="m07-3-provisioning-wpf.html#wpf-example">M07 — ví dụ WPF</a>). <code>IBrowser</code> có một method <code>InvokeAsync(BrowserOptions options, CancellationToken)</code>, trả <code>BrowserResult</code> (namespace <code>Duende.IdentityModel.OidcClient.Browser</code>):
+<pre data-title="LoopbackBrowser.cs"><code class="language-csharp">using System.Diagnostics;
+using Duende.IdentityModel.OidcClient.Browser;
+
+public sealed class LoopbackBrowser : IBrowser
+{
+    public async Task&lt;BrowserResult&gt; InvokeAsync(BrowserOptions options, CancellationToken ct = default)
+    {
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(options.Timeout);                        // mặc định 5 phút
+
+        // Dùng lại Loopback.cs: listener bắt đầu nghe NGAY, trước khi mở browser
+        var wait = Loopback.WaitForCallbackAsync(new Uri(options.EndUrl).Port, cts.Token);
+        Process.Start(new ProcessStartInfo(options.StartUrl) { UseShellExecute = true });
+
+        try
+        {
+            var callback = await wait;                          // "/?state=...&amp;code=..."
+            return new BrowserResult { ResultType = BrowserResultType.Success, Response = callback };
+        }
+        catch (OperationCanceledException)
+        {
+            return new BrowserResult { ResultType = BrowserResultType.Timeout };
+        }
+    }
+}
+// Dùng: options.Browser = new LoopbackBrowser();  var result = await oidc.LoginAsync();
+// Nhớ: LoginAsync tự sinh state/PKCE; muốn gửi nonce dùng
+//   new LoginRequest { FrontChannelExtraParameters = new Parameters { { "nonce", nonce } } }.</code></pre>
+<p>Các tên API ở trên (<code>IBrowser.InvokeAsync</code>, <code>BrowserOptions.StartUrl/EndUrl/Timeout</code>, <code>BrowserResult</code>, <code>LoginRequest.FrontChannelExtraParameters</code>) đã đối chiếu với mã nguồn <a href="https://github.com/DuendeSoftware/foss/tree/main/identity-model-oidc-client" target="_blank" rel="noopener">DuendeSoftware/foss</a>; tài liệu sử dụng ở <a href="https://docs.duendesoftware.com/identitymodel-oidcclient/" target="_blank" rel="noopener">docs.duendesoftware.com</a>.</p>
+<p>Code mẫu đầy đủ của cách này nằm ở project <code>lab/DemoClientBrowser</code> (gồm <code>Program.cs</code>, <code>LoopbackBrowser.cs</code> và một bản sao <code>Loopback.cs</code>). Chạy từ thư mục <code>lab/</code>: <code>dotnet run --project DemoClientBrowser</code>.</p>
+<pre data-title="Console DemoClientBrowser (ví dụ)"><code class="language-plaintext">nonce khớp ✔
+Access token:
+eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICJwWDNr...</code></pre>
+<div class="compare" id="democlient-vs-browser"><span class="compare-title">Phân biệt dễ nhầm: DemoClient vs DemoClientBrowser</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th><code>DemoClient</code> (bắt buộc)</th><th><code>DemoClientBrowser</code> (tùy chọn)</th></tr></thead>
+<tbody>
+<tr><td>Cách gọi OidcClient</td><td><code>PrepareLoginAsync</code> → tự mở browser + listener → <code>ProcessResponseAsync</code></td><td>Một lời gọi <code>LoginAsync</code>; phần mở browser/nghe callback nằm trong <code>LoopbackBrowser : IBrowser</code></td></tr>
+<tr><td>Mục đích</td><td><b>Quan sát</b>: in URL authorization, <code>state</code>, <code>code_verifier</code>, URL callback, token response thô</td><td>Cho thấy kiểu code <b>gọn</b> sẽ dùng trong app thật (vd. WPF)</td></tr>
+<tr><td>Kiểm tra <code>state</code>, đổi code, PKCE</td><td>OidcClient làm (trong <code>ProcessResponseAsync</code>)</td><td>OidcClient làm (trong <code>LoginAsync</code>)</td></tr>
+<tr><td>Gửi &amp; kiểm tra <code>nonce</code></td><td>Có (tự sinh, tự so)</td><td>Có (qua <code>FrontChannelExtraParameters</code>)</td></tr>
+<tr><td>Bảng so sánh claim, gọi <code>/me</code>, <code>/orders</code></td><td>Có</td><td>Không — chỉ in “nonce khớp” và access token</td></tr>
+<tr><td>Ghi file <code>tokens/*.txt</code></td><td>Có (Lab 2 kịch bản 5 và Lab 4 cần)</td><td>Không</td></tr>
+<tr><td>Gọi userinfo endpoint</td><td>Không (<code>LoadProfile = false</code>)</td><td>Có thể có — không đặt <code>LoadProfile</code> nên dùng giá trị mặc định của OidcClient</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> muốn làm Deliverable 3 (chụp request–response) hoặc kịch bản 5 của Lab 2 → chạy <code>DemoClient</code>. Muốn biết code login sẽ trông thế nào khi gắn vào nút “Đăng nhập” của một app WPF → đọc <code>DemoClientBrowser</code>.</p>
+<span class="rule">DemoClient để học và quan sát; DemoClientBrowser để thấy cách viết gọn cho sản phẩm. Phần Authorization Code + PKCE trên dây giống nhau.</span>
+</div></li>
+</ol>
+
+<h4>(d) Kết quả mong đợi</h4>
+<pre data-title="Console (rút gọn, ví dụ)"><code class="language-plaintext">=== AUTHORIZATION REQUEST ===
+http://localhost:8080/realms/demo/protocol/openid-connect/auth?response_type=code&amp;state=Xq3...&amp;code_challenge=E9Mel...cM&amp;code_challenge_method=S256&amp;client_id=demo-client&amp;scope=openid%20profile%20email%20orders.read&amp;redirect_uri=http%3A%2F%2F127.0.0.1%3A7890%2F&amp;nonce=k2V...
+state         = Xq3...
+code_verifier = dBjf...k  (bí mật - KHÔNG nằm trong URL)
+nonce         = k2V...
+
+=== CALLBACK ===
+http://127.0.0.1:7890/?state=Xq3...&amp;session_state=...&amp;iss=http%3A%2F%2Flocalhost%3A8080%2Frealms%2Fdemo&amp;code=4f1e...
+
+=== TOKEN RESPONSE (raw) ===
+{"access_token":"eyJ...","expires_in":300,"refresh_expires_in":1800,"refresh_token":"eyJ...","token_type":"Bearer","id_token":"eyJ...","not-before-policy":0,"session_state":"...","scope":"openid profile email orders.read"}
+
+nonce khớp? True
+GET /me -&gt; 200 OK
+GET /orders -&gt; 200 OK  ["order-1"]</code></pre>
+<p>Callback có thể kèm <code>session_state</code> và <code>iss</code> (tham số issuer trong authorization response, RFC 9207) tùy phiên bản Keycloak.</p>
+<p><b>Cách đọc output trên:</b> URL ở khối REQUEST có <code>code_challenge</code> nhưng <b>không</b> có <code>code_verifier</code>; <code>state</code> ở CALLBACK trùng với <code>state</code> ở REQUEST; <code>code</code> chỉ xuất hiện ở CALLBACK; token chỉ xuất hiện ở TOKEN RESPONSE (back channel).</p>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span><code>code_challenge</code> lộ trên URL là lỗ hổng của PKCE.</span><span class="f-label">Thực tế</span><span>Challenge là SHA-256 một chiều của verifier, được thiết kế để công khai. Không suy ngược được verifier từ nó, nên kẻ nhặt được cả URL lẫn <code>code</code> vẫn không đổi được token.</span></div>
+
+<div class="compare" id="id-vs-access-real"><span class="compare-title">Phân biệt dễ nhầm: Access token vs ID token — nhìn bằng dữ liệu thật</span>
+<p>Khối <code>=== SO SÁNH ===</code> trong console in từng claim của hai token cạnh nhau, đại ý như sau (ví dụ, rút gọn):</p>
+<pre data-title="Console — khối SO SÁNH (ví dụ)"><code class="language-plaintext">aud    | ID token: demo-client                              | Access token: ["demo-api","account"]
+azp    | ID token: demo-client                              | Access token: demo-client
+nonce  | ID token: k2V...                                   | Access token: (không có)
+scope  | ID token: (không có)                               | Access token: openid profile email orders.read
+typ    | ID token: ID                                       | Access token: Bearer</code></pre>
+<div class="table-wrap"><table>
+<thead><tr><th>Claim</th><th>ID token</th><th>Access token</th><th>Giải thích</th></tr></thead>
+<tbody>
+<tr><td><code>aud</code></td><td><code>demo-client</code></td><td><code>["demo-api", "account"]</code> hoặc <code>"demo-api"</code></td><td>ID token dành cho <b>client</b>; access token dành cho <b>API</b> (nhờ Audience mapper).</td></tr>
+<tr><td><code>azp</code></td><td><code>demo-client</code></td><td><code>demo-client</code></td><td>“Authorized party” — client đã xin token. Giống nhau ở cả hai.</td></tr>
+<tr><td><code>nonce</code></td><td>= giá trị app gửi</td><td>(không có)</td><td>Từ Keycloak 25, <code>nonce</code> chỉ còn trong ID token.</td></tr>
+<tr><td><code>scope</code></td><td>(thường không có)</td><td><code>openid profile email orders.read</code></td><td>Scope là chuyện ủy quyền → nằm trong access token.</td></tr>
+<tr><td><code>typ</code> (claim riêng Keycloak)</td><td><code>ID</code></td><td><code>Bearer</code></td><td>Không phải header <code>typ</code> của JWT.</td></tr>
+<tr><td><code>sub</code>, <code>iss</code></td><td>giống nhau</td><td>giống nhau</td><td>Cùng user, cùng IdP. Khóa định danh user = <code>iss</code> + <code>sub</code> (<a href="m03-7-user-identity.html#iss-sub">M03</a>).</td></tr>
+<tr><td>Ai đọc</td><td>DemoClient (để biết ai vừa đăng nhập)</td><td>DemoApi (để quyết định cho gọi hay không)</td><td>Client <b>không</b> cần đọc access token; API <b>không</b> nhận ID token.</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> đem <code>tokens/id_token.txt</code> gọi <code>/me</code> → 401 “The audience 'demo-client' is invalid” (<a href="lab-2-api-jwt.html#lab2-s5">Lab 2 kịch bản 5</a>). Đem <code>tokens/access_token.txt</code> gọi <code>/me</code> → 200.</p>
+<span class="rule">ID token = biên nhận cho client (“ai đăng nhập”); access token = thẻ cho API (“được làm gì”). Nhìn <code>aud</code> là biết token dành cho ai.</span>
+</div>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Đã kiểm tra <code>state</code> rồi thì <code>nonce</code> thừa (hoặc ngược lại).</span><span class="f-label">Thực tế</span><span>Hai thứ kiểm ở hai chỗ khác nhau: <code>state</code> kiểm <b>callback</b> (trước khi đổi code), <code>nonce</code> kiểm <b>ID token</b> (sau khi nhận token). Và <code>nonce</code> chỉ nằm trong ID token — tìm trong access token sẽ không thấy.</span></div>
+
+<h4>(e) Lỗi thường gặp &amp; cách xử lý</h4>
+<div class="table-wrap"><table>
+<thead><tr><th>Hiện tượng</th><th>Nguyên nhân</th><th>Cách xử lý</th></tr></thead>
+<tbody>
+<tr><td>Trang Keycloak báo <b>Invalid parameter: redirect_uri</b></td><td>Redirect URI không khớp tuyệt đối (thiếu <code>/</code>, dùng <code>localhost</code> thay <code>127.0.0.1</code>, sai cổng).</td><td>Sửa cho giống hệt trong client <code>demo-client</code>.</td></tr>
+<tr><td>Keycloak báo thiếu <code>code_challenge</code> / PKCE</td><td>Client đặt PKCE S256 nhưng app không gửi (ví dụ tự viết flow bằng tay).</td><td>Dùng OidcClient hoặc gửi đủ <code>code_challenge</code> + <code>code_challenge_method=S256</code>.</td></tr>
+<tr><td><code>HttpListenerException: Access is denied</code> (nếu bạn tự viết lại bằng <code>HttpListener</code>)</td><td>HttpListener dùng http.sys; prefix <code>127.0.0.1</code> có thể cần đăng ký URL ACL.</td><td>Dùng <code>Loopback.cs</code> (TcpListener) như trang này, hoặc chạy (admin) một lần <code>netsh http add urlacl url=http://127.0.0.1:7890/ user=%USERNAME%</code>.</td></tr>
+<tr><td><code>SocketException</code> “Only one usage of each socket address…” / cổng 7890 bị chiếm</td><td>Lần chạy trước chưa thoát hoặc app khác dùng cổng.</td><td>Tắt process cũ; hoặc đổi cổng ở cả code và Keycloak.</td></tr><tr><td>URL chỉ có <code>request_uri=urn:...</code></td><td>OidcClient dùng PAR.</td><td>Đặt <code>DisablePushedAuthorization = true</code> (chỉ để quan sát).</td></tr>
+<tr><td><code>invalid_grant</code> “Code not valid” khi đổi token</td><td>Code đã dùng rồi / hết hạn (rất ngắn) / gửi sai <code>redirect_uri</code>.</td><td>Đăng nhập lại; không đổi code hai lần.</td></tr>
+<tr><td><code>invalid_grant</code> “PKCE verification failed”</td><td><code>code_verifier</code> không khớp challenge.</td><td>Dùng đúng đối tượng <code>state</code> của lần PrepareLogin tương ứng.</td></tr>
+<tr><td>GET /orders → 401 audience</td><td>Quên <code>orders.read</code> trong <code>Scope</code>.</td><td>Thêm scope.</td></tr>
+</tbody></table></div>
+
+<div class="callout example"><span class="callout-title">💡 Nếu dùng Microsoft Entra ID: MSAL.NET</span>
+Với Entra ID, thư viện chuẩn cho desktop là <b>MSAL.NET</b> (<code>Microsoft.Identity.Client</code>): <code>PublicClientApplicationBuilder.Create(clientId).WithAuthority(...).WithRedirectUri("http://localhost").Build()</code> rồi <code>AcquireTokenInteractive(scopes)</code>. MSAL tự lo PKCE, state, loopback, cache và refresh. Khác biệt cần nhớ: scope của API có dạng <code>api://&lt;app-id&gt;/orders.read</code>, claim scope trong token là <b><code>scp</code></b> (không phải <code>scope</code>) — nên policy của API phải đọc <code>scp</code>, và nếu để <code>MapInboundClaims</code> mặc định thì <code>scp</code> bị đổi tên (xem kịch bản 6).</div>
+
+<h4>(f) Câu hỏi tự kiểm tra</h4>
+<details><summary>Vì sao <code>code_verifier</code> không bao giờ xuất hiện trên URL?</summary><p>URL đi qua browser, lịch sử, log proxy, có thể bị app khác chặn redirect. Chỉ <code>code_challenge</code> (hash một chiều) đi qua front channel; verifier chỉ đi qua back channel (POST tới token endpoint). Kẻ trộm <code>code</code> không có verifier thì không đổi được token.</p></details>
+<details><summary><code>state</code> và <code>nonce</code> chống lại điều gì, khác nhau ra sao?</summary><p><code>state</code> gắn callback với request đã gửi → chống CSRF/login injection ở redirect (client kiểm tra trước khi đổi code). <code>nonce</code> nằm trong ID token → chống replay ID token, gắn token với phiên đăng nhập của client (kiểm tra sau khi nhận token).</p></details>
+<details><summary>Vì sao không cần <code>client_secret</code> khi đổi code?</summary><p><code>demo-client</code> là public client; PKCE đóng vai “bằng chứng” rằng bên đổi code là bên đã khởi tạo flow.</p></details>
+
+</div></div>
+
+<h2 id="quiz-bai">Quiz nhanh — Lab 3</h2>
+<div id="quiz"></div>
+
+</main>
+<script>
+window.QUIZ = [
+  { q: "Bạn mở DevTools → Network (Preserve log) trong lúc alice đăng nhập. Những gì bạn <b>thấy được</b> ở đó?",
+    options: ["Request <code>auth?...</code> có <code>code_challenge</code> và <code>state</code>", "Response 302 có <code>Location: http://127.0.0.1:7890/?state=...&amp;code=...</code>", "Request <code>POST /token</code> chứa <code>code_verifier</code>", "Response chứa <code>access_token</code>"],
+    answer: [0, 1],
+    why: ["Authorization request do trình duyệt mở nên nằm trong tab Network, kèm đủ tham số (vì lab tắt PAR).", "Redirect về loopback là phản hồi gửi cho trình duyệt nên DevTools ghi lại được, cả <code>code</code> lẫn <code>state</code>.", "Đổi code lấy token do DemoClient gọi thẳng Keycloak (back channel); trình duyệt không tham gia nên DevTools không thấy.", "Token nằm trong response của <code>POST /token</code> ở back channel; muốn xem thì đọc khối TOKEN RESPONSE trong console."],
+    explain: "Front channel (qua trình duyệt) thì DevTools thấy; back channel (app ↔ Keycloak) thì không. Xem <a href='lab-3-pkce-client.html#lab3'>bước 4</a>." },
+  { q: "Một app độc hại trên máy alice chụp được <b>toàn bộ</b> URL authorization (có <code>code_challenge</code>) và URL callback (có <code>code</code>). Nó gửi <code>code</code> tới token endpoint với <code>client_id=demo-client</code> (public, không cần secret). Kết quả?",
+    tricky: true,
+    options: ["Thành công: public client không có secret và kẻ tấn công đã có cả challenge lẫn code", "Thành công nếu gửi <code>code_challenge</code> vào chỗ <code>code_verifier</code>", "Thất bại: thiếu <code>code_verifier</code> đúng, mà verifier không thể suy ra từ challenge", "Thất bại chỉ vì <code>state</code> không khớp"],
+    answer: 2,
+    why: ["Thiếu “nửa vé” bí mật: Keycloak đòi <code>code_verifier</code> có SHA-256 khớp challenge đã lưu.", "Keycloak tính SHA-256 của giá trị gửi lên; SHA-256(challenge) ≠ challenge nên kiểm tra PKCE thất bại.", "Challenge là hash một chiều; verifier chỉ nằm trong bộ nhớ DemoClient và chỉ đi qua back channel.", "<code>state</code> do <b>client</b> kiểm khi nhận callback; token endpoint của Keycloak không nhận <code>state</code>, nên đây không phải lý do."],
+    explain: "Challenge được phép công khai; bí mật là verifier. Đó là lý do public client vẫn an toàn với PKCE. Xem <a href='m03-2-auth-code-pkce.html#pkce'>M03 — PKCE</a>." },
+  { q: "Bạn sửa bước 6 để đọc <code>nonce</code> từ <b>access token</b> (<code>atPayload</code>) thay vì ID token, trên Keycloak 26. Console in gì?",
+    options: ["<code>nonce khớp? True</code> vì hai token cùng một lần đăng nhập", "<code>nonce khớp? False</code> vì access token không có claim <code>nonce</code>", "Chương trình ném exception vì access token không phải JWT", "Keycloak từ chối cấp token"],
+    answer: 1,
+    why: ["Cùng phiên đăng nhập nhưng từ Keycloak 25, <code>nonce</code> chỉ còn trong ID token.", "<code>TryGetProperty</code> không thấy <code>nonce</code> → giá trị null, so với nonce đã gửi → False dù đăng nhập hoàn toàn hợp lệ.", "Access token của Keycloak là JWT; <code>DecodePayload</code> đọc được bình thường (code dùng <code>TryGetProperty</code> nên không ném lỗi khi thiếu claim).", "Việc đọc token diễn ra sau khi đã nhận token; Keycloak không biết bạn đọc claim nào."],
+    explain: "<code>nonce</code> gắn với ID token — token dành cho client. Xem bảng <a href='lab-3-pkce-client.html#id-vs-access-real'>ID token vs access token</a>." },
+  { q: "Vì sao code gọi <code>Loopback.WaitForCallbackAsync(...)</code> <b>trước</b> khi mở trình duyệt, và chỉ <code>await</code> sau đó?",
+    options: ["Để listener đã nghe cổng 7890 khi Keycloak redirect về, tránh mất <code>code</code>", "Vì Keycloak gọi thử redirect URI trước khi hiện trang đăng nhập", "Để tiết kiệm bộ nhớ", "Vì OidcClient yêu cầu thứ tự này"],
+    answer: 0,
+    why: ["Nếu alice đã có phiên SSO, redirect có thể về rất nhanh; listener chưa chạy thì trình duyệt báo không kết nối được và <code>code</code> mất.", "Keycloak không gọi redirect URI; trình duyệt mới là bên mở URL callback.", "Thứ tự này không liên quan bộ nhớ; nó liên quan việc sẵn sàng nhận callback.", "Ở cách <code>PrepareLoginAsync</code>, OidcClient không biết gì về listener; thứ tự là do code lab tự quyết định."],
+    explain: "<code>listener.Start()</code> chạy ngay khi hàm được gọi (trước <code>await</code> đầu tiên). Xem <a href='lab-3-pkce-client.html#lab3'>bước 3</a>." },
+  { q: "Đồng nghiệp đề nghị: “Đổi <code>demo-client</code> thành confidential và nhúng secret vào DemoClient cho chắc.” Đánh giá nào đúng?",
+    options: ["Tốt hơn, vì có cả secret lẫn PKCE", "Không đáng: ai có file <code>.exe</code> cũng lấy được secret; app trên máy người dùng nên là public + PKCE", "Bắt buộc, vì Keycloak không cho public client đổi code", "Chỉ cần secret, có thể bỏ PKCE"],
+    answer: 1,
+    why: ["Secret chỉ có giá trị khi giữ được bí mật; app phân phối cho người dùng thì không giữ được, chỉ tạo cảm giác an toàn giả.", "Đúng nguyên tắc: code chạy trên máy người khác → public; PKCE chứng minh “bên đổi code là bên bắt đầu flow”.", "Lab 3 chính là ví dụ public client đổi code thành công (không có <code>client_secret</code>).", "Bỏ PKCE làm mất bảo vệ chống đánh cắp code; secret bị lộ không thay thế được nó."],
+    explain: "Xem <a href='lab-1-keycloak.html#lab1'>Public vs Confidential ở Lab 1</a> và <a href='m07-2-native-s2s.html#desktop'>M07 — Desktop</a>." }
+];
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="assets/pages.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

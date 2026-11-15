@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M02 · Ôn tập &amp; Quiz</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<main class="content">
+
+<div class="page-head">
+  <div class="breadcrumb"><a href="index.html">Lộ trình</a> / <a href="m02-crypto-session-token.html">Module 02</a> / Ôn tập</div>
+  <h1>Module 02 — Ôn tập &amp; Quiz</h1>
+  <p class="lead">Trang ôn tập cuối Module 02. Gợi ý thứ tự: đọc các hiểu lầm hay gặp → xem tóm tắt và các cặp khái niệm dễ nhầm → tự trả lời câu hỏi tự luận → làm quiz. Đạt ≥ 80% quiz để đánh dấu hoàn thành module.</p>
+  <div class="meta-row">
+    <span class="chip">⏱ ~15 phút</span>
+    <span class="chip">📘 <a href="m02-crypto-session-token.html">Module 02 · Cryptography, Session, Token &amp; HTTP Auth</a></span>
+  </div>
+</div>
+
+<!-- ===================================================== -->
+<h2 id="hieu-lam">Các hiểu lầm cần tránh</h2>
+<p>Bản tóm tắt để ôn nhanh. Chi tiết và ví dụ nằm ngay dưới từng phần trong bài — bấm “xem bài” để đọc đầy đủ.</p>
+<ul>
+<li><b>Hiểu lầm:</b> Hash là một kiểu mã hóa. → <b>Thực tế:</b> hash một chiều, không key, không giải mã được; encryption đảo ngược được bằng key. (<a href="m02-1-crypto.html#hashing">xem bài</a>)</li>
+<li><b>Hiểu lầm:</b> Mã hóa mật khẩu bằng AES rồi lưu là an toàn. → <b>Thực tế:</b> lộ key là lộ mọi mật khẩu; phải dùng password hashing (Argon2id/scrypt/PBKDF2/bcrypt) có salt. (<a href="m02-1-crypto.html#password-hashing">xem bài</a>)</li>
+<li><b>Hiểu lầm:</b> Base64 trong Basic auth đã che mật khẩu. → <b>Thực tế:</b> Base64 là encoding, decode không cần key; bảo vệ thật đến từ TLS. (<a href="m02-1-crypto.html#encoding">xem bài</a>)</li>
+<li><b>Hiểu lầm:</b> Cookie chính là session. → <b>Thực tế:</b> cookie là cơ chế lưu/gửi của trình duyệt; session là trạng thái ứng dụng quản lý. (<a href="m02-2-session-cookie.html#cookie-vs-session">xem bài</a>)</li>
+<li><b>Hiểu lầm:</b> Token nào cũng gửi cho API được, miễn là có chữ ký. → <b>Thực tế:</b> chỉ access token gửi cho API; ID token cho client, refresh token cho AS. (<a href="m02-3-token-jwt.html#token-compare">xem bài</a>)</li>
+<li><b>Hiểu lầm:</b> Access token thì luôn là JWT. → <b>Thực tế:</b> có thể là opaque token, API phải introspect. (<a href="m02-3-token-jwt.html#opaque-vs-jwt">xem bài</a>)</li>
+<li><b>Hiểu lầm:</b> JWT đã ký nên nội dung bí mật. → <b>Thực tế:</b> chữ ký chống sửa, không chống đọc; payload JWS chỉ là Base64url. (<a href="m02-3-token-jwt.html#jws-jwe">xem bài</a>)</li>
+<li><b>Hiểu lầm:</b> Decode được JWT là đã validate; <code>alg</code> trong header quyết định cách verify. → <b>Thực tế:</b> phải verify bằng key tin cậy, thuật toán theo allowlist của API. (<a href="m02-3-token-jwt.html#jwt">xem bài</a>)</li>
+<li><b>Hiểu lầm:</b> Chữ ký hợp lệ + chưa hết hạn là đủ. → <b>Thực tế:</b> còn <code>iss</code>, <code>aud</code>, loại token, scope. (<a href="m02-3-token-jwt.html#jwt-validation">xem bài</a>)</li>
+<li><b>Hiểu lầm:</b> Bật rotation thì refresh token bị trộm vô dụng ngay. → <b>Thực tế:</b> rotation + reuse detection giúp phát hiện và thu hồi cả họ token, không ngăn được lần dùng đầu. (<a href="m02-4-token-lifecycle.html#token-lifecycle">xem bài</a>)</li>
+<li><b>Hiểu lầm:</b> Logout là token hết hiệu lực ngay. → <b>Thực tế:</b> JWT access token vẫn dùng được tới <code>exp</code> nếu API không introspect/denylist. (<a href="m02-4-token-lifecycle.html#logout-token">xem bài</a>)</li>
+<li><b>Hiểu lầm:</b> Key rotation và refresh token rotation là một. → <b>Thực tế:</b> một cái đổi refresh token của một phiên, một cái đổi signing key của cả AS. (<a href="m02-4-token-lifecycle.html#key-rotation">xem bài</a>)</li>
+<li><b>Hiểu lầm:</b> Token bị thu hồi thì introspection trả 404/401. → <b>Thực tế:</b> 200 + <code>{"active": false}</code>. (<a href="m02-4-token-lifecycle.html#introspection-revocation">xem bài</a>)</li>
+<li><b>Hiểu lầm:</b> 401 và 403 giống nhau; gặp 401 cứ refresh là xong. → <b>Thực tế:</b> 401 = không tin token, 403 = thiếu quyền; refresh không chữa được lỗi audience. (<a href="m02-5-http-auth.html#www-authenticate">xem bài</a>)</li>
+<li><b>Hiểu lầm:</b> Có HTTPS thì token trong query string cũng an toàn; Bearer có chữ ký nên trộm không dùng được. → <b>Thực tế:</b> URL bị ghi log; Bearer = ai cầm cũng dùng được. (<a href="m02-5-http-auth.html#bearer">xem bài</a>)</li>
+<li><b>Hiểu lầm:</b> API key là cách xác thực người dùng. → <b>Thực tế:</b> API key định danh ứng dụng, không phù hợp cho public client. (<a href="m02-5-http-auth.html#api-key">xem bài</a>)</li>
+</ul>
+<p class="small muted">Các hiểu lầm khác về chữ ký, HMAC, TLS, session/cookie nằm trong <a href="m02-1-crypto.html#signature">bài 2.1</a> (<a href="m02-1-crypto.html#hmac">HMAC</a>, <a href="m02-1-crypto.html#tls">TLS</a>) và <a href="m02-2-session-cookie.html#stateful-stateless">bài 2.2</a> (<a href="m02-2-session-cookie.html#cookie-attributes">thuộc tính cookie</a>, <a href="m02-2-session-cookie.html#session-fixation">session fixation</a>, <a href="m02-2-session-cookie.html#logout">logout</a>).</p>
+
+<!-- ===================================================== -->
+<h2 id="tom-tat">Tóm tắt nhanh</h2>
+<p>Mỗi dòng là một ý cần nhớ, theo thứ tự các bài 2.1 → 2.5. Dòng nào bạn chưa giải thích được bằng lời của mình, hãy quay lại bài tương ứng.</p>
+<ul>
+<li><b>Encryption</b> để giấu (đảo ngược được bằng key); <b>hash</b> một chiều không key; <b>signature</b> = private key ký, public key verify, không che nội dung; <b>HMAC</b> = toàn vẹn bằng secret dùng chung.</li>
+<li>Mật khẩu: <b>Argon2id</b> (19 MiB, t=2, p=1) hoặc PBKDF2-HMAC-SHA512 ≥ 220.000 vòng, có <b>salt</b> riêng. Không bao giờ <code>SHA-256(password)</code>. ASP.NET Core Identity mặc định 100.000 vòng → nên tăng.</li>
+<li><b>Certificate</b> gắn public key với danh tính, được CA ký; tin cậy đi theo <b>chain</b> tới root trong trust store. TLS bảo vệ kênh; mTLS xác thực cả client.</li>
+<li><b>Cookie ≠ session</b>. Cookie đăng nhập: <code>HttpOnly; Secure; SameSite=Lax/Strict</code>, không đặt <code>Domain</code>, cân nhắc prefix <code>__Host-</code>.</li>
+<li>Session: ID ngẫu nhiên do framework sinh, <b>đổi ID sau login</b>, có idle + absolute timeout, step-up cho thao tác nhạy cảm, logout hủy phía server.</li>
+<li><b>Access token</b> → API; <b>ID token</b> → client; <b>refresh token</b> → AS. Không dùng ID token gọi API.</li>
+<li><b>Opaque token</b> = số tham chiếu, API phải hỏi AS (thu hồi tức thì); <b>JWT</b> = tự mang claims có chữ ký, API tự verify (nhanh nhưng khó thu hồi). JWS ký (3 phần, payload ai cũng đọc được), JWE mã hóa (5 phần).</li>
+<li>API phải <b>verify</b> JWT: alg allowlist, chữ ký bằng key tin cậy (JWKS theo <code>kid</code>), <code>iss</code>, <code>aud</code>, <code>exp</code>/<code>nbf</code>, loại token, scope. Decode để xem, verify để tin.</li>
+<li>Refresh token <b>rotation + reuse detection</b> giúp phát hiện refresh token bị trộm. JWT khó thu hồi trước hạn → access token ngắn, introspection (RFC 7662, API hỏi AS), revocation (RFC 7009, client báo AS hủy). Logout không tự làm JWT đang lưu hành hết hiệu lực.</li>
+<li>401 kèm <code>WWW-Authenticate</code> cho biết lý do (<code>invalid_token</code>…); 403 <code>insufficient_scope</code> khi thiếu quyền.</li>
+<li><b>API key</b> định danh ứng dụng, sống lâu; với service-to-service cần kiểm soát tốt hơn, dùng <b>Client Credentials</b>.</li>
+</ul>
+<div class="callout tip"><span class="callout-title">🧠 Các cặp dễ nhầm trong Module 02 — xem lại ở đâu</span>
+<ul>
+<li>Access vs ID vs Refresh token · Opaque vs JWT · JWT vs JWS vs JWE · Header vs Payload vs Signature · Decode vs Verify · <code>exp</code>/<code>iat</code>/<code>nbf</code> · <code>iss</code>/<code>aud</code>/<code>sub</code>/<code>azp</code> → <a href="m02-3-token-jwt.html#tokens">Bài 2.3</a></li>
+<li>Hết hạn vs Thu hồi vs Logout · Refresh token rotation vs Key rotation · Introspection vs Revocation → <a href="m02-4-token-lifecycle.html#token-lifecycle">Bài 2.4</a></li>
+<li><code>Authorization</code> vs <code>WWW-Authenticate</code> · 401 vs 403 · API key vs Basic vs Bearer vs Client Credentials → <a href="m02-5-http-auth.html#http-auth">Bài 2.5</a></li>
+</ul></div>
+
+<!-- ===================================================== -->
+<h2 id="output">Output / Deliverables</h2>
+<ul class="checklist">
+<li><span><b>Bảng so sánh</b> Encryption, Hash, Signature, HMAC, Password Hashing (<a href="m02-1-crypto.html#hash-vs-encryption">mục B</a>). <span class="badge core">Core</span></span></li>
+<li><span><b>Sơ đồ</b> login session-based và token-based (<a href="m02-2-session-cookie.html#stateful-stateless">mục C</a>). <span class="badge core">Core</span></span></li>
+<li><span><b>Một JWT mẫu</b> được phân tích thành header, payload, signature; xác định <code>iss</code>, <code>sub</code>, <code>aud</code>, <code>exp</code>; giải thích vì sao JWT ký không có nghĩa payload bí mật (<a href="m02-3-token-jwt.html#jwt">mục E</a> + widget). <span class="badge core">Core</span></span></li>
+<li><span><b>Bảng so sánh</b> Access Token, ID Token, Refresh Token (<a href="m02-3-token-jwt.html#token-compare">mục D</a>) — dùng tiếp và bổ sung ở <a href="m03-5-oidc.html#id-vs-access">M03</a>. <span class="badge core">Core</span></span></li>
+<li><span><b>Checklist validation token</b> cho access token (<a href="m02-3-token-jwt.html#jwt-validation">mục E.1</a>); M03 bổ sung phần ID token. <span class="badge core">Core</span></span></li>
+<li><span><b>Bảng so sánh</b> API key, Basic, Bearer token và OAuth Client Credentials (<a href="m02-5-http-auth.html#auth-scheme-compare">mục G.1</a>).</span></li>
+</ul>
+
+<h2 id="knowledge-check">Knowledge Check (tự luận)</h2>
+<p>Tự trả lời trước, sau đó mở đáp án gợi ý để so sánh.</p>
+<details><summary>Vì sao không nên lưu password bằng SHA-256 đơn thuần?</summary>
+<p>SHA-256 được thiết kế để <b>nhanh</b> — GPU thử được hàng tỷ ứng viên mỗi giây, nên khi DB lộ, mật khẩu phổ biến bị đoán ra rất rẻ. Không có salt thì cùng mật khẩu cho cùng hash, dùng được bảng tính sẵn và lộ ai dùng chung mật khẩu. Cần thuật toán password hashing <b>chậm có chủ đích, có salt, có work factor</b>: Argon2id, scrypt, PBKDF2 (đủ vòng), bcrypt.</p></details>
+<details><summary>Khác nhau giữa cookie và session?</summary>
+<p>Session là <b>trạng thái</b> đăng nhập/hoạt động do ứng dụng quản lý (thường lưu ở server). Cookie là <b>cơ chế của trình duyệt</b> để lưu và tự động gửi dữ liệu theo domain/path. Cookie thường mang session ID để tham chiếu session, nhưng cookie còn dùng cho việc khác, và session có thể truyền bằng cách khác.</p></details>
+<details><summary>API có thể chỉ decode JWT rồi tin payload không?</summary>
+<p><b>Không.</b> Decode chỉ là Base64url — ai cũng tạo được JWT với payload tùy ý (thử nút “Giả mạo” trong widget). API phải verify chữ ký bằng key tin cậy với thuật toán trong allowlist, rồi kiểm tra <code>iss</code>, <code>aud</code>, <code>exp</code>/<code>nbf</code>, loại token, scope — bằng thư viện đã kiểm chứng.</p></details>
+<details><summary><code>aud</code> giúp bảo vệ điều gì?</summary>
+<p><code>aud</code> cho biết token được cấp <b>cho API nào</b>. Kiểm tra <code>aud</code> ngăn việc một token cấp cho API A (hoặc ID token cấp cho client) bị đem sang dùng ở API B — ví dụ một API ít quan trọng bị lộ token, kẻ tấn công không thể dùng token đó gọi hr-api. Đây là phòng chống “token substitution / confused deputy”.</p></details>
+<details><summary>Vì sao ID token không nên gửi cho API thay access token?</summary>
+<p>ID token dành cho <b>client</b> (<code>aud</code> = client_id) để biết ai đã đăng nhập; nó không đại diện cho việc ủy quyền gọi API, không mang scope cho API, và API không phải audience của nó. Nếu API chấp nhận ID token, bất kỳ client nào có ID token của user (kể cả client khác) có thể gọi API; đồng thời mất khả năng kiểm soát scope/audience. Chi tiết ở <a href="m03-5-oidc.html#id-vs-access">M03</a>.</p></details>
+<details><summary>Logout có luôn vô hiệu hóa token ngay lập tức không?</summary>
+<p>Không. Logout thường hủy session ở app/IdP và có thể thu hồi refresh token, nhưng JWT access token đã phát hành vẫn verify được cục bộ cho tới <code>exp</code>. Muốn hiệu lực tức thì cần: access token ngắn, introspection/opaque token, denylist, hoặc cơ chế đặc thù của IdP — phụ thuộc kiến trúc.</p></details>
+<details><summary>API key khác OAuth access token thế nào?</summary>
+<p>API key: secret dài hạn, định danh <b>ứng dụng</b>, không có scope/audience/consent chuẩn hóa, vòng đời và thu hồi tự xây. Access token: do Authorization Server cấp, <b>ngắn hạn</b>, có <code>scope</code>, <code>aud</code>, có thể đại diện user + client, xoay vòng/thu hồi theo chuẩn. Với service-to-service cần kiểm soát tốt, dùng Client Credentials thay API key.</p></details>
+<details><summary>Vì sao phải cấp session ID mới sau khi login?</summary>
+<p>Để chống <b>session fixation</b>: nếu giữ nguyên session ID từ trước khi đăng nhập, kẻ tấn công có thể “cài” sẵn một session ID mà hắn biết cho nạn nhân; sau khi nạn nhân đăng nhập, session ID đó trở thành phiên đã xác thực và kẻ tấn công dùng được. Cũng phải đổi ID khi thay đổi mức quyền.</p></details>
+<details><summary>Header <code>WWW-Authenticate</code> cho biết điều gì khi API trả 401?</summary>
+<p>Cho biết <b>scheme</b> server yêu cầu (vd. <code>Bearer</code>, <code>Basic</code>), <code>realm</code>, và với Bearer có thể kèm <code>error</code> (<code>invalid_request</code>/<code>invalid_token</code>/<code>insufficient_scope</code>), <code>error_description</code> và <code>scope</code> cần. Từ đó biết nên refresh token, sửa audience/issuer, hay xin thêm scope.</p></details>
+<details><summary>Khi nào nên dùng opaque token thay vì JWT cho access token?</summary>
+<p>Khi API cần <b>thu hồi có hiệu lực ngay</b> (khóa user, logout là chặn liền) hoặc không muốn ai cầm token cũng đọc được claims. Đổi lại, mỗi request API phải gọi introspection tới AS (thêm độ trễ, phụ thuộc AS). JWT phù hợp khi muốn API verify nhanh, cục bộ, và chấp nhận token còn hiệu lực tới <code>exp</code>. Xem <a href="m02-3-token-jwt.html#opaque-vs-jwt">Opaque vs JWT</a>.</p></details>
+<details><summary>Introspection khác revocation thế nào?</summary>
+<p><b>Introspection</b> (RFC 7662): Resource Server <b>hỏi</b> AS “token này còn hiệu lực không, của ai?” — chỉ đọc trạng thái. <b>Revocation</b> (RFC 7009): client <b>yêu cầu</b> AS hủy token (thường là refresh token khi logout) — thay đổi trạng thái. Revocation chỉ chặn được JWT access token ở API nếu API có introspect/denylist. Xem <a href="m02-4-token-lifecycle.html#introspection-revocation">bài 2.4</a>.</p></details>
+
+<div class="callout tip"><span class="callout-title">✅ Tiêu chí hoàn thành</span>
+Đọc được một JWT mẫu (dùng widget ở <a href="m02-3-token-jwt.html#jwt">mục E</a>), giải thích được cách API xác minh token theo checklist, và mô tả được vòng đời cơ bản của session (tạo → đổi ID → timeout → logout) và token (cấp → dùng → hết hạn → refresh/rotation → revoke).</div>
+
+<h2 id="quiz">Quiz trắc nghiệm</h2>
+<div id="quiz"></div>
+
+</main>
+<script>
+window.QUIZ = [
+  { q: "Một dev đề xuất: “Mình mã hóa mật khẩu bằng AES-256 với key để trong appsettings, như vậy an toàn hơn hash.” Nhận định nào đúng?",
+    options: ["Đúng, AES-256 mạnh hơn SHA-256", "Đúng nếu key dài trên 32 ký tự", "Sai: encryption đảo ngược được, lộ key là lộ mọi mật khẩu; phải dùng password hashing có salt", "Sai: nên dùng SHA-256 thay cho AES"],
+    answer: 2,
+    why: ["Nhầm độ mạnh thuật toán với cách dùng đúng: AES mạnh nhưng là mã hóa đảo ngược được, ai có key là giải ra mọi mật khẩu.", "Độ dài key không giải quyết được vấn đề: key nằm cùng hệ thống (appsettings), lộ server là lộ key.", "Mật khẩu chỉ cần so khớp, không cần khôi phục; password hashing chậm, có salt khiến DB lộ cũng khó đoán ngược.", "SHA-256 đơn thuần cũng sai vì quá nhanh, kẻ tấn công thử hàng tỷ mật khẩu mỗi giây."],
+    explain: "Mật khẩu không cần (và không nên) khôi phục được. Dùng Argon2id/scrypt/PBKDF2/bcrypt có salt. SHA-256 đơn thuần cũng sai vì quá nhanh. Xem <a href=\"m02-1-crypto.html#password-hashing\">Password hashing</a>." },
+  { q: "Vì sao <code>SHA-256(password)</code> (kể cả có salt) vẫn chưa đủ để lưu mật khẩu?",
+    options: ["Vì SHA-256 quá nhanh, kẻ tấn công thử được hàng tỷ mật khẩu mỗi giây khi DB bị lộ", "Vì SHA-256 có thể giải mã ngược", "Vì SHA-256 cho kết quả khác nhau mỗi lần chạy", "Vì SHA-256 đã bị cấm dùng"],
+    answer: 0,
+    why: ["SHA-256 được thiết kế để nhanh; với mật khẩu (entropy thấp) điều đó giúp kẻ tấn công đoán cực rẻ.", "Hash là hàm một chiều, không có thao tác “giải mã”; nguy cơ là đoán thử, không phải đảo ngược.", "Hash là tất định: cùng input luôn ra cùng output — nhờ vậy mới so khớp mật khẩu được.", "SHA-256 không bị cấm; nó vẫn dùng tốt cho toàn vẹn dữ liệu, chữ ký, HMAC — chỉ không hợp để băm mật khẩu."],
+    explain: "SHA-256 không đảo ngược được và luôn cho cùng kết quả, nhưng nó <b>nhanh</b>. Salt chặn bảng tính sẵn, nhưng không làm chậm việc đoán từng user. Cần thuật toán chậm có work factor." },
+  { q: "Những phát biểu nào đúng về <b>salt</b>?",
+    options: ["Salt là giá trị ngẫu nhiên riêng cho từng password hash", "Salt phải giữ bí mật tuyệt đối, tách khỏi DB", "Salt làm hai user cùng mật khẩu có hash khác nhau", "Salt thay thế được cho thuật toán chậm"],
+    answer: [0, 2],
+    why: ["Mỗi hash có salt ngẫu nhiên riêng, sinh lúc đặt mật khẩu.", "Nhầm salt với pepper: salt lưu ngay cạnh hash, không cần bí mật.", "Salt khác nhau → hash khác nhau, nên không lộ ai dùng chung mật khẩu và bảng tính sẵn vô dụng.", "Salt không làm chậm việc thử từng mật khẩu cho một user; vẫn cần thuật toán chậm có work factor."],
+    explain: "Salt lưu cùng hash, không cần bí mật (secret dùng chung lưu ngoài DB là <b>pepper</b>). Salt không làm chậm việc brute-force từng hash." },
+  { q: "Keycloak ký access token bằng RS256. hr-api cần gì để verify chữ ký?",
+    options: ["Private key của Keycloak", "Client secret của hr-web", "Mật khẩu admin của Keycloak", "Public key của Keycloak (lấy từ JWKS, chọn theo <code>kid</code>)"],
+    answer: 3,
+    why: ["Private key chỉ Keycloak giữ để ký; API có private key thì cũng tự phát hành được token — sai hoàn toàn.", "Client secret của hr-web dùng để hr-web xác thực với Keycloak, không liên quan việc verify chữ ký RS256.", "Mật khẩu admin dùng để quản trị Keycloak, không dùng trong việc verify token.", "RS256 là chữ ký bất đối xứng: public key (công khai qua JWKS, chọn theo <code>kid</code>) đủ để verify."],
+    explain: "Chữ ký số: private key ký (chỉ issuer giữ), public key verify (ai cũng có được). Đó là lý do nhiều API có thể verify mà không thể tự phát hành token." },
+  { q: "Một hệ thống có 6 API cùng verify JWT ký bằng <b>HS256</b> với một secret dùng chung. Rủi ro chính là gì?",
+    options: ["HS256 không verify được chữ ký", "Bất kỳ API nào giữ secret cũng có thể tự phát hành token hợp lệ; lộ một API là lộ khả năng giả token cho tất cả", "Payload bị mã hóa nên API không đọc được", "Token không có <code>exp</code>"],
+    answer: 1,
+    why: ["HS256 verify được bình thường bằng secret chung; vấn đề không nằm ở đó.", "Với HMAC, key verify cũng là key ký; 6 API giữ secret là 6 nơi có thể tự phát hành token cho cả hệ thống.", "JWT ký HS256 vẫn là JWS, payload chỉ Base64url, không bị mã hóa.", "Việc có <code>exp</code> không phụ thuộc thuật toán ký."],
+    explain: "HMAC dùng secret chung: ai verify được thì cũng ký được. Với nhiều bên verify, chữ ký bất đối xứng (RS256/ES256) an toàn hơn. Xem <a href=\"m02-1-crypto.html#hmac\">HMAC</a>." },
+  { q: "Trình duyệt kiểm tra certificate của <code>sso.kaopiz.local</code>. Điều nào <b>không</b> nằm trong quá trình kiểm tra?",
+    options: ["Chuỗi chữ ký dẫn tới một root CA trong trust store", "Certificate còn hạn và đúng tên miền", "Private key của server được gửi kèm để so sánh", "Certificate chưa bị thu hồi"],
+    answer: 2,
+    why: ["Có kiểm tra: tin cậy đi theo chuỗi chữ ký tới root CA trong trust store.", "Có kiểm tra: hạn dùng và tên miền (SAN) phải khớp.", "Đây là bước KHÔNG có: private key không bao giờ được gửi đi; server chỉ chứng minh mình giữ nó trong handshake.", "Có kiểm tra (tùy trình duyệt/cấu hình): trạng thái thu hồi qua CRL/OCSP."],
+    explain: "Private key không bao giờ rời server. Server chỉ <b>chứng minh</b> đang giữ private key trong TLS handshake." },
+  { q: "Cookie đăng nhập nên có bộ thuộc tính nào?",
+    options: ["<code>HttpOnly; Secure; SameSite=Lax; Path=/</code> (không đặt Domain)", "<code>SameSite=None</code> không kèm <code>Secure</code>", "<code>Domain=kaopiz.com</code> để an toàn hơn", "Không cần thuộc tính gì vì đã có HTTPS"],
+    answer: 0,
+    why: ["HttpOnly chặn JS đọc, Secure chỉ gửi qua HTTPS, SameSite giảm CSRF, không đặt Domain để cookie chỉ về đúng host.", "Trình duyệt hiện đại từ chối cookie <code>SameSite=None</code> thiếu <code>Secure</code>.", "Đặt <code>Domain</code> mở rộng phạm vi tới mọi subdomain, một subdomain bị chiếm là lộ cookie — kém an toàn hơn.", "HTTPS không thay được các thuộc tính: thiếu HttpOnly thì XSS vẫn đọc được cookie, thiếu SameSite thì dễ bị CSRF."],
+    explain: "Đặt <code>Domain</code> làm cookie gửi tới mọi subdomain (mở rộng phạm vi). <code>SameSite=None</code> bắt buộc kèm <code>Secure</code>. Xem <a href=\"m02-2-session-cookie.html#cookie-attributes\">thuộc tính cookie</a>." },
+  { q: "An nhận email chứa link tới <code>https://hr.kaopiz.local/payroll</code> và bấm vào. Cookie đăng nhập có <code>SameSite=Strict</code>. Điều gì xảy ra ở request đầu tiên?",
+    options: ["Cookie được gửi bình thường", "Trình duyệt chặn hoàn toàn trang", "Cookie bị xóa vĩnh viễn", "Cookie <b>không</b> được gửi vì điều hướng bắt nguồn từ site khác, An có thể thấy như chưa đăng nhập"],
+    answer: 3,
+    why: ["Đó là hành vi của <code>Lax</code> với điều hướng GET top-level; <code>Strict</code> thì không gửi.", "SameSite chỉ quyết định có gửi cookie hay không, không chặn trang.", "Cookie vẫn còn nguyên trong trình duyệt; chỉ là không được gửi kèm request này.", "Điều hướng bắt nguồn từ site khác (ứng dụng email) là cross-site, <code>Strict</code> không gửi cookie nên An trông như chưa đăng nhập."],
+    explain: "Strict không gửi cookie cho mọi request cross-site, kể cả điều hướng top-level. <code>Lax</code> thì vẫn gửi với điều hướng GET top-level." },
+  { q: "Những phát biểu nào đúng về session management?",
+    options: ["Giữ nguyên session ID sau khi login để người dùng không bị gián đoạn", "Cấp session ID mới sau khi login và sau khi nâng quyền", "Idle timeout là đủ, không cần absolute timeout", "Logout phải hủy session phía server, không chỉ xóa cookie"],
+    answer: [1, 3],
+    why: ["Giữ nguyên ID là mở cửa cho session fixation: kẻ gian cài sẵn ID rồi chờ nạn nhân đăng nhập.", "Cấp ID mới khi đăng nhập/nâng quyền làm ID kẻ gian biết trước trở nên vô dụng.", "Chỉ có idle timeout thì phiên được dùng liên tục (kể cả bởi kẻ gian) sống mãi; cần thêm absolute timeout.", "Xóa cookie chỉ xóa bản trên trình duyệt; session phía server còn sống thì bản cookie đã bị chép vẫn dùng được."],
+    explain: "Đổi ID chống session fixation. Nên có cả idle lẫn absolute timeout. Xóa cookie phía trình duyệt không vô hiệu được bản sao cookie mà kẻ gian đã chép." },
+  { q: "Hệ thống A lưu session trong Redis, cookie chỉ chứa session ID. Hệ thống B dùng JWT tự chứa claims. Admin muốn khóa ngay một user đang đăng nhập. Phát biểu nào đúng?",
+    options: ["Cả hai đều khóa ngay được bằng cách xóa cookie", "A khóa ngay được bằng cách xóa session; B phải chờ token hết hạn trừ khi có introspection/denylist", "B khóa nhanh hơn vì JWT có chữ ký", "Không hệ thống nào khóa được trước khi hết hạn"],
+    answer: 1,
+    why: ["Admin không xóa được cookie trên máy người dùng; và với B, JWT nằm ở đâu thì vẫn dùng được tới <code>exp</code>.", "A tra Redis mỗi request nên xóa session là chặn ngay; B tự verify cục bộ nên cần introspection/denylist mới chặn sớm được.", "Chữ ký chỉ chống sửa token, không giúp thu hồi; chính vì tự verify được mà JWT khó khóa ngay.", "A khóa được ngay bằng cách xóa session phía server."],
+    explain: "Stateful thu hồi tức thì; stateless đổi lại khó thu hồi trước hạn. Xem <a href=\"m02-2-session-cookie.html#stateful-stateless\">stateful vs stateless</a>." },
+  { q: "Một SPA gửi <b>ID token</b> trong header <code>Authorization: Bearer</code> tới API vì “nó cũng là JWT có chữ ký”. Vấn đề là gì?",
+    options: ["Không có vấn đề gì", "ID token không có chữ ký", "ID token dành cho client (aud = client_id), không phải cho API; API chấp nhận nó là sai loại token và sai audience", "ID token luôn bị mã hóa nên API không đọc được"],
+    answer: 2,
+    why: ["Có chữ ký không làm token đúng nơi nhận; API chấp nhận ID token thì ID token của client khác cũng mở được API.", "ID token luôn là JWT có chữ ký; vấn đề không phải ở chữ ký.", "ID token có <code>aud</code> = client_id, dành cho client; với API nó sai audience và sai loại token.", "ID token thường chỉ ký (JWS), không mã hóa; API đọc được nhưng không được chấp nhận."],
+    explain: "Access token mới là token cho API. Xem bảng <a href=\"m02-3-token-jwt.html#token-compare\">Access/ID/Refresh</a> và <a href=\"m03-5-oidc.html#id-vs-access\">M03</a>." },
+  { q: "API decode payload JWT thấy <code>\"roles\":[\"admin\"]</code> và cho phép xóa dữ liệu, không kiểm tra gì thêm. Kẻ tấn công làm gì được?",
+    options: ["Tự tạo token với payload tùy ý (vd. role admin) và được chấp nhận", "Không làm gì được vì token có dấu chấm phân tách", "Chỉ đọc được dữ liệu, không sửa được", "Phải biết private key mới decode được payload"],
+    answer: 0,
+    why: ["API không verify chữ ký thì ai cũng tự viết payload có <code>admin</code>, Base64url-encode và được chấp nhận.", "Dấu chấm chỉ phân tách 3 phần, không bảo vệ gì.", "Có role admin thì làm được mọi thao tác API cho phép admin, kể cả xóa.", "Decode payload không cần key nào; private key chỉ dùng để ký."],
+    explain: "Decode ≠ verify. Payload chỉ là Base64url. Thử nút “Giả mạo” trong <a href=\"m02-3-token-jwt.html#jwt\">JWT decoder</a>." },
+  { q: "Một JWT dạng compact có <b>5 phần</b> ngăn bởi dấu chấm. Đây nhiều khả năng là gì?",
+    options: ["JWS ký bằng RS256", "JWT không ký (alg none)", "Refresh token của OAuth", "JWE — JWT được mã hóa"],
+    answer: 3,
+    why: ["JWS (kể cả RS256) dạng compact luôn có 3 phần.", "Token <code>alg: none</code> vẫn có 3 phần, phần chữ ký trống (kết thúc bằng dấu chấm).", "Refresh token thường là opaque với client, không có cấu trúc 5 phần chuẩn.", "JWE compact có 5 phần: header.encrypted_key.iv.ciphertext.tag."],
+    explain: "JWS compact có 3 phần; JWE compact có 5 phần: header.encrypted_key.iv.ciphertext.tag." },
+  { q: "Token có <code>\"aud\": \"report-api\"</code> được gửi tới hr-api. hr-api nên làm gì?",
+    options: ["Chấp nhận vì cùng issuer", "Từ chối với 401 <code>invalid_token</code> vì token không dành cho hr-api", "Trả 403 <code>insufficient_scope</code>", "Chấp nhận nếu chữ ký hợp lệ"],
+    answer: 1,
+    why: ["Cùng issuer chỉ nói ai phát token, không nói token dành cho ai; mọi API trong realm có cùng issuer.", "Token cấp cho report-api không hợp lệ ở hr-api → 401 <code>invalid_token</code>.", "403 dành cho token hợp lệ nhưng thiếu quyền; token sai audience thì không hợp lệ ngay từ đầu.", "Chữ ký hợp lệ chỉ chứng minh Keycloak phát; vẫn phải kiểm tra <code>aud</code>."],
+    explain: "Audience sai là token không hợp lệ cho API này → 401 invalid_token. <code>aud</code> chống việc đem token của API khác sang dùng." },
+  { q: "Những mục nào thuộc checklist validation access token ở API?",
+    options: ["<code>alg</code> nằm trong allowlist, từ chối <code>none</code>", "Verify chữ ký bằng key từ JWKS của issuer đã cấu hình", "Tin <code>jku</code>/<code>jwk</code> trong header token để lấy key", "Kiểm tra <code>iss</code>, <code>aud</code>, <code>exp</code>/<code>nbf</code>"],
+    answer: [0, 1, 3],
+    why: ["Thuật toán do API quyết định qua allowlist; chấp nhận <code>none</code> là chấp nhận token không ký.", "Key phải lấy từ JWKS của issuer đã cấu hình, chọn theo <code>kid</code>.", "<code>jku</code>/<code>jwk</code> do token tự khai: kẻ gian trỏ tới key của chính hắn và tự ký token.", "Sau chữ ký còn phải kiểm tra người phát, người nhận và thời hạn."],
+    explain: "Key phải đến từ nguồn tin cậy đã cấu hình, không do token tự khai. Xem <a href=\"m02-3-token-jwt.html#jwt-validation\">checklist</a>." },
+  { q: "Với refresh token rotation + reuse detection, điều gì xảy ra khi một refresh token <b>đã được dùng</b> bị gửi lại lần nữa?",
+    options: ["AS cấp access token mới như bình thường", "AS chỉ từ chối request đó, các token khác không ảnh hưởng", "AS coi là dấu hiệu bị đánh cắp và thu hồi cả họ refresh token của grant/phiên đó", "AS khóa vĩnh viễn tài khoản người dùng"],
+    answer: 2,
+    why: ["Với rotation, refresh token chỉ dùng được một lần; lần thứ hai không thể được cấp token.", "Chỉ từ chối thì kẻ trộm (nếu đã dùng trước) vẫn giữ refresh token mới hợp lệ; phải thu hồi cả chuỗi.", "Hai bên cùng giữ một refresh token là dấu hiệu bị trộm; AS hủy cả họ token của grant/phiên đó.", "Reuse detection thu hồi token của grant đó, không khóa tài khoản; người dùng chỉ phải đăng nhập lại."],
+    explain: "Vì không biết bên nào là kẻ trộm, AS thu hồi toàn bộ chuỗi; người dùng thật phải đăng nhập lại. Xem <a href=\"m02-4-token-lifecycle.html#token-lifecycle\">token lifecycle</a>." },
+  { q: "Resource Server gọi introspection endpoint với một token đã bị thu hồi. Response theo RFC 7662 là gì?",
+    options: ["HTTP 200 với <code>{\"active\": false}</code>", "HTTP 404 Not Found", "HTTP 401 kèm lý do thu hồi", "HTTP 200 với <code>active: true</code> và <code>revoked: true</code>"],
+    answer: 0,
+    why: ["RFC 7662: token không hiệu lực vì bất kỳ lý do gì đều trả 200 + <code>active: false</code>.", "Endpoint introspection vẫn tồn tại và trả lời được; 404 không phải cách báo token hết hiệu lực.", "401 từ introspection nghĩa là chính Resource Server xác thực sai với AS, không phải token bị thu hồi.", "Không có trường <code>revoked</code> chuẩn, và token bị thu hồi thì <code>active</code> phải là <code>false</code>."],
+    explain: "Token không hiệu lực vì bất kỳ lý do gì → 200 + <code>active: false</code>, không nêu lý do để không lộ trạng thái nội bộ." },
+  { q: "API trả <code>WWW-Authenticate: Bearer error=\"insufficient_scope\", scope=\"hr.write\"</code>. Status code và hành động đúng của client?",
+    options: ["401 — refresh token rồi gọi lại", "400 — sửa định dạng request", "500 — báo lỗi server", "403 — xin token có scope <code>hr.write</code> (có thể cần consent/quyền mới)"],
+    answer: 3,
+    why: ["<code>insufficient_scope</code> đi với 403, và refresh chỉ cho token mới cùng phạm vi, không thêm <code>hr.write</code>.", "400 dành cho <code>invalid_request</code> (request sai định dạng), không phải thiếu quyền.", "Server trả lời đúng chuẩn, không có lỗi server nào ở đây.", "RFC 6750: thiếu scope → 403; client phải xin token có <code>hr.write</code>, có thể cần consent hoặc được cấp quyền."],
+    explain: "RFC 6750: insufficient_scope → 403. Refresh token chỉ cho token mới cùng phạm vi, không tự thêm quyền. Xem <a href=\"m02-5-http-auth.html#www-authenticate\">WWW-Authenticate</a>." },
+  { q: "Team desktop WPF muốn nhúng một API key vào file cấu hình của app cài trên máy nhân viên để gọi hr-api. Nhận định nào đúng?",
+    options: ["Ổn vì file cấu hình được mã hóa Base64", "Không phù hợp: desktop là public client, key sẽ bị lộ; và API key không định danh người dùng, nên dùng OAuth (Auth Code + PKCE)", "Ổn nếu đặt key trong query string", "Ổn vì API key tự hết hạn sau 5 phút"],
+    answer: 1,
+    why: ["Base64 là encoding, không phải mã hóa; ai mở file cũng decode ra key.", "App cài trên máy người dùng không giữ được secret, và API key không cho biết nhân viên nào đang gọi.", "Query string còn tệ hơn: key bị ghi vào log server/proxy.", "API key thường sống lâu, không có cơ chế tự hết hạn sau vài phút."],
+    explain: "API key không phù hợp cho public client và hành động thay mặt user. Xem <a href=\"m02-5-http-auth.html#api-key\">API key</a> và kiến trúc desktop ở <a href=\"m07-2-native-s2s.html#desktop\">M07</a>." },
+  { q: "Header <code>Authorization: Basic YW4ubnY6UEBzc3cwcmQh</code> bị lộ trong log. Mức độ nghiêm trọng?",
+    options: ["Thấp, vì đã mã hóa Base64", "Thấp, vì cần key để giải mã", "Cao: Base64 decode được ngay ra <code>an.nv:P@ssw0rd!</code>; phải đổi mật khẩu", "Không sao nếu log nằm trong mạng nội bộ"],
+    answer: 2,
+    why: ["Base64 là encoding, không phải mã hóa; ai cũng decode được.", "Decode Base64 không cần key nào.", "Chuỗi decode ra ngay <code>username:password</code> thật, nên phải đổi mật khẩu và dọn log.", "Log nội bộ vẫn được nhiều người, nhiều hệ thống đọc; mạng nội bộ không làm mật khẩu bớt lộ."],
+    explain: "Base64 là encoding, không phải mã hóa. Thử ở widget <a href=\"m02-5-http-auth.html#basic\">Basic</a>." },
+  { q: "09:03, hr-api (verify JWT cục bộ, không introspect) nhận <code>PUT /payroll/57</code> kèm access token của An: chữ ký RS256 hợp lệ, <code>iss</code> đúng, <code>aud: hr-api</code>, <code>exp</code> 09:05, <code>scope: hr.read</code>. An đã logout lúc 09:02. Những phát biểu nào đúng?",
+    tricky: true,
+    options: ["hr-api trả 403 <code>insufficient_scope</code> vì PUT cần <code>hr.write</code>", "hr-api trả 401 vì An đã logout", "Nếu cùng token đó gọi <code>GET /payroll/57</code> thì hr-api trả 200, dù An đã logout", "hr-web refresh token là sẽ có <code>hr.write</code> để gọi lại"],
+    answer: [0, 2],
+    why: ["Token qua mọi bước xác thực nên hr-api tin token, chỉ thiếu quyền ghi → 403.", "hr-api không biết về việc logout; JWT vẫn hợp lệ tới <code>exp</code> nếu không introspect/denylist.", "Đây là điểm phản trực giác: logout không làm JWT đang lưu hành mất hiệu lực, GET chỉ cần <code>hr.read</code>.", "Refresh chỉ cho token mới cùng phạm vi đã cấp (và refresh token của An đã bị thu hồi khi logout); thêm quyền phải xin scope mới."],
+    explain: "Kết hợp <a href='m02-4-token-lifecycle.html#logout-token'>logout vs JWT</a> và <a href='m02-5-http-auth.html#www-authenticate'>401 vs 403</a>." },
+  { q: "Code review: team dùng <code>SHA-256</code> (không salt) cho hai việc — lưu mật khẩu nhân viên, và lưu API key 256 bit sinh bằng CSPRNG. Nhận định nào đúng?",
+    tricky: true,
+    options: ["Cả hai đều sai, phải đổi cả hai sang Argon2id", "Cả hai đều ổn vì SHA-256 không đảo ngược được", "API key thì ổn vì entropy rất cao; mật khẩu thì sai, phải dùng Argon2id/PBKDF2 có salt", "Mật khẩu thì ổn, API key thì phải dùng thuật toán chậm"],
+    answer: 2,
+    why: ["Với API key 256 bit ngẫu nhiên, brute-force là bất khả thi dù hash nhanh; thuật toán chậm chỉ làm chậm mọi request.", "Không đảo ngược được không đủ: mật khẩu entropy thấp bị đoán thử rất nhanh với SHA-256.", "Điểm mấu chốt là entropy của input: key ngẫu nhiên 256 bit an toàn với hash nhanh, mật khẩu người dùng thì không.", "Ngược lại hoàn toàn: chính mật khẩu mới cần thuật toán chậm có salt."],
+    explain: "Xem <a href='m02-1-crypto.html#password-hashing'>password hashing</a> và ghi chú ở <a href='m02-5-http-auth.html#api-key'>API key</a>." },
+  { q: "Keycloak vừa bắt đầu ký bằng key mới <code>hr-2026-11</code> theo đúng quy trình rollover (key cũ <code>hr-2026-08</code> vẫn nằm trong JWKS). Cùng lúc đó admin <b>vô hiệu hóa</b> tài khoản An. Một token cũ của An (ký bằng <code>hr-2026-08</code>, còn 3 phút) tới hr-api — API verify cục bộ. Kết quả?",
+    tricky: true,
+    options: ["401, vì key đã xoay nên token ký bằng key cũ bị từ chối", "200: key cũ vẫn trong JWKS nên chữ ký hợp lệ, và việc vô hiệu hóa tài khoản không tự làm JWT đã phát mất hiệu lực", "403, vì tài khoản đã bị vô hiệu hóa", "401, vì <code>kid</code> trong token không khớp key đang dùng để ký"],
+    answer: 1,
+    why: ["Rollover đúng cách giữ key cũ trong JWKS tới khi token ký bằng nó hết hạn — chính để tránh 401 hàng loạt.", "Hai sự kiện đều không chạm tới token này: chữ ký vẫn verify được, và hr-api không hỏi AS về trạng thái tài khoản.", "hr-api verify cục bộ không biết tài khoản bị khóa; muốn chặn ngay cần introspection hoặc denylist.", "<code>kid</code> chỉ để chọn key trong JWKS; token ghi <code>hr-2026-08</code> và key đó vẫn còn, nên khớp."],
+    explain: "Key rotation không phải cơ chế thu hồi token. Xem <a href='m02-4-token-lifecycle.html#key-rotation'>Key rotation</a> và <a href='m02-2-session-cookie.html#stateful-stateless'>stateful vs stateless</a>." }
+];
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="assets/pages.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

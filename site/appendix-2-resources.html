@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phụ lục · Nâng cao, buổi chia sẻ, rubric &amp; tài liệu</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+<style>
+  /* Chỉ dùng cho widget rubric và glossary của trang này */
+  .rubric-table td.pick { white-space: nowrap; }
+  .rubric-table label.r { display: inline-flex; align-items: center; gap: 4px; margin-right: 10px; cursor: pointer; }
+  .rubric-table tr.crit td:first-child::after { content: " ★"; color: var(--warn); }
+  .rubric-score { font-size: 1.6em; font-weight: 700; }
+  .rubric-bar { height: 10px; border-radius: 6px; background: var(--surface-2); border: 1px solid var(--border); overflow: hidden; margin: 6px 0 10px; }
+  .rubric-bar > span { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+  .verdict-ok { color: var(--ok); font-weight: 600; }
+  .verdict-bad { color: var(--danger); font-weight: 600; }
+  .verdict-wait { color: var(--muted); font-weight: 600; }
+  .gl-count { color: var(--muted); font-size: .9em; margin-top: 6px; }
+  .status { display: inline-block; font-size: .78em; font-weight: 600; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface-2); white-space: nowrap; }
+  .status.rfc { color: var(--ok); background: var(--ok-soft); }
+  .status.draft { color: var(--warn); background: var(--warn-soft); }
+  .status.rec { color: var(--info); background: var(--info-soft); }
+  .status.final { color: var(--purple); background: var(--purple-soft); }
+</style>
+</head>
+<body>
+<main class="content">
+
+<div class="page-head">
+  <div class="breadcrumb"><a href="index.html">Lộ trình</a> / <a href="appendix.html">Phụ lục</a> / C–G</div>
+  <h1>Phụ lục C–G — Nâng cao, buổi chia sẻ, rubric &amp; tài liệu</h1>
+  <p class="lead">Chủ đề nâng cao để học tiếp, bộ tài liệu đầu ra, khung 2 buổi chia sẻ, rubric tự đánh giá và tài liệu tham khảo.</p>
+  <div class="meta-row">
+    <span class="chip">📘 <a href="appendix.html">Phụ lục · Phụ lục</a></span>
+  </div>
+</div>
+
+<!-- ===================================================== -->
+<h2 id="advanced">C. Nội dung nâng cao chưa đào sâu trong 15 giờ <span class="badge nice">Nice</span></h2>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Phần lớn chủ đề dưới đây trả lời một trong ba câu hỏi: (1) <b>làm sao để token bị trộm vẫn vô dụng</b> (DPoP, mTLS), (2) <b>làm sao để yêu cầu đăng nhập không bị sửa giữa đường</b> (PAR, JAR, JARM), (3) <b>làm sao để quản lý danh tính ở quy mô lớn</b> (Federation, SCIM, IGA, CAE). Chỉ cần nhớ câu hỏi, chi tiết tra spec khi cần.</div>
+<p>Để giữ đúng giới hạn thời lượng, các chủ đề sau chỉ cần <b>biết tên, biết nó giải quyết vấn đề gì</b>. Đây không phải các chủ đề không quan trọng; chúng được tách ra vì cần thời gian riêng để học đúng chiều sâu.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Chủ đề</th><th>Là gì / giải quyết vấn đề gì</th><th>Spec / tài liệu</th></tr></thead>
+<tbody>
+<tr><td><b>OAuth 2.0 Token Exchange</b> &amp; <b>On-Behalf-Of</b> (Entra ID)</td><td>API A nhận access token của user, đổi lấy token mới cho API B (giữ danh tính user, đổi audience/scope). Giải quyết bài toán gọi chuỗi microservice “thay mặt user” mà không chuyển tiếp nguyên token gốc.</td><td><a href="https://www.rfc-editor.org/rfc/rfc8693">RFC 8693</a> · <a href="https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-on-behalf-of-flow">Entra OBO</a></td></tr>
+<tr><td><b>DPoP</b> — Demonstrating Proof of Possession</td><td>Ràng buộc access/refresh token với một cặp khóa của client; mỗi request kèm header <code>DPoP</code> là JWT ký bằng private key. Token bị đánh cắp không dùng được nếu thiếu private key (sender-constrained token ở tầng ứng dụng, phù hợp SPA/mobile).</td><td><a href="https://www.rfc-editor.org/rfc/rfc9449">RFC 9449</a></td></tr>
+<tr><td><b>mTLS client auth &amp; certificate-bound tokens</b></td><td>Client xác thực tới AS bằng chứng thư TLS, và access token gắn với thumbprint chứng thư (<code>cnf.x5t#S256</code>). Resource server kiểm tra chứng thư TLS khớp token → chống dùng lại token bị lộ.</td><td><a href="https://www.rfc-editor.org/rfc/rfc8705">RFC 8705</a></td></tr>
+<tr><td><b>PAR</b> — Pushed Authorization Requests</td><td>Client gửi tham số authorization request trực tiếp (back-channel, có xác thực client) tới AS, nhận <code>request_uri</code> rồi mới redirect browser. Tránh lộ/sửa tham số trên URL, URL ngắn gọn.</td><td><a href="https://www.rfc-editor.org/rfc/rfc9126">RFC 9126</a></td></tr>
+<tr><td><b>JAR</b> — JWT-Secured Authorization Request</td><td>Đóng gói tham số authorization request vào một JWT được ký (và có thể mã hóa) → AS chắc chắn tham số đến từ client, không bị sửa giữa đường.</td><td><a href="https://www.rfc-editor.org/rfc/rfc9101">RFC 9101</a></td></tr>
+<tr><td><b>JARM</b> — JWT Secured Authorization Response Mode</td><td>Ngược lại với JAR: AS trả authorization response (<code>code</code>, <code>state</code>) dưới dạng JWT ký → client xác minh được response thật từ AS. Là OpenID Final Specification (FAPI WG), không phải RFC.</td><td><a href="https://openid.net/specs/oauth-v2-jarm-final.html">OpenID JARM</a></td></tr>
+<tr><td><b>RAR</b> — Rich Authorization Requests</td><td>Tham số <code>authorization_details</code> (JSON) mô tả quyền chi tiết, ví dụ “chuyển 50 € tới tài khoản X” — thay cho scope dạng chuỗi thô quá thô cho giao dịch tài chính/y tế.</td><td><a href="https://www.rfc-editor.org/rfc/rfc9396">RFC 9396</a></td></tr>
+<tr><td><b>OpenID Federation</b></td><td>Thiết lập trust tự động giữa nhiều OP/RP qua chuỗi entity statement được ký (trust anchor, intermediate) thay vì trao đổi metadata thủ công từng cặp. Tên cũ “OpenID Connect Federation”; bản 1.0 đã thành Final Specification (2/2026).</td><td><a href="https://openid.net/specs/openid-federation-1_0.html">OpenID Federation 1.0</a></td></tr>
+<tr><td><b>Multi-tenant application</b> (Entra ID)</td><td>Một app đăng ký một lần nhưng cho user từ nhiều tenant đăng nhập; phải xử lý consent theo tenant, kiểm tra <code>tid</code>/issuer theo tenant và cô lập dữ liệu.</td><td><a href="https://learn.microsoft.com/en-us/entra/identity-platform/single-and-multi-tenant-apps">Single and multi-tenant apps</a></td></tr>
+<tr><td><b>SCIM</b> — chi tiết triển khai</td><td>Chuẩn REST/JSON để IdP tự động tạo/cập nhật/vô hiệu hóa user &amp; group ở ứng dụng (provisioning/deprovisioning). Khái niệm đã có ở <a href="m07-3-provisioning-wpf.html#provisioning">M07</a>.</td><td><a href="https://www.rfc-editor.org/rfc/rfc7643">RFC 7643</a> (schema) · <a href="https://www.rfc-editor.org/rfc/rfc7644">RFC 7644</a> (protocol)</td></tr>
+<tr><td><b>IGA</b> — Identity Governance and Administration</td><td>Quản trị vòng đời danh tính và quyền: quy trình xin/duyệt quyền, access review định kỳ, phân tách nhiệm vụ (SoD), báo cáo tuân thủ.</td><td><a href="https://learn.microsoft.com/en-us/entra/id-governance/identity-governance-overview">Microsoft Entra ID Governance</a></td></tr>
+<tr><td><b>Risk-based / adaptive auth, Conditional Access, CAE</b></td><td>Quyết định yêu cầu MFA/chặn dựa trên tín hiệu (vị trí, thiết bị, rủi ro). <b>Continuous Access Evaluation</b>: resource được báo ngay khi user bị vô hiệu/đổi mật khẩu/đổi IP để thu hồi phiên gần thời gian thực, thay vì chờ token hết hạn. Chuẩn mở tương ứng: OpenID Shared Signals Framework + CAEP (Final 2025).</td><td><a href="https://learn.microsoft.com/en-us/entra/identity/conditional-access/concept-continuous-access-evaluation">Entra CAE</a> · <a href="https://openid.net/specs/openid-sharedsignals-framework-1_0-final.html">SSF 1.0</a> · <a href="https://openid.net/specs/openid-caep-1_0-final.html">CAEP 1.0</a></td></tr>
+<tr><td><b>Decentralized Identity / Verifiable Credentials</b></td><td>Bên phát hành ký một credential (bằng cấp, CCCD số…) vào ví của người dùng; người dùng tự trình cho bên xác minh mà không cần bên phát hành trực tuyến, có thể tiết lộ chọn lọc.</td><td><a href="https://www.w3.org/TR/vc-data-model-2.0/">W3C VC Data Model 2.0</a> · <a href="https://openid.net/specs/openid-4-verifiable-presentations-1_0.html">OpenID4VP</a></td></tr>
+<tr><td><b>Workload identity federation</b> (cloud)</td><td>Workload (GitHub Actions, Kubernetes pod, VM ở cloud khác) đổi token OIDC do nền tảng của nó cấp lấy token cloud — <b>không cần lưu client secret</b> dài hạn.</td><td><a href="https://learn.microsoft.com/en-us/entra/workload-id/workload-identity-federation">Entra workload identity federation</a></td></tr>
+<tr><td><b>Kerberos delegation</b>, constrained delegation, protocol internals</td><td>Cho service A dùng danh tính user để gọi service B trong domain (double-hop). Unconstrained delegation rất rủi ro; constrained/resource-based constrained delegation giới hạn được service đích. Xem nền tảng ở <a href="m05-2-kerberos-enterprise.html#kerberos">M05</a>.</td><td><a href="https://learn.microsoft.com/en-us/windows-server/security/kerberos/kerberos-constrained-delegation-overview">Kerberos Constrained Delegation</a></td></tr>
+<tr><td><b>SAML artifact binding, profile nâng cao; WS-Federation</b></td><td>Artifact binding: browser chỉ mang một “artifact” tham chiếu, SP lấy assertion qua back-channel SOAP. WS-Federation: giao thức federation đời cũ (ADFS, ứng dụng .NET Framework). Xem <a href="m04-3-flows-bindings.html#bindings">M04 bindings</a>.</td><td><a href="https://docs.oasis-open.org/security/saml/v2.0/">OASIS SAML 2.0</a> · <a href="https://docs.oasis-open.org/wsfed/federation/v1.2/ws-federation.html">WS-Federation 1.2</a></td></tr>
+<tr><td><b>Certificate-based auth / smart card</b> chi tiết</td><td>Đăng nhập bằng chứng thư X.509 trên smart card/YubiKey (PIV); cần PKI, ánh xạ chứng thư ↔ user, kiểm tra thu hồi (CRL/OCSP).</td><td><a href="https://learn.microsoft.com/en-us/entra/identity/authentication/concept-certificate-based-authentication">Entra CBA</a></td></tr>
+<tr><td><b>Profile bảo mật chuyên biệt — FAPI 2.0</b></td><td>Bộ quy tắc cho API rủi ro cao (open banking): bắt buộc PAR, PKCE, sender-constrained token (DPoP hoặc mTLS), client auth mạnh… Security Profile đã Final (2/2025).</td><td><a href="https://openid.net/specs/fapi-security-profile-2_0-final.html">FAPI 2.0 Security Profile</a></td></tr>
+</tbody></table></div>
+
+<!-- ===================================================== -->
+<h2 id="deliverables">D. Bộ tài liệu đầu ra cuối khóa</h2>
+<p>Khi hoàn tất 15 giờ, bạn nên có một <b>bộ tài liệu cá nhân</b>. Phần lớn được <b>gom lại</b> từ deliverable của các module — không làm lại từ đầu.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>#</th><th>Tài liệu</th><th>Nội dung</th><th>Gom từ deliverable ở…</th></tr></thead>
+<tbody>
+<tr><td>1</td><td><b>Authentication Glossary</b></td><td>Thuật ngữ và định nghĩa</td><td><a href="m01-quiz.html#output">M01 — glossary 12 thuật ngữ</a>; mở rộng bằng <a href="appendix-3-glossary.html#glossary">glossary tổng hợp</a> bên dưới.</td></tr>
+<tr><td>2</td><td><b>Protocol Comparison Matrix</b></td><td>OAuth, OIDC, SAML, Kerberos, FIDO2, LDAP, RADIUS</td><td><a href="m03-quiz.html#so-sanh">M03 — bảng OAuth 2.0 vs OIDC</a>, <a href="m04-4-security.html#oidc-vs-saml">M04 — OIDC vs SAML</a>, <a href="m05-1-ldap-ad.html#ldap">M05 — bảng LDAP/AD/Kerberos/NTLM/RADIUS</a>, gộp thành <a href="m07-5-decision-matrix.html#decision-matrix">M07 — decision matrix</a>.</td></tr>
+<tr><td>3</td><td><b>Token &amp; Session Notes</b></td><td>JWT, cookie, session, token lifecycle</td><td><a href="m02-1-crypto.html#crypto">M02 — bảng crypto</a>, <a href="m02-2-session-cookie.html#session-cookie">sơ đồ session vs token</a>, <a href="m02-3-token-jwt.html#jwt">JWT mẫu</a>, <a href="m02-3-token-jwt.html#tokens">bảng 3 loại token</a>, <a href="m02-5-http-auth.html#api-key">API key/Basic/Bearer</a>; bổ sung <a href="m03-5-oidc.html#id-vs-access">M03 — ID token</a>.</td></tr>
+<tr><td>4</td><td><b>Flow Diagrams</b></td><td>OAuth/OIDC, SAML, Kerberos, WebAuthn</td><td><a href="m03-2-auth-code-pkce.html#auth-code-pkce">M03 — Auth Code + PKCE</a>, <a href="m03-3-other-grants.html#client-credentials">Client Credentials</a>, <a href="m04-3-flows-bindings.html#sp-initiated">M04 — SP-initiated</a>, <a href="m05-2-kerberos-enterprise.html#kerberos">M05 — Kerberos</a>, <a href="m05-3-webauthn.html#webauthn">WebAuthn</a>.</td></tr>
+<tr><td>5</td><td><b>Security Checklist</b></td><td>Token, session, redirect, MFA, API authorization</td><td><a href="m06-quiz.html#security-checklist">M06 — checklist master</a> (gộp <a href="m02-3-token-jwt.html#jwt-validation">M02 token validation</a>, <a href="m03-4-state-nonce-redirect.html#state-nonce">M03 state/nonce/PKCE/redirect</a>, <a href="m04-4-security.html#saml-validation">M04 SAML validation</a>) + mục kiến trúc từ <a href="m07-1-design-web.html#bff">M07</a>.</td></tr>
+<tr><td>6</td><td><b>Architecture Diagram</b></td><td>Một hệ thống thực tế của team</td><td><a href="m07-3-provisioning-wpf.html#wpf-example">M07 — ví dụ WPF + API</a>, <a href="m07-1-design-web.html#design-process">quy trình thiết kế</a>.</td></tr>
+<tr><td>7</td><td><b>Troubleshooting Guide</b></td><td>Lỗi phổ biến và hướng điều tra</td><td><a href="lab-quiz.html#error-table">Lab — bảng lỗi</a> → <a href="m07-4-cases-troubleshooting.html#troubleshooting">M07 — ≥ 10 lỗi</a>; thêm <a href="appendix.html#dotnet-pitfalls">5 lỗi .NET</a>.</td></tr>
+<tr><td>8</td><td><b>Sharing Slides / Notes</b></td><td>Nội dung chia sẻ 2 × 90 phút</td><td><a href="#sharing">Mục E</a> bên dưới (thời gian chuẩn bị tính riêng).</td></tr>
+<tr><td>9</td><td><b>Q&amp;A Bank</b></td><td>Câu hỏi và câu trả lời ngắn gọn</td><td>Knowledge Check + quiz của <a href="m01-quiz.html#knowledge-check">M01</a>, <a href="m02-crypto-session-token.html">M02</a>, <a href="m03-oauth-oidc.html">M03</a>, <a href="m04-saml.html">M04</a>, <a href="m05-enterprise-passwordless.html">M05</a>, <a href="m06-authz-security.html">M06</a>, <a href="m07-architecture.html">M07</a>.</td></tr>
+<tr><td>10</td><td><b>Demo repo</b></td><td>API + client từ Lab, có README chạy được</td><td><a href="lab-1-keycloak.html#lab1">Lab 1</a> → <a href="lab-5-saml.html#lab5">Lab 5</a>; dùng demo trực tiếp ở buổi chia sẻ 2.</td></tr>
+</tbody></table></div>
+<ul class="checklist">
+<li><span>1 · Authentication Glossary</span></li>
+<li><span>2 · Protocol Comparison Matrix</span></li>
+<li><span>3 · Token &amp; Session Notes</span></li>
+<li><span>4 · Flow Diagrams</span></li>
+<li><span>5 · Security Checklist (master)</span></li>
+<li><span>6 · Architecture Diagram</span></li>
+<li><span>7 · Troubleshooting Guide</span></li>
+<li><span>8 · Sharing Slides / Notes</span></li>
+<li><span>9 · Q&amp;A Bank</span></li>
+<li><span>10 · Demo repo (API + client, README)</span></li>
+</ul>
+
+<!-- ===================================================== -->
+<h2 id="sharing">E. Đề xuất cấu trúc 2 buổi chia sẻ</h2>
+<div class="callout info"><span class="callout-title">⏳ Thời gian chuẩn bị</span>
+Chuẩn bị slide, kịch bản demo và tập trình bày ước tính <b>3–5 giờ</b>, <b>không</b> nằm trong 10–15 giờ học. Tái sử dụng tối đa sơ đồ và bảng đã làm trong các deliverable.</div>
+
+<h3 id="buoi-1">Buổi 1 — Authentication Fundamentals &amp; Federation (90 phút)</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>Nội dung</th><th>Thời lượng</th><th>Mốc</th><th>Tái sử dụng</th></tr></thead>
+<tbody>
+<tr><td>Identity, Authentication, Authorization</td><td>15 phút</td><td>0:00–0:15</td><td><a href="m01-1-identity-roles.html#iaaa">Sơ đồ IAAA</a>, ví dụ 401/403</td></tr>
+<tr><td>Cryptography, Session, Cookie, Token, JWT</td><td>20 phút</td><td>0:15–0:35</td><td><a href="m02-3-token-jwt.html#jwt">JWT mẫu</a>, bảng 3 loại token</td></tr>
+<tr><td>OAuth 2.0 và OIDC</td><td>25 phút</td><td>0:35–1:00</td><td><a href="m03-2-auth-code-pkce.html#auth-code-pkce">Auth Code + PKCE</a>, ID vs access token</td></tr>
+<tr><td>SAML 2.0 và Enterprise SSO</td><td>15 phút</td><td>1:00–1:15</td><td><a href="m04-3-flows-bindings.html#sp-initiated">SP-initiated</a>, OIDC vs SAML</td></tr>
+<tr><td>Quiz &amp; Q&amp;A</td><td>15 phút</td><td>1:15–1:30</td><td>Q&amp;A Bank</td></tr>
+</tbody></table></div>
+<div class="flow">
+  <div class="step"><b>15′</b> Fundamentals</div><span class="arrow">→</span>
+  <div class="step"><b>20′</b> Crypto · Session · JWT</div><span class="arrow">→</span>
+  <div class="step"><b>25′</b> OAuth 2.0 · OIDC</div><span class="arrow">→</span>
+  <div class="step"><b>15′</b> SAML · Enterprise SSO</div><span class="arrow">→</span>
+  <div class="step"><b>15′</b> Quiz &amp; Q&amp;A</div>
+</div>
+
+<h3 id="buoi-2">Buổi 2 — Enterprise, Security &amp; Architecture (90 phút)</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>Nội dung</th><th>Thời lượng</th><th>Mốc</th><th>Tái sử dụng</th></tr></thead>
+<tbody>
+<tr><td>LDAP, AD, Kerberos (NTLM/RADIUS chỉ nêu tên)</td><td>10 phút</td><td>0:00–0:10</td><td><a href="m05-2-kerberos-enterprise.html#kerberos">Sơ đồ Kerberos</a></td></tr>
+<tr><td>FIDO2, WebAuthn, Passkey (gắn với AiTM phishing)</td><td>15 phút</td><td>0:10–0:25</td><td><a href="m05-3-webauthn.html#webauthn">WebAuthn</a>, <a href="m06-4-identity-attacks.html#aitm">AiTM</a></td></tr>
+<tr><td>Authorization models</td><td>10 phút</td><td>0:25–0:35</td><td><a href="m06-1-authz-models.html#authz-models">RBAC/ABAC/ACL/ReBAC</a></td></tr>
+<tr><td>Security threats &amp; best practices</td><td>15 phút</td><td>0:35–0:50</td><td>Threat model, checklist master</td></tr>
+<tr><td>Architecture + demo Lab (client + ASP.NET Core API)</td><td>30 phút</td><td>0:50–1:20</td><td>Architecture diagram, demo repo</td></tr>
+<tr><td>Quiz &amp; Q&amp;A</td><td>10 phút</td><td>1:20–1:30</td><td>Q&amp;A Bank</td></tr>
+</tbody></table></div>
+<div class="flow">
+  <div class="step"><b>10′</b> LDAP · AD · Kerberos</div><span class="arrow">→</span>
+  <div class="step"><b>15′</b> FIDO2 · Passkey</div><span class="arrow">→</span>
+  <div class="step"><b>10′</b> AuthZ models</div><span class="arrow">→</span>
+  <div class="step"><b>15′</b> Threats</div><span class="arrow">→</span>
+  <div class="step"><b>30′</b> Architecture + Demo</div><span class="arrow">→</span>
+  <div class="step"><b>10′</b> Quiz &amp; Q&amp;A</div>
+</div>
+
+<h3 id="goi-y-demo">Gợi ý kịch bản demo (30 phút, buổi 2)</h3>
+<ol class="steps">
+<li><b>Login thành công</b> (Auth Code + PKCE): mở DevTools/Fiddler, chỉ ra <code>code_challenge</code>, <code>state</code>, redirect về <code>redirect_uri</code>, rồi đổi code lấy token.</li>
+<li><b>Giải mã access token</b>: chỉ ra <code>iss</code>, <code>aud</code>, <code>exp</code>, <code>scope</code>; nhấn mạnh “ký ≠ bí mật”.</li>
+<li><b>Gọi API 4 kịch bản lỗi</b>: không token → 401; sai <code>aud</code> → 401; token hết hạn → 401 kèm <code>WWW-Authenticate</code>; thiếu scope → 403. (<a href="lab-quiz.html#error-table">bảng lỗi Lab</a>)</li>
+<li><b>Gửi ID token thay access token</b> → bị từ chối; giải thích vì sao.</li>
+<li><b>Bật lại <code>MapInboundClaims</code></b> → <code>sub</code> “biến mất”; liên hệ <a href="appendix.html#pitfall-mapping">lỗi .NET số 2</a>.</li>
+<li>(Tùy chọn) <b>Passkey</b> trên trang demo WebAuthn, hoặc thu hồi phiên ở Keycloak và quan sát refresh token bị từ chối.</li>
+</ol>
+<div class="callout tip"><span class="callout-title">✅ Mẹo demo</span>
+Chuẩn bị sẵn token đã hết hạn và token sai audience (ghi vào file <code>.http</code>) để không phụ thuộc mạng/IdP lúc trình bày; có ảnh chụp màn hình dự phòng cho từng bước.</div>
+
+<!-- ===================================================== -->
+<h2 id="rubric">F. Rubric tự đánh giá trước khi đứng lớp</h2>
+<p>Chấm mỗi tiêu chí từ 0 đến 2:</p>
+<div class="grid cols-3">
+  <div class="card bad"><h4>0 điểm</h4><p>Chưa giải thích được.</p></div>
+  <div class="card"><h4>1 điểm</h4><p>Giải thích được khái niệm nhưng chưa vẽ/diễn giải flow hoặc chưa trả lời được tình huống.</p></div>
+  <div class="card ok"><h4>2 điểm</h4><p>Giải thích được, vẽ được flow và trả lời được câu hỏi áp dụng.</p></div>
+</div>
+
+<div class="widget" id="rubric-widget">
+  <div class="w-title">🧪 Tự chấm điểm (lưu trên trình duyệt này)</div>
+  <div class="table-wrap"><table class="rubric-table">
+  <thead><tr><th>Năng lực</th><th>Điểm</th><th>Ôn lại</th></tr></thead>
+  <tbody id="rubric-body"></tbody>
+  </table></div>
+  <p style="margin:4px 0 0"><small>★ = năng lực bắt buộc không được 0 điểm theo mốc khuyến nghị (“token validation” nằm trong năng lực <i>Cryptography, session, token</i>).</small></p>
+  <div class="btn-row"><button class="btn ghost" type="button" id="rubric-reset">Xóa lựa chọn</button></div>
+  <div class="out" id="rubric-out"></div>
+</div>
+
+<div class="callout info"><span class="callout-title">🎯 Mốc khuyến nghị</span>
+Từ <b>12/16</b> trở lên, <b>không có điểm 0</b> ở OAuth/OIDC, token validation, security và Hands-on Lab, là mức phù hợp để chia sẻ overview/technical sharing. Với câu hỏi chuyên sâu về giao thức, cần sẵn sàng <b>tra cứu specification</b> hoặc tài liệu nhà cung cấp thay vì suy đoán.</div>
+
+<!-- ===================================================== -->
+<h2 id="references">G. Tài liệu tham khảo chính thống</h2>
+<p>Ưu tiên specification và tài liệu của tổ chức tiêu chuẩn/nhà cung cấp nền tảng. Trạng thái dưới đây được kiểm tra tại thời điểm <b>11/2026</b>.</p>
+<div class="callout warn"><span class="callout-title">📝 Cập nhật so với roadmap gốc</span>
+<ul>
+<li><b>OAuth 2.0 for Browser-Based Applications</b> không còn là Internet-Draft: đã ban hành thành <b>RFC 10017 (BCP 212, 8/2026)</b>.</li>
+<li><b>Web Authentication Level 3</b> đã là <b>W3C Recommendation</b> (25/8/2026), kế nhiệm Level 2.</li>
+<li><b>OAuth 2.1</b> vẫn là <b>Internet-Draft</b> (draft-ietf-oauth-v2-1-17, 10/2026) — chưa có số RFC.</li>
+<li><b>NIST SP 800-63-4</b> đã final (7/2025), thay thế bộ 800-63-3.</li>
+</ul></div>
+
+<h3 id="ref-oauth">OAuth 2.0 / 2.1 &amp; token</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>Tài liệu</th><th>Mô tả</th><th>Trạng thái</th></tr></thead>
+<tbody>
+<tr><td><a href="https://www.rfc-editor.org/rfc/rfc6749">RFC 6749 — OAuth 2.0 Framework</a></td><td>Khung OAuth 2.0: vai trò, grant types, endpoint.</td><td><span class="status rfc">RFC</span></td></tr>
+<tr><td><a href="https://www.rfc-editor.org/rfc/rfc9700">RFC 9700 — OAuth 2.0 Security BCP</a></td><td>Best Current Practice bảo mật OAuth (bỏ Implicit/ROPC, PKCE cho mọi client…).</td><td><span class="status rfc">RFC · BCP 240</span></td></tr>
+<tr><td><a href="https://www.rfc-editor.org/rfc/rfc7636">RFC 7636 — PKCE</a></td><td>Chống đánh cắp authorization code bằng <code>code_verifier</code>/<code>code_challenge</code>.</td><td><span class="status rfc">RFC</span></td></tr>
+<tr><td><a href="https://www.rfc-editor.org/rfc/rfc6750">RFC 6750 — Bearer Token Usage</a></td><td>Cách gửi bearer token và header <code>WWW-Authenticate</code> khi lỗi.</td><td><span class="status rfc">RFC</span></td></tr>
+<tr><td><a href="https://www.rfc-editor.org/rfc/rfc7519">RFC 7519 — JWT</a></td><td>Định dạng JSON Web Token và các claim đăng ký (<code>iss</code>, <code>sub</code>, <code>aud</code>, <code>exp</code>…).</td><td><span class="status rfc">RFC</span></td></tr>
+<tr><td><a href="https://www.rfc-editor.org/rfc/rfc7515">RFC 7515 — JWS</a></td><td>Cấu trúc chữ ký số cho JWT (header.payload.signature).</td><td><span class="status rfc">RFC</span></td></tr>
+<tr><td><a href="https://www.rfc-editor.org/rfc/rfc9068">RFC 9068 — JWT Profile for Access Tokens</a></td><td>Chuẩn hóa access token dạng JWT (<code>typ: at+jwt</code>, claim bắt buộc).</td><td><span class="status rfc">RFC</span></td></tr>
+<tr><td><a href="https://www.rfc-editor.org/rfc/rfc7662">RFC 7662 — Token Introspection</a></td><td>Resource server hỏi AS xem token còn hiệu lực không.</td><td><span class="status rfc">RFC</span></td></tr>
+<tr><td><a href="https://www.rfc-editor.org/rfc/rfc7009">RFC 7009 — Token Revocation</a></td><td>Client yêu cầu thu hồi access/refresh token.</td><td><span class="status rfc">RFC</span></td></tr>
+<tr><td><a href="https://www.rfc-editor.org/rfc/rfc8252">RFC 8252 — OAuth 2.0 for Native Apps</a></td><td>Desktop/mobile dùng system browser + PKCE, loopback/custom scheme redirect.</td><td><span class="status rfc">RFC · BCP 212</span></td></tr>
+<tr><td><a href="https://www.rfc-editor.org/rfc/rfc8628">RFC 8628 — Device Authorization Grant</a></td><td>Đăng nhập trên thiết bị không có bàn phím/trình duyệt (TV, CLI).</td><td><span class="status rfc">RFC</span></td></tr>
+<tr><td><a href="https://datatracker.ietf.org/doc/draft-ietf-oauth-v2-1/">OAuth 2.1</a></td><td>Hợp nhất OAuth 2.0 + các BCP: PKCE bắt buộc, bỏ Implicit/ROPC, so khớp redirect URI chính xác.</td><td><span class="status draft">Internet-Draft</span></td></tr>
+<tr><td><a href="https://www.rfc-editor.org/rfc/rfc10017">RFC 10017 — OAuth 2.0 for Browser-Based Applications</a></td><td>Kiến trúc SPA: BFF, token-mediating backend, browser-only; rủi ro lưu token trong browser.</td><td><span class="status rfc">RFC · BCP 212 (8/2026)</span></td></tr>
+<tr><td><a href="https://www.rfc-editor.org/rfc/rfc7644">RFC 7644 — SCIM 2.0 Protocol</a></td><td>API provisioning user/group giữa IdP và ứng dụng.</td><td><span class="status rfc">RFC</span></td></tr>
+</tbody></table></div>
+
+<h3 id="ref-oidc-saml">OpenID Connect &amp; SAML</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>Tài liệu</th><th>Mô tả</th><th>Trạng thái</th></tr></thead>
+<tbody>
+<tr><td><a href="https://openid.net/specs/openid-connect-core-1_0.html">OpenID Connect Core 1.0</a></td><td>ID token, các flow, claim chuẩn, <code>nonce</code>, UserInfo.</td><td><span class="status final">OpenID Final</span></td></tr>
+<tr><td><a href="https://openid.net/specs/openid-connect-discovery-1_0.html">OpenID Connect Discovery 1.0</a></td><td><code>/.well-known/openid-configuration</code> và <code>jwks_uri</code>.</td><td><span class="status final">OpenID Final</span></td></tr>
+<tr><td><a href="https://www.oasis-open.org/standards/">SAML 2.0 — OASIS</a> (<a href="https://docs.oasis-open.org/security/saml/v2.0/">bộ tài liệu</a>)</td><td>Core (assertion, protocol), Bindings, Profiles, Metadata.</td><td><span class="status final">OASIS Standard</span></td></tr>
+</tbody></table></div>
+
+<h3 id="ref-passwordless">WebAuthn, FIDO &amp; NIST</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>Tài liệu</th><th>Mô tả</th><th>Trạng thái</th></tr></thead>
+<tbody>
+<tr><td><a href="https://www.w3.org/TR/webauthn-2/">Web Authentication Level 2</a></td><td>API trình duyệt cho đăng ký/xác thực bằng public key.</td><td><span class="status rec">W3C Recommendation</span> (đã có bản kế nhiệm)</td></tr>
+<tr><td><a href="https://www.w3.org/TR/webauthn-3/">Web Authentication Level 3</a></td><td>Bản mới: hỗ trợ tốt hơn cho passkey đồng bộ, hints, related origins…</td><td><span class="status rec">W3C Recommendation (8/2026)</span></td></tr>
+<tr><td><a href="https://fidoalliance.org/specifications/">FIDO Alliance specifications</a></td><td>FIDO2/CTAP (giao tiếp authenticator), UAF, U2F.</td><td><span class="status final">FIDO specs</span></td></tr>
+<tr><td><a href="https://pages.nist.gov/800-63-4/">NIST SP 800-63-4</a> (<a href="https://csrc.nist.gov/pubs/sp/800/63/4/final">CSRC</a>)</td><td>Digital Identity Guidelines: 63A proofing, 63B authentication (chính sách mật khẩu), 63C federation.</td><td><span class="status final">Final (7/2025)</span></td></tr>
+</tbody></table></div>
+
+<h3 id="ref-owasp">OWASP</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>Tài liệu</th><th>Mô tả</th><th>Trạng thái</th></tr></thead>
+<tbody>
+<tr><td><a href="https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html">Authentication Cheat Sheet</a></td><td>Mật khẩu, thông báo lỗi, MFA, chống brute force.</td><td><span class="status">Cheat sheet (cập nhật liên tục)</span></td></tr>
+<tr><td><a href="https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html">Session Management Cheat Sheet</a></td><td>Session ID, thuộc tính cookie, timeout, session fixation.</td><td><span class="status">Cheat sheet</span></td></tr>
+<tr><td><a href="https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html">Authorization Cheat Sheet</a></td><td>Deny by default, kiểm tra quyền ở server, IDOR.</td><td><span class="status">Cheat sheet</span></td></tr>
+<tr><td><a href="https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html">CSRF Prevention Cheat Sheet</a></td><td>Synchronizer token, SameSite, kiểm tra Origin.</td><td><span class="status">Cheat sheet</span></td></tr>
+</tbody></table></div>
+
+<h3 id="ref-vendor">Nền tảng &amp; sản phẩm</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>Tài liệu</th><th>Mô tả</th><th>Trạng thái</th></tr></thead>
+<tbody>
+<tr><td><a href="https://learn.microsoft.com/en-us/entra/identity-platform/">Microsoft identity platform</a></td><td>Entra ID: app registration, MSAL, token, scope/role.</td><td><span class="status">Vendor docs</span></td></tr>
+<tr><td><a href="https://learn.microsoft.com/en-us/aspnet/core/security/">ASP.NET Core security</a></td><td>Authentication, authorization, Data Protection, CORS, antiforgery.</td><td><span class="status">Vendor docs</span></td></tr>
+<tr><td><a href="https://www.keycloak.org/documentation">Keycloak documentation</a></td><td>IdP dùng cho Lab: realm, client, mapper, session.</td><td><span class="status">Vendor docs</span></td></tr>
+</tbody></table></div>
+<div class="callout tip"><span class="callout-title">✅ Nguyên tắc tra cứu</span>
+Khi có khác biệt giữa bài viết tổng quan và specification, ưu tiên <b>specification hiện hành</b> và tài liệu chính thức của nhà cung cấp đang triển khai. Kiểm tra trạng thái (RFC/Draft/Recommendation, có bị “Updated by/Obsoleted by” không) trước khi dùng làm tiêu chuẩn triển khai production.</div>
+
+<!-- ===================================================== -->
+<h2 id="tom-tat">Tóm tắt nhanh</h2>
+<ul>
+<li>Trong ASP.NET Core: <code>UseAuthentication()</code> phải chạy <b>trước</b> <code>UseAuthorization()</code>; CORS đặt trước cả hai.</li>
+<li>Web app thường dùng <b>Cookie + OIDC</b>; Web API dùng <b>JwtBearer</b> với <code>Authority</code> + <code>Audience</code>.</li>
+<li>Challenge = “chưa đăng nhập” (401/redirect login); Forbid = “thiếu quyền” (403). Phản hồi cụ thể do scheme quyết định.</li>
+<li>Đặt <code>MapInboundClaims = false</code> để giữ nguyên tên claim gốc (<code>sub</code>, <code>scp</code>, <code>roles</code>…); claim <code>scope</code> của Keycloak vốn không bị đổi tên nhưng là chuỗi nhiều scope cách nhau dấu cách.</li>
+<li>Chạy nhiều instance → chia sẻ Data Protection key ring; không bao giờ tắt kiểm tra <code>aud</code>/<code>iss</code> ở production.</li>
+<li>ASP.NET Core Identity băm mật khẩu bằng PBKDF2-HMAC-SHA512 (100.000 vòng mặc định) và hỗ trợ passkey từ .NET 10.</li>
+<li>Chủ đề nâng cao (DPoP, PAR, RAR, Token Exchange, FAPI 2.0…) chỉ cần biết tên và vấn đề chúng giải quyết.</li>
+<li>Bộ tài liệu cuối khóa = 9 tài liệu + demo repo, gom từ deliverable các module.</li>
+<li>Mốc sẵn sàng đứng lớp: ≥ 12/16 và không có điểm 0 ở OAuth/OIDC, token, security, Lab.</li>
+<li>Trạng thái 11/2026: OAuth 2.1 vẫn là draft; browser-based apps đã là RFC 10017; WebAuthn L3 đã là Recommendation; NIST 800-63-4 đã final.</li>
+</ul>
+
+</main>
+<script>
+(function () {
+  /* ---------- Rubric widget ---------- */
+  var KEY = "auth-roadmap:rubric:v1";
+  var ITEMS = [
+    { name: "Fundamentals và terminology", link: "m01-fundamentals.html", crit: false },
+    { name: "Cryptography, session, token (gồm token validation)", link: "m02-3-token-jwt.html#jwt-validation", crit: true },
+    { name: "OAuth/OIDC", link: "m03-oauth-oidc.html", crit: true },
+    { name: "SAML", link: "m04-saml.html", crit: false },
+    { name: "Enterprise/passwordless", link: "m05-enterprise-passwordless.html", crit: false },
+    { name: "Authorization/security", link: "m06-authz-security.html", crit: true },
+    { name: "Architecture/troubleshooting", link: "m07-architecture.html", crit: false },
+    { name: "Hands-on Lab (demo chạy được)", link: "lab.html", crit: true }
+  ];
+  function load() {
+    try { var v = JSON.parse(localStorage.getItem(KEY)); return (v && typeof v === "object") ? v : {}; }
+    catch (e) { return {}; }
+  }
+  function save(v) { try { localStorage.setItem(KEY, JSON.stringify(v)); } catch (e) { /* ignore */ } }
+
+  var body = document.getElementById("rubric-body");
+  var out = document.getElementById("rubric-out");
+  if (body && out) {
+    var state = load();
+    ITEMS.forEach(function (it, i) {
+      var tr = document.createElement("tr");
+      if (it.crit) tr.className = "crit";
+      var td1 = document.createElement("td"); td1.textContent = it.name;
+      var td2 = document.createElement("td"); td2.className = "pick";
+      [0, 1, 2].forEach(function (s) {
+        var lab = document.createElement("label"); lab.className = "r";
+        var inp = document.createElement("input");
+        inp.type = "radio"; inp.name = "rub" + i; inp.value = String(s);
+        if (state[i] === s) inp.checked = true;
+        inp.addEventListener("change", function () { state[i] = s; save(state); render(); });
+        lab.appendChild(inp); lab.appendChild(document.createTextNode(String(s)));
+        td2.appendChild(lab);
+      });
+      var td3 = document.createElement("td");
+      var a = document.createElement("a"); a.href = it.link; a.textContent = "Ôn lại";
+      td3.appendChild(a);
+      tr.appendChild(td1); tr.appendChild(td2); tr.appendChild(td3);
+      body.appendChild(tr);
+    });
+
+    function render() {
+      var total = 0, answered = 0, zeroCrit = [];
+      ITEMS.forEach(function (it, i) {
+        var v = state[i];
+        if (v === 0 || v === 1 || v === 2) {
+          answered++; total += v;
+          if (it.crit && v === 0) zeroCrit.push(it.name);
+        }
+      });
+      var html = '<div class="rubric-score">' + total + ' / 16</div>' +
+        '<div class="rubric-bar"><span style="width:' + Math.round(total / 16 * 100) + '%"></span></div>';
+      if (answered < ITEMS.length) {
+        html += '<span class="verdict-wait">Đã chấm ' + answered + '/' + ITEMS.length + ' năng lực — chấm đủ để xem kết luận.</span>';
+      } else if (total >= 12 && zeroCrit.length === 0) {
+        html += '<span class="verdict-ok">✅ Đạt mốc khuyến nghị: phù hợp để chia sẻ overview/technical sharing.</span>' +
+          '<br><small>Với câu hỏi chuyên sâu về giao thức, hãy tra specification/tài liệu nhà cung cấp thay vì suy đoán.</small>';
+      } else {
+        var reasons = [];
+        if (total < 12) reasons.push("tổng điểm " + total + "/16 &lt; 12 (còn thiếu " + (12 - total) + " điểm)");
+        if (zeroCrit.length) reasons.push("điểm 0 ở năng lực bắt buộc: <b>" + zeroCrit.join(", ") + "</b>");
+        html += '<span class="verdict-bad">⚠️ Chưa đạt mốc khuyến nghị</span><ul><li>' + reasons.join("</li><li>") + '</li></ul>' +
+          '<small>Ưu tiên ôn các năng lực đánh dấu ★ và các mục đang 0–1 điểm (dùng link “Ôn lại”).</small>';
+      }
+      out.innerHTML = html;
+    }
+    var reset = document.getElementById("rubric-reset");
+    if (reset) reset.addEventListener("click", function () {
+      state = {}; save(state);
+      body.querySelectorAll("input[type=radio]").forEach(function (r) { r.checked = false; });
+      render();
+    });
+    render();
+  }
+
+  /* ---------- Glossary filter ---------- */
+  var q = document.getElementById("gl-search");
+  var table = document.getElementById("gl-table");
+  var count = document.getElementById("gl-count");
+  if (q && table) {
+    var rows = Array.prototype.slice.call(table.tBodies[0].rows);
+    function norm(s) {
+      s = s.toLowerCase();
+      try { s = s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d"); } catch (e) { /* ignore */ }
+      return s;
+    }
+    var texts = rows.map(function (r) { return norm(r.textContent); });
+    function filter() {
+      var term = norm(q.value.trim()), shown = 0;
+      rows.forEach(function (r, i) {
+        var ok = !term || texts[i].indexOf(term) !== -1;
+        r.style.display = ok ? "" : "none";
+        if (ok) shown++;
+      });
+      if (count) count.textContent = "Hiển thị " + shown + " / " + rows.length + " thuật ngữ";
+    }
+    q.addEventListener("input", filter);
+    filter();
+  }
+})();
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="assets/pages.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

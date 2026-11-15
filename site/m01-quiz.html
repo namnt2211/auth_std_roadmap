@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M01 · Ôn tập &amp; Quiz</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<main class="content">
+
+<div class="page-head">
+  <div class="breadcrumb"><a href="index.html">Lộ trình</a> / <a href="m01-fundamentals.html">Module 01</a> / Ôn tập</div>
+  <h1>Module 01 — Ôn tập &amp; Quiz</h1>
+  <p class="lead">Trang ôn lại toàn bộ Module 01: đọc nhanh các hiểu lầm hay gặp và phần tóm tắt, tự trả lời câu hỏi tự luận, rồi làm quiz. Làm sau khi học xong Bài 1.1 và 1.2; đạt ≥ 80% quiz là hoàn thành module.</p>
+  <div class="meta-row">
+    <span class="chip">⏱ ~15 phút</span>
+    <span class="chip">📘 <a href="m01-fundamentals.html">Module 01 · Identity &amp; Authentication Fundamentals</a></span>
+  </div>
+</div>
+
+<!-- ===================================================== -->
+<h2 id="hieu-lam">Các hiểu lầm cần tránh</h2>
+<p>Bản tóm tắt để ôn nhanh. Chi tiết và ví dụ nằm ngay dưới từng phần trong bài — bấm “xem bài” để đọc lại.</p>
+<ul>
+<li><b>Hiểu lầm:</b> Email/username đúng là đủ biết người dùng là ai. → <b>Thực tế:</b> email chỉ là identifier; phải có credential hoặc token do IdP ký mới chứng minh được. (<a href="m01-1-identity-roles.html#identity-account">xem bài</a>)</li>
+<li><b>Hiểu lầm:</b> Email là khóa ổn định để gắn dữ liệu người dùng. → <b>Thực tế:</b> email có thể đổi hoặc được cấp lại; dùng <code>iss</code> + <code>sub</code>. (<a href="m01-1-identity-roles.html#identity-account">xem bài</a>)</li>
+<li><b>Hiểu lầm:</b> Đăng nhập thành công là vào được mọi thứ. → <b>Thực tế:</b> đó mới là authentication; được làm gì là authorization (lỗi → <code>403</code>). (<a href="m01-1-identity-roles.html#iaaa">xem bài</a>)</li>
+<li><b>Hiểu lầm:</b> <code>401 Unauthorized</code> nghĩa là thiếu quyền. → <b>Thực tế:</b> 401 là lỗi xác thực; thiếu quyền là 403. (<a href="m01-1-identity-roles.html#401-403">xem bài</a>)</li>
+<li><b>Hiểu lầm:</b> Client trong OAuth là trình duyệt. → <b>Thực tế:</b> Client là ứng dụng xin và dùng token (hr-web, app desktop, job nền). (<a href="m01-1-identity-roles.html#vai-tro">xem bài</a>)</li>
+<li><b>Hiểu lầm:</b> OAuth 2.0 là giao thức đăng nhập. → <b>Thực tế:</b> OAuth 2.0 là authorization framework; lớp xác thực chuẩn hóa là OpenID Connect. (<a href="m01-1-identity-roles.html#vai-tro">xem bài</a>)</li>
+<li><b>Hiểu lầm:</b> JWT là một chuẩn authentication. → <b>Thực tế:</b> JWT chỉ là định dạng biểu diễn claims (RFC 7519). (<a href="m01-1-identity-roles.html#vai-tro">xem bài</a>)</li>
+<li><b>Hiểu lầm:</b> SSO nghĩa là mọi app dùng chung một session. → <b>Thực tế:</b> mỗi app có session riêng; thứ dùng chung là phiên ở IdP. (<a href="m01-2-sso-federation-mfa.html#sso">xem bài</a>)</li>
+<li><b>Hiểu lầm:</b> Có SSO thì đăng xuất một app là đăng xuất mọi nơi. → <b>Thực tế:</b> đăng xuất đồng loạt cần cơ chế logout riêng và phải cấu hình. (<a href="m01-2-sso-federation-mfa.html#sso">xem bài</a>)</li>
+<li><b>Hiểu lầm:</b> Federation = SSO. → <b>Thực tế:</b> federation là quan hệ tin cậy giữa các miền; SSO là trải nghiệm đăng nhập một lần. (<a href="m01-2-sso-federation-mfa.html#federation">xem bài</a>)</li>
+<li><b>Hiểu lầm:</b> Federation là đồng bộ DB người dùng / chia sẻ mật khẩu. → <b>Thực tế:</b> bên nhận chỉ kiểm chữ ký trên assertion/token bằng certificate đã trao đổi. (<a href="m01-2-sso-federation-mfa.html#federation">xem bài</a>)</li>
+<li><b>Hiểu lầm:</b> Có hai màn hình đăng nhập là MFA. → <b>Thực tế:</b> MFA đếm loại yếu tố, không đếm bước. (<a href="m01-2-sso-federation-mfa.html#mfa">xem bài</a>)</li>
+<li><b>Hiểu lầm:</b> Mã TOTP gõ tay nên là “know”. → <b>Thực tế:</b> TOTP chứng minh bạn có thiết bị giữ secret → have. (<a href="m01-2-sso-federation-mfa.html#mfa">xem bài</a>)</li>
+<li><b>Hiểu lầm:</b> Bật MFA rồi thì không bị phishing. → <b>Thực tế:</b> TOTP/SMS/push vẫn bị AiTM hoặc MFA fatigue; passkey chống phishing tốt hơn. (<a href="m01-2-sso-federation-mfa.html#factors">xem bài</a>)</li>
+</ul>
+
+<h2 id="tom-tat">Tóm tắt nhanh</h2>
+<ul>
+<li><b>Identity</b> = con người/thực thể trong một ngữ cảnh. <b>Account</b> = hồ sơ của thực thể ở <i>một</i> hệ thống. <b>Credential</b> = bằng chứng để xác thực. (<a href="m01-1-identity-roles.html#identity-account">Bài 1.1 – A</a>)</li>
+<li><b>Identifier</b> (email, username) để <b>tìm</b>, không để <b>chứng minh</b>.</li>
+<li>Thứ tự: <b>Identification</b> (khai tên) → <b>Authentication</b> (chứng minh) → <b>Authorization</b> (xin phép) → <b>Accounting</b> (ghi log). (<a href="m01-1-identity-roles.html#iaaa">Bài 1.1 – B</a>)</li>
+<li><b>AuthN</b> trả lời “bạn là ai?” (lỗi → <code>401</code>, nên lấy token mới). <b>AuthZ</b> trả lời “bạn được làm gì?” (lỗi → <code>403</code>, thử lại vô ích).</li>
+<li><b>IdP</b> xác thực và phát kết quả đăng nhập; <b>RP</b> (OIDC) / <b>SP</b> (SAML) tin vào kết quả đó; <b>AS</b> cấp access token, <b>RS</b> (API) kiểm tra token. Trong Kaopiz HR: Entra ID = IdP + AS, hr-web = RP + Client, hr-api = RS. (<a href="m01-1-identity-roles.html#vai-tro">Bài 1.1 – C</a>)</li>
+<li><b>SSO</b> là trải nghiệm đăng nhập một lần; <b>Federation</b> là quan hệ tin cậy giữa các miền. Liên quan nhưng không đồng nghĩa. (<a href="m01-2-sso-federation-mfa.html#sso-federation-mfa">Bài 1.2</a>)</li>
+<li><b>MFA</b> = ≥ 2 yếu tố thuộc nhóm <b>độc lập</b> (know / have / are), không phải ≥ 2 bước. Mã TOTP là <b>have</b>, dù bạn gõ tay.</li>
+<li>OAuth 2.0 là <b>authorization framework</b>; JWT chỉ là <b>định dạng</b> token.</li>
+</ul>
+
+<!-- ===================================================== -->
+<h2 id="output">Output / Deliverables</h2>
+<ul class="checklist">
+<li><span><b>Glossary</b> giải thích tối thiểu 12 thuật ngữ: Identity, Account, Identifier, Credential, Subject, Principal, Authentication, Authorization, IdP, RP, SP, Federation. <span class="badge core">Core</span> (Core: 1 dòng/thuật ngữ)</span></li>
+<li><span><b>Sơ đồ</b> phân biệt Identification → Authentication → Authorization → Audit. <span class="badge core">Core</span></span></li>
+<li><span><b>Một ví dụ thực tế</b> phân tích được: ai xác thực, hệ thống nào xác thực, ai quyết định quyền truy cập. <span class="badge core">Core</span></span></li>
+<li><span><b>Trả lời được</b> 6 câu hỏi Knowledge Check bên dưới. <span class="badge core">Core</span></span></li>
+</ul>
+
+<h3 id="mau-phan-tich">Mẫu phân tích ví dụ thực tế</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>Câu hỏi</th><th>Ví dụ “Kaopiz HR”</th></tr></thead>
+<tbody>
+<tr><td>Subject là ai?</td><td>Nhân viên An (người dùng cuối).</td></tr>
+<tr><td>Ai/hệ thống nào xác thực?</td><td>Microsoft Entra ID (IdP) — App HR không bao giờ thấy mật khẩu của An.</td></tr>
+<tr><td>Kết quả xác thực đến app bằng gì?</td><td>ID token (OIDC) → App HR tạo session cookie riêng.</td></tr>
+<tr><td>Ai quyết định quyền?</td><td>App HR / HR API (authorization policy: chính chủ hoặc trưởng phòng cùng phòng ban).</td></tr>
+<tr><td>Audit ở đâu?</td><td>Sign-in log ở Entra ID + audit log nghiệp vụ trong HR API.</td></tr>
+</tbody></table></div>
+
+<h2 id="knowledge-check">Knowledge Check (tự luận)</h2>
+<p>Tự trả lời trước (nói thành tiếng hoặc viết 2–3 câu), sau đó mở đáp án gợi ý để so sánh. Câu trả lời tốt luôn kèm <b>một ví dụ</b>.</p>
+<details><summary>Authentication khác Authorization thế nào?</summary>
+<p>Authentication xác minh <b>bạn là ai</b> bằng cách kiểm tra credential. Authorization quyết định <b>bạn được làm gì</b> trên tài nguyên nào.</p>
+<p>AuthN thất bại → thường <code>401</code>; AuthN thành công nhưng thiếu quyền → <code>403</code>. Ví dụ: An không gửi token tới hr-api → 401; An gửi token hợp lệ nhưng đọc <code>/payroll/88</code> của người khác → 403.</p></details>
+<details><summary>Identity khác Account thế nào?</summary>
+<p>Identity là tập thông tin biểu diễn một thực thể trong một ngữ cảnh; Account là bản ghi/quan hệ của thực thể đó với <b>một hệ thống cụ thể</b>.</p>
+<p>Một identity (một người) có thể có nhiều account ở nhiều hệ thống. Ví dụ: An có account Entra ID <code>an.nv@company.com</code>, account trong DB của app HR (<code>user_id = 57</code>) và account GitHub cá nhân.</p></details>
+<details><summary>SSO khác Federation thế nào?</summary>
+<p>SSO là <b>trải nghiệm</b> đăng nhập một lần dùng nhiều ứng dụng. Federation là <b>quan hệ tin cậy</b> giữa các miền danh tính độc lập để chấp nhận assertion/token của nhau.</p>
+<p>Federation thường là nền tảng cho SSO xuyên tổ chức, nhưng hai khái niệm không đồng nghĩa: SSO bằng Kerberos trong một Windows domain không cần federation; federation vẫn có thể tồn tại khi chính sách bắt đăng nhập lại mỗi lần.</p></details>
+<details><summary>Vì sao hai mật khẩu không phải MFA?</summary>
+<p>Cả hai đều thuộc nhóm “something you know” — một kẻ tấn công lừa được người dùng (phishing) hoặc dùng keylogger có thể lấy cả hai cùng lúc.</p>
+<p>MFA yêu cầu các yếu tố thuộc các nhóm <b>độc lập</b> để việc lộ một yếu tố không làm lộ yếu tố kia. Hai bước đăng nhập (2-step) chỉ là MFA khi bước 2 khác nhóm với bước 1.</p></details>
+<details><summary>Trong Kaopiz HR, thành phần nào là IdP, RP, AS, Client, RS?</summary>
+<p><b>Entra ID</b> là IdP (xác thực An) và cũng là AS (cấp access token). <b>hr-web</b> là RP (nhận ID token, tạo session) và cũng là Client (xin token, gọi API). <b>hr-api</b> là RS (kiểm tra access token, trả bảng lương).</p>
+<p>Điểm cần nhớ: một sản phẩm/ứng dụng có thể đóng nhiều vai trò; tên vai trò phụ thuộc giao thức đang nói tới.</p></details>
+<details><summary>Mã TOTP 6 số trong app Authenticator thuộc nhóm yếu tố nào? Mật khẩu + TOTP có phải MFA không?</summary>
+<p>TOTP thuộc nhóm <b>have</b>: mã được tính từ secret nằm trên điện thoại, nên nhập đúng mã chứng minh bạn đang giữ thiết bị đó — việc gõ tay không biến nó thành “know”.</p>
+<p>Mật khẩu (know) + TOTP (have) là MFA. Tuy vậy TOTP vẫn có thể bị lừa nhập vào trang giả (phishing/AiTM), nên không mạnh bằng passkey.</p></details>
+
+<div class="callout tip"><span class="callout-title">✅ Tiêu chí hoàn thành</span>
+Giải thích được các khái niệm trên trong 5 phút bằng ví dụ tự chọn, không nhầm Authentication với Authorization, Identity với Account, SSO với Federation. (Phân biệt OAuth/OIDC được kiểm tra ở <a href="m03-oauth-oidc.html">Module 03</a>.)</div>
+
+<h2 id="quiz">Quiz trắc nghiệm</h2>
+<div id="quiz"></div>
+
+</main>
+<script>
+window.QUIZ = [
+  { q: "Người dùng gõ username vào ô đăng nhập. Bước này là gì?",
+    options: ["Identification", "Authentication", "Authorization", "Accounting"],
+    answer: 0,
+    why: ["Gõ username là tự khai mình là ai — đúng định nghĩa identification.", "Authentication cần kiểm tra bằng chứng (mật khẩu, passkey); gõ username chưa đưa ra bằng chứng nào.", "Authorization là xét quyền cho chủ thể đã xác thực; lúc này hệ thống còn chưa biết chắc bạn là ai.", "Accounting là ghi log hoạt động, không phải hành động khai tên của người dùng."],
+    explain: "Gõ username chỉ là <b>khai báo</b> danh tính (identification). Chưa có bằng chứng nào được kiểm tra." },
+  { q: "Email <code>an@company.com</code> trong một hệ thống thường đóng vai trò gì?",
+    options: ["Credential", "Attribute bảo mật chứng minh danh tính", "Principal", "Identifier"],
+    answer: 3,
+    why: ["Credential phải là bằng chứng bí mật/gắn với thứ chỉ chủ nhân giữ; email thì ai cũng biết.", "Email không chứng minh được gì — ai cũng gõ được email của người khác.", "Principal là danh tính đã được hệ thống xác lập để gắn quyền, không phải một giá trị người dùng tự gõ.", "Email dùng để tra cứu/tham chiếu tài khoản — đúng vai trò identifier."],
+    explain: "Email là <b>identifier</b> — dùng để tham chiếu. Nó không chứng minh được người dùng là ai, vì ai cũng có thể gõ email của người khác." },
+  { q: "Một người có tài khoản ở Entra ID, GitHub và ứng dụng HR. Phát biểu nào đúng?",
+    options: ["Người đó có 3 identity và 3 account bắt buộc giống nhau", "Người đó là một thực thể có nhiều account ở nhiều hệ thống", "Account và identity là một", "Chỉ account Entra ID là identity thật"],
+    answer: 1,
+    why: ["Vẫn là một người; các account ở ba hệ thống cũng không cần giống nhau (username, mật khẩu khác nhau).", "Một thực thể có thể có nhiều account, mỗi account là hồ sơ ở một hệ thống.", "Identity là “người đứng sau”, account là “hồ sơ ở một nơi” — nhầm hai thứ khiến hệ thống tưởng hai account là hai người.", "Không account nào “là” identity; account Entra ID chỉ là hồ sơ ở hệ thống Entra ID."],
+    explain: "Account là quan hệ của thực thể với <b>một hệ thống cụ thể</b>. Một người có thể có nhiều account. Xem <a href='m01-1-identity-roles.html#identity-account'>Bài 1.1 – A</a>." },
+  { q: "API trả về lỗi khi người dùng đã đăng nhập hợp lệ nhưng mở hồ sơ lương của người khác. Lỗi này thuộc tầng nào và status code phù hợp?",
+    options: ["Authentication — 401", "Identification — 400", "Authorization — 403", "Accounting — 500"],
+    answer: 2,
+    why: ["Người dùng đã đăng nhập hợp lệ, nên authentication không thất bại; 401 sẽ khiến client đăng nhập lại vô ích.", "Request không sai cú pháp và cũng không phải bước khai tên; 400 là lỗi request không hợp lệ.", "Đã biết là ai nhưng không được xem dữ liệu của người khác → authorization thất bại → 403.", "Accounting chỉ ghi log; 500 là lỗi server, không phải từ chối có chủ đích."],
+    explain: "Danh tính đã được xác minh; vấn đề là <b>thiếu quyền</b> → Authorization, trả <code>403 Forbidden</code>." },
+  { q: "Trong giao thức SAML, ứng dụng nhận và xác minh assertion từ IdP được gọi là gì?",
+    options: ["Relying Party", "Resource Server", "Service Provider", "Authorization Server"],
+    answer: 2,
+    why: ["Relying Party là tên vai trò này trong OIDC (và WebAuthn), không phải trong SAML.", "Resource Server là API kiểm tra access token trong OAuth, không nhận SAML assertion.", "Trong SAML, ứng dụng nhận và xác minh assertion từ IdP được gọi là Service Provider.", "Authorization Server cấp access token trong OAuth — là bên phát, không phải bên nhận."],
+    explain: "SAML dùng thuật ngữ <b>Service Provider (SP)</b>. OIDC dùng Relying Party (RP)." },
+  { q: "Thành phần nào trong OAuth <b>kiểm tra access token</b> và bảo vệ tài nguyên?",
+    options: ["Resource Server", "Authorization Server", "Client", "Resource Owner"],
+    answer: 0,
+    why: ["Resource Server là API giữ tài nguyên và kiểm tra access token trước khi trả dữ liệu.", "Authorization Server là bên cấp token, không phải bên đứng gác tài nguyên.", "Client là bên cầm token đi gọi API, không tự kiểm tra token đó.", "Resource Owner là người dùng sở hữu dữ liệu và đồng ý ủy quyền, không kiểm tra token."],
+    explain: "Resource Server (API) kiểm tra access token. Authorization Server mới là bên <b>cấp</b> token." },
+  { q: "Những tổ hợp nào là MFA thực sự?",
+    options: ["Mật khẩu + câu hỏi bảo mật", "Mật khẩu + mã TOTP từ app trên điện thoại", "Smart card + PIN", "Hai mật khẩu khác nhau nhập ở hai màn hình"],
+    answer: [1, 2],
+    why: ["Cả mật khẩu và câu trả lời bảo mật đều là thứ bạn biết → chỉ một nhóm yếu tố.", "Mật khẩu (know) + TOTP sinh từ secret trên điện thoại (have) → hai nhóm độc lập.", "Smart card (have) + PIN (know) → hai nhóm độc lập.", "Hai mật khẩu vẫn là “know”; hai màn hình chỉ là hai bước, không phải hai loại yếu tố."],
+    explain: "MFA cần các yếu tố thuộc nhóm <b>độc lập</b>: TOTP (have) + mật khẩu (know); smart card (have) + PIN (know). Câu hỏi bảo mật và mật khẩu thứ hai đều là “know”." },
+  { q: "Phát biểu nào đúng về SSO?",
+    options: ["Tất cả ứng dụng dùng chung một session duy nhất", "Người dùng đăng nhập một lần ở hệ thống xác thực rồi truy cập nhiều ứng dụng mà không nhập lại credential, trong phạm vi phiên/chính sách còn hiệu lực", "SSO chỉ tồn tại khi có SAML", "SSO đồng nghĩa với Federation"],
+    answer: 1,
+    why: ["Mỗi app thường tự tạo session riêng; thứ được dùng lại là phiên đăng nhập ở IdP.", "Đúng định nghĩa: đăng nhập một lần ở IdP, dùng nhiều app không nhập lại credential, trong giới hạn phiên và chính sách.", "SSO có thể dùng OIDC, Kerberos, WS-Federation…, không riêng SAML.", "SSO là trải nghiệm; Federation là quan hệ tin cậy giữa các miền — liên quan nhưng không đồng nghĩa."],
+    explain: "Mỗi ứng dụng thường có session riêng; thứ dùng lại là phiên ở IdP. SSO có thể dùng OIDC, SAML, Kerberos… Xem <a href='m01-2-sso-federation-mfa.html#sso'>Bài 1.2 – SSO</a>." },
+  { q: "Công ty A cho nhân viên của đối tác B đăng nhập vào hệ thống A bằng tài khoản do B quản lý. Khái niệm nào mô tả chính xác nhất quan hệ này?",
+    options: ["Identity Federation", "Accounting", "RBAC", "Session fixation"],
+    answer: 0,
+    why: ["A tin danh tính do IdP của B phát hành, giữa hai miền độc lập → đúng định nghĩa federation.", "Accounting là ghi log hoạt động, không mô tả quan hệ tin cậy giữa hai tổ chức.", "RBAC là mô hình phân quyền theo vai trò, không nói gì về việc ai phát hành danh tính.", "Session fixation là một kiểu tấn công vào session, không phải quan hệ giữa hai tổ chức."],
+    explain: "Hai miền bảo mật độc lập thiết lập <b>trust</b> để chấp nhận danh tính do bên kia phát hành → Federation." },
+  { q: "Khi đăng nhập bằng passkey và mở khóa bằng vân tay, server nhận được gì?",
+    options: ["Ảnh vân tay đã mã hóa", "Hash của vân tay", "Chữ ký số do private key trong authenticator tạo ra", "Mật khẩu được sinh từ vân tay"],
+    answer: 2,
+    why: ["Ảnh vân tay không rời thiết bị, kể cả ở dạng mã hóa.", "Hash vân tay cũng không được gửi; sinh trắc chỉ dùng để mở khóa authenticator cục bộ.", "Authenticator dùng private key ký challenge của server; server kiểm chữ ký bằng public key đã đăng ký.", "Passkey không sinh mật khẩu; nó dùng cặp khóa công khai/bí mật."],
+    explain: "Sinh trắc học chỉ dùng <b>cục bộ</b> để mở khóa authenticator; server nhận bằng chứng mật mã (chữ ký), không nhận dữ liệu sinh trắc." },
+  { q: "Phát biểu nào về OAuth 2.0 là đúng?",
+    options: ["OAuth 2.0 là giao thức authentication thuần túy", "OAuth 2.0 và JWT là một", "OAuth 2.0 thay thế hoàn toàn SAML", "OAuth 2.0 là authorization framework; lớp xác thực danh tính chuẩn hóa là OpenID Connect"],
+    answer: 3,
+    why: ["OAuth 2.0 là authorization framework; nó không định nghĩa chuẩn cách nói cho app “người dùng là ai”.", "OAuth là framework ủy quyền, JWT là định dạng token; access token OAuth thậm chí không bắt buộc là JWT.", "OAuth và SAML giải quyết bài toán khác nhau và vẫn cùng tồn tại; SAML còn dùng rộng rãi cho SSO doanh nghiệp.", "OAuth lo ủy quyền truy cập API; OIDC xây trên OAuth để chuẩn hóa xác thực bằng ID token."],
+    explain: "OAuth tập trung vào ủy quyền truy cập (access token). OIDC xây trên OAuth để chuẩn hóa xác thực (ID token)." },
+  { q: "JWT là gì?",
+    options: ["Một giao thức đăng nhập độc lập", "Một loại mật khẩu dùng một lần", "Một định dạng biểu diễn claims, có thể được ký hoặc mã hóa", "Một thuật toán mã hóa"],
+    answer: 2,
+    why: ["JWT không mô tả luồng đăng nhập nào; nó chỉ là “mẫu giấy” mà các giao thức dùng.", "Mật khẩu dùng một lần là OTP (TOTP/HOTP); JWT là chuỗi claims có thể sống nhiều phút.", "JWT (RFC 7519) biểu diễn claims dạng JSON, có thể ký (JWS) hoặc mã hóa (JWE).", "JWT dùng các thuật toán như RS256, HS256 nhưng bản thân nó không phải thuật toán."],
+    explain: "JWT (RFC 7519) là <b>định dạng</b> token. Các giao thức như OIDC dùng JWT làm ID token." },
+  { q: "Vai trò nào ghi nhận “ai đã làm gì, lúc nào” để phục vụ điều tra?",
+    options: ["Identification", "Authorization", "Accounting / Auditing", "Federation"],
+    answer: 2,
+    why: ["Identification là khai tên lúc bắt đầu, không ghi lại hoạt động.", "Authorization quyết định cho/không cho tại thời điểm request, không lưu lịch sử.", "Accounting/Auditing ghi “ai làm gì, lúc nào, kết quả ra sao” để điều tra sau.", "Federation là quan hệ tin cậy giữa các miền danh tính, không liên quan tới ghi log."],
+    explain: "Accounting/Auditing ghi nhận hoạt động để theo dõi, kiểm toán và điều tra. Xem <a href='m01-1-identity-roles.html#iaaa'>Bài 1.1 – B</a>." },
+  { q: "Phát biểu nào về các thuật ngữ vai trò là đúng?",
+    options: ["IdP, RP, SP, AS luôn là bốn sản phẩm riêng biệt", "Một sản phẩm như Keycloak có thể đồng thời đóng vai trò OpenID Provider, Authorization Server và SAML IdP", "RP và Resource Server là một", "Client luôn là trình duyệt"],
+    answer: 1,
+    why: ["Vai trò không phải sản phẩm: Entra ID hay Keycloak gánh cùng lúc IdP và AS.", "Keycloak hỗ trợ OIDC, OAuth và SAML nên một server đóng được cả ba vai trò.", "RP tin kết quả đăng nhập (ID token); RS kiểm access token khi bị gọi API — hai việc khác nhau.", "Client là ứng dụng (web server, app desktop, job nền); trình duyệt chỉ là user-agent."],
+    explain: "Các vai trò có thể do thành phần khác nhau đảm nhiệm hoặc gộp trong cùng một sản phẩm. Client là <b>ứng dụng</b>, không phải trình duyệt." },
+  { q: "Mã 6 chữ số sinh trong app Authenticator (TOTP) thuộc nhóm yếu tố nào?",
+    options: ["Something you know — vì người dùng phải gõ mã", "Something you are", "Something you have — chứng minh đang giữ thiết bị chứa secret dùng chung", "Không phải yếu tố xác thực"],
+    answer: 2,
+    why: ["Gõ tay không đổi nhóm: bạn không thuộc mã, mã do thiết bị tính ra.", "Something you are là sinh trắc (vân tay, khuôn mặt); TOTP không dùng đặc điểm cơ thể.", "Mã chỉ tính được từ secret trên thiết bị → chứng minh sở hữu thiết bị.", "TOTP là yếu tố xác thực phổ biến, được dùng làm yếu tố thứ hai trong MFA."],
+    explain: "TOTP (RFC 6238) tính mã từ secret dùng chung + thời gian; secret nằm trên thiết bị nên mã chứng minh <b>sở hữu</b> (have). Gõ mã bằng tay không biến nó thành “know”. Lưu ý: TOTP vẫn bị phishing/AiTM." },
+  { q: "Những phát biểu nào đúng về SSO và Federation?",
+    options: ["SSO có thể diễn ra hoàn toàn trong một miền, ví dụ Kerberos trong một Windows domain", "Federation luôn đi kèm trải nghiệm SSO", "Federation là quan hệ tin cậy giữa các miền, thiết lập bằng việc trao đổi metadata/certificate", "SSO nghĩa là mọi ứng dụng dùng chung một session"],
+    answer: [0, 2],
+    why: ["Kerberos trong một Windows domain cho SSO mà không có miền thứ hai nào cần tin.", "Federation là quan hệ tin cậy; chính sách vẫn có thể bắt đăng nhập lại mỗi lần, khi đó không có trải nghiệm SSO.", "Hai miền trao đổi metadata/certificate để kiểm được chữ ký của nhau — đó là thiết lập trust.", "Mỗi app thường có session riêng; thứ dùng chung là phiên ở IdP."],
+    explain: "SSO là trải nghiệm; Federation là quan hệ tin cậy. Federation có thể tồn tại mà không có SSO (chính sách bắt đăng nhập lại mỗi lần), và mỗi app vẫn có session riêng. Xem <a href=\"m01-2-sso-federation-mfa.html#sso-federation-mfa\">mục D</a>." },
+  { q: "API nhận một access token <b>đã hết hạn</b>. Phản hồi phù hợp nhất là gì?",
+    options: ["401 Unauthorized — xác thực thất bại, client cần lấy token mới", "403 Forbidden — người dùng thiếu quyền", "404 Not Found — để giấu tài nguyên", "200 OK nhưng trả dữ liệu rỗng"],
+    answer: 0,
+    why: ["Token hết hạn không còn chứng minh được danh tính → lỗi authentication; client lấy token mới là đi tiếp được.", "403 dành cho người đã xác thực nhưng thiếu quyền; trả 403 khiến client tưởng có lấy token mới cũng vô ích.", "404 dùng để giấu sự tồn tại của tài nguyên với người không được phép, không phải để báo token hết hạn.", "Trả 200 khi xác thực thất bại làm client không biết có lỗi và che giấu sự cố."],
+    explain: "Token hết hạn nghĩa là credential không còn hợp lệ → thất bại ở tầng <b>authentication</b> → 401. 403 dành cho trường hợp đã xác thực nhưng thiếu quyền. Xem <a href=\"m01-1-identity-roles.html#401-403\">401 vs 403</a>." },
+  { q: "An đăng nhập Entra ID bằng mật khẩu + passkey (MFA), hr-web tạo session bình thường. Khi mở <code>/payroll/88</code> (của người khác), hr-api trả <code>403</code>. Đồng nghiệp đề xuất: “Bắt An xác thực MFA lại, token mới sẽ hết 403”. Nhận xét nào đúng?", tricky: true,
+    options: ["Đúng — MFA mạnh hơn nên token mới sẽ có thêm quyền", "Sai — MFA làm authentication chắc chắn hơn, còn 403 là lỗi authorization; quyền của An không đổi dù xác thực bao nhiêu lần", "Đúng — 403 nghĩa là token đã hết hạn", "Sai — phải đổi sang 401 để hr-web tự đăng nhập lại"],
+    answer: 1,
+    why: ["MFA chỉ trả lời “đây chắc chắn là An” mạnh hơn; nó không cấp thêm quyền xem lương người khác.", "AuthN mạnh hay yếu không đổi kết quả AuthZ: An đã được xác thực, chỉ là không có quyền với payroll 88.", "Token hết hạn là lỗi xác thực → 401, không phải 403.", "Đổi sang 401 là báo sai tầng lỗi, khiến client lấy token mới vô ích rồi vẫn bị chặn."],
+    explain: "MFA (<a href='m01-2-sso-federation-mfa.html#mfa'>Bài 1.2</a>) thuộc tầng authentication; 403 thuộc tầng authorization (<a href='m01-1-identity-roles.html#401-403'>Bài 1.1</a>). Sửa đúng tầng mới hết lỗi." },
+  { q: "Một ứng dụng cũ cho đăng nhập qua hai bước: (1) nhập email, (2) nhập mã 6 số được gửi tới chính email đó. Đánh giá nào chính xác?", tricky: true,
+    options: ["MFA: email là “know”, hộp thư là “have”", "Chỉ có một yếu tố: email là identifier, không phải factor; bằng chứng duy nhất là việc truy cập được hộp thư (have yếu)", "Không có xác thực gì, vì không có mật khẩu", "MFA, vì có hai bước khác nhau"],
+    answer: 1,
+    why: ["Email là identifier — ai cũng gõ được — nên không phải yếu tố “know”.", "Bước 1 chỉ là identification; bước 2 mới là bằng chứng: nhận được mã trong hộp thư (have, yếu vì phụ thuộc bảo mật của hộp thư).", "Có xác thực: nhận được mã chứng minh truy cập được hộp thư. Xác thực không bắt buộc phải có mật khẩu.", "Số bước không phải số yếu tố; ở đây bước 1 còn không phải yếu tố nào."],
+    explain: "Ghép hai bài: identifier không phải credential (<a href='m01-1-identity-roles.html#identity-account'>Bài 1.1</a>), và MFA đếm loại yếu tố (<a href='m01-2-sso-federation-mfa.html#factors'>Bài 1.2</a>). Đây là đăng nhập một yếu tố (kiểu “magic code”)." },
+  { q: "Những phát biểu nào đúng về Kaopiz HR (Entra ID là IdP + AS, hr-web là RP + Client, hr-api là RS)?", tricky: true,
+    options: ["Vì có SSO, một tài khoản Entra ID bị chiếm sẽ mở được mọi app nối với nó — nên MFA ở IdP càng quan trọng", "Vì hr-web dùng SSO, hr-web phải tự kiểm tra mã TOTP của An", "hr-api không bao giờ thấy mật khẩu của An, dù An đăng nhập bằng mật khẩu", "Đã có federation với IdP đối tác thì người của đối tác không cần MFA nữa"],
+    answer: [0, 2],
+    why: ["SSO gom việc đăng nhập về một chỗ: tiện hơn, nhưng mất phiên/tài khoản ở IdP là mất mọi app — bảo vệ IdP bằng MFA là bắt buộc.", "Kiểm tra yếu tố xác thực là việc của IdP; hr-web chỉ nhận kết quả (có thể đọc claim <code>amr</code> để biết phương thức đã dùng).", "Mật khẩu chỉ được nhập ở Entra ID; hr-api chỉ nhận access token do Entra ID cấp.", "Federation chỉ là quan hệ tin cậy; yêu cầu MFA vẫn do chính sách quyết định (IdP đối tác thực hiện MFA hoặc Kaopiz đòi thêm)."],
+    explain: "Kết hợp vai trò (<a href='m01-1-identity-roles.html#vai-tro'>Bài 1.1</a>) với SSO/Federation/MFA (<a href='m01-2-sso-federation-mfa.html#sso-federation-mfa'>Bài 1.2</a>): IdP là nơi duy nhất thấy credential và cũng là điểm cần bảo vệ nhất." }
+];
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="assets/pages.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

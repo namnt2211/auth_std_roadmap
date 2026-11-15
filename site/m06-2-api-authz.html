@@ -1,0 +1,384 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M06 · Bài 6.2 · Authorization trong API</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<main class="content">
+
+<div class="page-head">
+  <div class="breadcrumb"><a href="index.html">Lộ trình</a> / <a href="m06-authz-security.html">Module 06</a> / Bài 6.2</div>
+  <h1>Bài 6.2 — Authorization trong API</h1>
+  <p class="lead">Một request đi vào API phải qua nhiều “trạm kiểm tra” trước khi được xử lý. Bài này đi qua từng trạm, cách chọn đúng mã lỗi (401, 403 hay 404), nguyên tắc “mặc định từ chối”, lỗi IDOR/BOLA phổ biến nhất của API, và code ASP.NET Core hoàn chỉnh để áp dụng.</p>
+  <div class="meta-row">
+    <span class="chip">⏱ ~20 phút</span>
+    <span class="chip">📘 <a href="m06-authz-security.html">Module 06 · Authorization &amp; Auth Security</a></span>
+  </div>
+</div>
+
+<!-- ===================================================== -->
+<h2 id="api-authz">B. Authorization trong API <span class="badge must">Must</span></h2>
+
+<div class="terms"><span class="terms-title">📖 Thuật ngữ trong bài</span><dl>
+<dt>Pipeline</dt><dd>Chuỗi bước mọi request đi qua theo thứ tự; trượt bước nào thì dừng ở bước đó.</dd>
+<dt>Coarse-grained</dt><dd>Kiểm tra “thô” theo loại: có scope/role không — chưa cần biết bản ghi nào.</dd>
+<dt>Fine-grained</dt><dd>Kiểm tra “mịn” trên <i>từng</i> bản ghi: đơn #1024 có phải của bạn không.</dd>
+<dt>401 / 403</dt><dd>401: API không biết bạn là ai (token thiếu/hỏng). 403: biết bạn là ai nhưng bạn không đủ quyền.</dd>
+<dt>Deny by default</dt><dd>Không có luật nào cho phép thì từ chối — kể cả endpoint lỡ quên khai báo quyền.</dd>
+<dt>Least privilege</dt><dd>Chỉ cấp đúng lượng quyền cần dùng, không hơn.</dd>
+<dt>IDOR / BOLA</dt><dd>Lỗi API trả dữ liệu theo ID mà không kiểm tra người gọi có quyền với bản ghi đó.</dd>
+<dt>Resource-based authorization</dt><dd>Kiểm tra quyền <i>sau khi</i> tải tài nguyên, dựa trên dữ liệu của chính tài nguyên đó (owner, phòng ban).</dd>
+</dl></div>
+
+<h3 id="authz-pipeline">B.1. Pipeline từ request đến quyết định</h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Giống đi vào ngân hàng rút tiền: (1) cổng kiểm tra <b>thẻ có thật và còn hạn</b> không (authentication); (2) quầy kiểm tra bạn có <b>loại tài khoản</b> được rút tiền mặt không (coarse-grained: role/scope); (3) giao dịch viên kiểm tra <b>tài khoản này có phải của bạn</b> không (fine-grained: ownership); (4) cuối cùng kiểm tra <b>số dư và hạn mức</b> (business rule). Trượt ở bước nào thì dừng ở bước đó.</div>
+<p><b>Coarse-grained</b> (phân quyền “thô”) kiểm tra theo <i>loại</i> — có role/scope không. <b>Fine-grained</b> (phân quyền “mịn”) kiểm tra theo <i>từng tài nguyên cụ thể</i> — đơn #1024 có phải của bạn không.</p>
+<div class="diagram">
+<pre class="mermaid">
+flowchart TD
+  A["HTTP request<br/>Authorization: Bearer eyJ..."] --> B["Authentication middleware<br/>xác minh chữ ký, iss, aud, exp, alg"]
+  B -- "không có / sai token" --> X1["401 Unauthorized<br/>+ WWW-Authenticate"]
+  B -- "hợp lệ → ClaimsPrincipal" --> C["Authorization policy (coarse-grained)<br/>scope, role, authenticated user"]
+  C -- "thiếu scope/role" --> X2["403 Forbidden"]
+  C -- "đạt" --> D["Tải tài nguyên<br/>(order 1024)"]
+  D -- "không tồn tại" --> X3["404 Not Found"]
+  D --> E["Resource-based authorization (fine-grained)<br/>ownership, department"]
+  E -- "không đạt" --> X4["403 (hoặc 404 để không lộ tồn tại)"]
+  E -- "đạt" --> F["Business rule<br/>hạn mức, trạng thái, không tự duyệt"]
+  F -- "vi phạm" --> X5["403 hoặc 409/422 tùy ngữ nghĩa"]
+  F -- "đạt" --> G["✅ Thực thi + ghi audit log"]
+</pre>
+<div class="caption">Coarse-grained (role/scope) có thể kiểm tra trước khi đọc dữ liệu; fine-grained (resource/business) chỉ kiểm tra được sau khi tải tài nguyên.</div>
+</div>
+<div class="table-wrap"><table>
+<thead><tr><th>Tầng</th><th>Hỏi gì</th><th>Dữ liệu cần</th><th>ASP.NET Core</th></tr></thead>
+<tbody>
+<tr><td>Authentication</td><td>Token có hợp lệ? Ai gọi?</td><td>Token + JWKS của IdP</td><td><code>AddJwtBearer</code>, <code>UseAuthentication()</code></td></tr>
+<tr><td>Coarse-grained</td><td>Client có scope? User có role/permission loại này?</td><td>Claims trong token</td><td><code>[Authorize(Policy=...)]</code>, <code>RequireAuthorization("...")</code></td></tr>
+<tr><td>Fine-grained</td><td>Với <i>tài nguyên này</i>, user có quyền?</td><td>Claims + dữ liệu tài nguyên</td><td><code>IAuthorizationService.AuthorizeAsync(user, resource, requirement)</code></td></tr>
+<tr><td>Business rule</td><td>Hành động có hợp lệ về nghiệp vụ?</td><td>Trạng thái, hạn mức, lịch sử</td><td>Trong handler hoặc domain service</td></tr>
+</tbody></table></div>
+
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Token hợp lệ = được phép.</span><span class="f-label">Thực tế</span><span>Token hợp lệ chỉ chứng minh <b>authentication</b> (tầng đầu của pipeline). Sau đó vẫn còn scope/role, ownership, business rule — API trả <code>403</code> cho một token hoàn toàn hợp lệ là chuyện bình thường.</span></div>
+
+<h3 id="401-vs-403">B.2. 401 vs 403 chi tiết</h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+<b>401</b>: bảo vệ nói “<i>Tôi không biết anh là ai</i> — xuất trình thẻ (hợp lệ) đi”. <b>403</b>: bảo vệ nói “<i>Tôi biết anh là ai rồi</i>, nhưng anh không được vào phòng này”. Đưa lại cùng tấm thẻ lần nữa không giúp gì với 403.</div>
+<p>Nhắc lại từ <a href="m01-1-identity-roles.html#401-403">M01</a>: 401 = thất bại ở <b>authentication</b>, 403 = đã xác thực nhưng thất bại ở <b>authorization</b>.</p>
+
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: Authentication failure vs Authorization failure</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Authentication failure</th><th>Authorization failure</th></tr></thead>
+<tbody>
+<tr><td>Hỏng ở bước nào</td><td>Xác minh token (bước 1 của pipeline)</td><td>Kiểm tra scope/role/ownership/business rule (các bước sau)</td></tr>
+<tr><td>Nguyên nhân thường gặp</td><td>Không gửi token, token hết hạn, sai chữ ký, sai <code>aud</code>/<code>iss</code></td><td>Thiếu scope, thiếu role, không phải chủ bản ghi, vượt hạn mức</td></tr>
+<tr><td>Mã HTTP</td><td><code>401</code></td><td><code>403</code> (hoặc <code>404</code> nếu muốn giấu sự tồn tại)</td></tr>
+<tr><td>Client nên làm gì</td><td>Refresh token hoặc đăng nhập lại, rồi thử lại</td><td><b>Không</b> thử lại với cùng token; báo “không đủ quyền” hoặc xin thêm quyền</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ (Kaopiz HR):</b> An để <code>hr-web</code> mở qua đêm, sáng ra bấm “Xem bảng lương” → access token đã hết hạn → <code>hr-api</code> trả <code>401</code>, <code>hr-web</code> tự refresh rồi gọi lại là xong. Còn khi An cố mở <code>/payroll/chi</code> → token hoàn toàn hợp lệ nhưng <code>hr-api</code> trả <code>403</code>; refresh bao nhiêu lần cũng vậy.</p>
+<span class="rule">401: “đổi vé rồi quay lại”. 403: “vé đúng, nhưng vé này không vào được cửa này”.</span>
+</div>
+
+<p>Với Bearer token, <a href="https://www.rfc-editor.org/rfc/rfc6750#section-3.1">RFC 6750 §3.1</a> định nghĩa mã lỗi trong header <code>WWW-Authenticate</code>:</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Tình huống</th><th>Status</th><th>Header gợi ý (RFC 6750)</th></tr></thead>
+<tbody>
+<tr><td>Không gửi token</td><td><code>401</code></td><td><code>WWW-Authenticate: Bearer</code> (không kèm mã lỗi)</td></tr>
+<tr><td>Token hết hạn, sai chữ ký, sai <code>aud</code>/<code>iss</code></td><td><code>401</code></td><td><code>Bearer error="invalid_token"</code></td></tr>
+<tr><td>Request sai định dạng (thiếu tham số, gửi token 2 cách)</td><td><code>400</code></td><td><code>Bearer error="invalid_request"</code></td></tr>
+<tr><td>Token hợp lệ nhưng thiếu scope</td><td><code>403</code></td><td><code>Bearer error="insufficient_scope", scope="orders.write"</code></td></tr>
+<tr><td>Token hợp lệ, đủ scope nhưng không phải chủ đơn</td><td><code>403</code> (hoặc <code>404</code>)</td><td>Không cần header; body có thể là ProblemDetails</td></tr>
+</tbody></table></div>
+<pre data-title="Ví dụ response"><code class="language-plaintext">HTTP/1.1 401 Unauthorized
+WWW-Authenticate: Bearer error="invalid_token", error_description="The token expired at '11/10/2026 09:12:00'"
+
+HTTP/1.1 403 Forbidden
+WWW-Authenticate: Bearer error="insufficient_scope", scope="orders.write"</code></pre>
+<div class="callout info"><span class="callout-title">ℹ️ Chi tiết thực tế</span>
+<ul>
+<li>ASP.NET Core <code>JwtBearer</code> tự trả <code>401</code> kèm <code>error="invalid_token"</code> và mô tả lỗi (có thể tắt bằng <code>IncludeErrorDetails = false</code> để không lộ thông tin). Với 403, mặc định chỉ trả status — nếu muốn kèm <code>insufficient_scope</code> phải tự thêm (vd qua <code>JwtBearerEvents.OnForbidden</code>).</li>
+<li>Trả <code>404</code> thay vì <code>403</code> cho tài nguyên không thuộc quyền là lựa chọn hợp lệ khi việc <b>lộ sự tồn tại</b> của tài nguyên đã là rò rỉ thông tin (GitHub làm vậy với repo private). Hãy nhất quán trong toàn API.</li>
+<li>Với web app dùng cookie, “401” thường biểu hiện thành <b>redirect tới trang login</b> (challenge) và “403” thành redirect tới trang <i>Access Denied</i> (forbid). API thì nên trả status code thật, không redirect.</li>
+</ul></div>
+
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: 401 vs 403 vs 404 — và khi nào cố ý trả 404</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>401 Unauthorized</th><th>403 Forbidden</th><th>404 Not Found</th></tr></thead>
+<tbody>
+<tr><td>Ý nghĩa thật</td><td>“Tôi không biết bạn là ai”</td><td>“Biết bạn là ai, nhưng không cho”</td><td>“Không có thứ đó” — <i>hoặc</i> “có, nhưng tôi không nói cho bạn biết”</td></tr>
+<tr><td>Lộ thông tin gì</td><td>Không</td><td><b>Lộ</b> rằng tài nguyên tồn tại</td><td>Không lộ gì</td></tr>
+<tr><td>Header kèm theo</td><td><code>WWW-Authenticate</code> (bắt buộc theo HTTP)</td><td>Tùy chọn (<code>insufficient_scope</code>)</td><td>Không</td></tr>
+<tr><td>Dùng khi</td><td>Token thiếu/hỏng</td><td>Người dùng <b>được phép biết</b> tài nguyên tồn tại (vd An thấy đơn trong danh sách nhưng không có nút duyệt)</td><td>Bản ghi không tồn tại, <b>hoặc</b> chính sự tồn tại đã là bí mật</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> Chi gọi <code>GET /payroll/an</code> trong <code>hr-api</code>. Nếu trả <code>403</code>, Chi biết chắc “có nhân viên mã <code>an</code>” và có thể dò ra danh sách nhân viên. Trả <code>404</code> thì Chi không phân biệt được “không có” với “không được xem”. Với dữ liệu nhạy cảm như bảng lương, <code>404</code> là lựa chọn tốt; với màn hình duyệt đơn mà An vốn đã thấy đơn, <code>403</code> rõ ràng hơn cho người dùng.</p>
+<span class="rule">Nếu câu trả lời “có tồn tại” đã là bí mật → 404. Ngược lại → 403. Chọn một cách và nhất quán toàn API.</span>
+</div>
+
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Không có quyền thì luôn phải trả 403.</span><span class="f-label">Thực tế</span><span>Khi chính sự tồn tại của bản ghi là bí mật (bảng lương, repo private), trả <b>404</b> để không lộ thông tin. Quan trọng là nhất quán.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Nhận 403 thì client cứ refresh token rồi gọi lại.</span><span class="f-label">Thực tế</span><span>403 không phải lỗi token. Token mới mang cùng claim nên vẫn nhận 403 — vòng lặp refresh chỉ tạo thêm request vô ích. Chỉ <b>401</b> mới nên dẫn tới refresh hoặc đăng nhập lại.</span></div>
+
+<h3 id="deny-by-default">B.3. Deny by default và least privilege</h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+<b>Deny by default</b> (mặc định từ chối): tòa nhà mới xây thì mọi cửa đều <b>khóa sẵn</b>, ai cần mới được cấp quyền — thay vì để mở hết rồi nhớ đi khóa từng cửa. <b>Least privilege</b> (quyền tối thiểu): nhân viên dọn vệ sinh có chìa khóa phòng vệ sinh, không cần chìa két sắt.</div>
+<div class="grid cols-2">
+<div class="card acc"><span class="icon">🚫</span><h4>Deny by default</h4><p>Nếu không có quy tắc nào cho phép → <b>từ chối</b>. Endpoint mới thêm vào mà quên <code>[Authorize]</code> vẫn phải được bảo vệ. Trong ASP.NET Core: đặt <code>FallbackPolicy</code> yêu cầu user đã xác thực, và đánh dấu <code>[AllowAnonymous]</code> có chủ đích cho endpoint công khai.</p></div>
+<div class="card acc"><span class="icon">🤏</span><h4>Least privilege</h4><p>Cấp <b>ít quyền nhất đủ dùng</b>: client SPA đọc báo cáo chỉ xin <code>orders.read</code>; service <code>worker</code> chỉ có scope nó cần; DB account của API không có quyền <code>DROP</code>; admin dùng tài khoản riêng cho thao tác quản trị.</p></div>
+</div>
+
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Chỉ cần dev nhớ gắn <code>[Authorize]</code> cho từng endpoint là đủ.</span><span class="f-label">Thực tế</span><span>Sớm muộn sẽ có người quên. <code>FallbackPolicy</code> khiến endpoint quên khai báo vẫn yêu cầu đăng nhập; endpoint công khai phải được đánh dấu <code>[AllowAnonymous]</code> có chủ đích. (Fallback chỉ yêu cầu đã đăng nhập — quyền cụ thể vẫn phải khai báo.)</span></div>
+
+<h3 id="ui-not-enough">B.4. Ẩn nút trên UI là không đủ</h3>
+<p>Ẩn nút “Duyệt” với An là <b>trải nghiệm người dùng</b>, không phải bảo mật. Bất kỳ ai có token đều có thể gọi API trực tiếp bằng curl/Postman/DevTools, hoặc sửa JavaScript của SPA. API là <b>trust boundary</b>: mọi quyết định phải được kiểm tra lại ở server.</p>
+<pre data-title="An tự gọi API dù không có nút"><code class="language-bash"># An mở DevTools, copy access token của chính mình rồi gọi:
+curl -X POST https://api.example.com/orders/1024/approve \
+     -H "Authorization: Bearer eyJhbGciOiJSUzI1NiIs..."
+# API PHẢI trả 403 — vì An không phải Manager.</code></pre>
+<div class="callout danger"><span class="callout-title">⛔ Không tin dữ liệu phân quyền do client gửi lên</span>
+Đừng nhận <code>{"role":"Manager"}</code> hay <code>X-User-Id: 57</code> trong body/header từ client. Role/subject phải lấy từ <b>token đã xác minh</b> (hoặc từ DB theo <code>sub</code>), không phải từ những gì UI tự khai báo.</div>
+
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Ẩn hoặc disable nút trên UI là đủ.</span><span class="f-label">Thực tế</span><span>Ai có token cũng gọi API trực tiếp được (curl, Postman, DevTools). Ẩn nút là UX; API phải tự kiểm tra lại mọi quyết định.</span></div>
+
+<h3 id="idor-bola">B.5. IDOR / BOLA — lỗi phân quyền số 1 của API</h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Bạn gửi áo ở tủ đồ siêu thị, nhận phiếu số 15. Bạn đưa phiếu số <b>16</b> và nhân viên đưa luôn túi của người khác mà <b>không kiểm tra</b> phiếu có phải của bạn không. Đó là IDOR/BOLA: hệ thống tin vào con số bạn đưa, không kiểm tra quyền sở hữu.</div>
+<p><b>IDOR</b> (Insecure Direct Object Reference) hay <b>BOLA</b> (Broken Object Level Authorization) là khi API nhận ID tài nguyên từ client và trả dữ liệu <b>mà không kiểm tra người gọi có quyền với object đó</b>. BOLA đứng đầu <a href="https://owasp.org/API-Security/editions/2023/en/0xa1-broken-object-level-authorization/">OWASP API Security Top 10 2023 (API1:2023)</a>.</p>
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  participant Chi as Chi (Sales-HCM)
+  participant API as Order API
+  participant DB as Database
+  Chi->>API: GET /orders/2001 (đơn của chính Chi)
+  API-->>Chi: 200 OK
+  Note over Chi: Thử đổi ID trên URL
+  Chi->>API: GET /orders/1024 (đơn của An, Sales-HN)
+  alt API có lỗi BOLA
+    API->>DB: SELECT * FROM Orders WHERE Id=1024
+    API-->>Chi: 200 OK + dữ liệu đơn của An ❌
+  else API kiểm tra object-level
+    API->>DB: Tải order 1024
+    API->>API: AuthorizeAsync(Chi, order, Read) → fail
+    API-->>Chi: 403 hoặc 404 ✅
+  end
+</pre>
+<div class="caption">Token của Chi hoàn toàn hợp lệ và có scope orders.read — lỗi nằm ở việc thiếu kiểm tra ở mức object.</div>
+</div>
+<p><b>Phòng vệ:</b> mọi endpoint nhận ID phải gọi kiểm tra quyền trên object (resource-based authorization), hoặc lọc truy vấn theo người gọi (<code>WHERE OwnerId = @sub</code>). ID khó đoán (GUID) chỉ <b>giảm</b> khả năng dò, <b>không</b> thay thế kiểm tra quyền.</p>
+
+<pre data-title="Cùng lỗi trong Kaopiz HR — chỉ cần sửa một ký tự trên URL"><code class="language-plaintext">GET /payroll/an    Authorization: Bearer &lt;token của An&gt;  → 200 (bảng lương của An, đúng)
+GET /payroll/chi   Authorization: Bearer &lt;token của An&gt;  → 200 ❌ (lỗi BOLA: lộ lương của Chi)
+                                                         → 404 hoặc 403 ✅ (API kiểm tra owner/phòng ban)</code></pre>
+
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: IDOR/BOLA vs CSRF</span>
+<p>Cả hai đều dẫn tới “có người làm được việc họ không nên làm”, nhưng <b>ai</b> gửi request và <b>lỗ hổng nằm ở đâu</b> thì khác hẳn:</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>IDOR / BOLA</th><th>CSRF</th></tr></thead>
+<tbody>
+<tr><td>Ai gửi request</td><td>Chính kẻ tấn công, bằng <b>token/session của mình</b></td><td>Trình duyệt của <b>nạn nhân</b>, bị trang độc dụ gửi</td></tr>
+<tr><td>Danh tính trong request</td><td>Kẻ tấn công (đúng người, sai quyền)</td><td>Nạn nhân (đúng quyền, nhưng nạn nhân không hề muốn)</td></tr>
+<tr><td>Lỗ hổng nằm ở</td><td>API thiếu kiểm tra quyền trên từng bản ghi</td><td>App dựa vào cookie tự gửi mà không xác nhận request do chính app tạo</td></tr>
+<tr><td>Đọc được dữ liệu?</td><td>Có — đó thường là mục đích</td><td>Không, chỉ khiến nạn nhân <i>thực hiện</i> hành động</td></tr>
+<tr><td>Chặn bằng</td><td>Resource-based authorization, lọc theo người gọi</td><td>SameSite, anti-CSRF token, kiểm tra <code>Origin</code> (<a href="m06-3-web-threats.html#csrf">bài 6.3</a>)</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> An tự đổi URL thành <code>/payroll/chi</code> để xem lương Chi → <b>BOLA</b>. Còn nếu kẻ gian dụ Bình (đang đăng nhập <code>hr-web</code>) mở một trang lạ có form ẩn tự gửi <code>POST /leave/123/approve</code> tới <code>hr-web</code>, trình duyệt tự gắn cookie của Bình → <b>CSRF</b>: request mang danh tính Bình, Bình có quyền, nhưng Bình không hề bấm.</p>
+<span class="rule">BOLA: “tôi xin thứ không phải của tôi”. CSRF: “tôi khiến bạn làm việc bạn không định làm”.</span>
+</div>
+
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Dùng GUID làm ID là hết IDOR.</span><span class="f-label">Thực tế</span><span>GUID chỉ khó đoán; ID vẫn lộ qua URL, log, link chia sẻ. Kiểm tra quyền ở mức object là bắt buộc.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Endpoint đã kiểm tra đúng role và scope thì không thể bị BOLA.</span><span class="f-label">Thực tế</span><span>Role/scope là kiểm tra <b>thô</b>: mọi Employee đều qua. Chi là Employee hợp lệ vẫn đổi ID để đọc đơn của An. Chỉ kiểm tra trên <b>từng object</b> (hoặc lọc truy vấn theo người gọi) mới chặn được.</span></div>
+
+<h3 id="authz-code">B.6. Code ASP.NET Core: policy + resource-based authorization (deliverable 2)</h3>
+<p>Mở rộng từ <a href="lab-2-api-jwt.html#lab2">Lab 2</a>: thêm FallbackPolicy (deny by default), policy kết hợp scope + role, và handler fine-grained cho từng đơn hàng. Các API (<code>FallbackPolicy</code>, <code>IAuthorizationService.AuthorizeAsync</code>, <code>AuthorizationHandler&lt;TRequirement, TResource&gt;</code>, <code>OperationAuthorizationRequirement</code>) theo tài liệu <a href="https://learn.microsoft.com/aspnet/core/security/authorization/resource-based">Resource-based authorization</a> và <a href="https://learn.microsoft.com/aspnet/core/security/authorization/secure-data">Require authenticated users</a> trên Microsoft Learn.</p>
+<p><b>Cách đọc code:</b> đừng cố hiểu từng dòng. Hãy dò theo bốn chú thích đánh số <code>1)</code>–<code>4)</code> trong <code>Program.cs</code> — mỗi cái tương ứng một tầng ở bảng B.1 (deny by default → scope → scope + role → kiểm tra trên từng đơn). File thứ hai chứa phần fine-grained và business rule.</p>
+<pre data-title="Program.cs"><code class="language-csharp">using System.Security.Claims;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services
+    .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(o =&gt;
+    {
+        o.Authority = "http://localhost:8080/realms/demo";
+        o.Audience = "demo-api";
+        o.RequireHttpsMetadata = false;   // CHỈ dùng cho lab localhost
+        o.MapInboundClaims = false;       // giữ nguyên tên claim: sub, scope, roles...
+        o.TokenValidationParameters.RoleClaimType = "roles";   // claim do mapper của IdP tạo (tùy IdP)
+        o.TokenValidationParameters.NameClaimType = "preferred_username";
+        o.TokenValidationParameters.ValidAlgorithms = new[] { "RS256" }; // chặn alg lạ
+    });
+
+builder.Services.AddAuthorization(o =&gt;
+{
+    // 1) Deny by default: endpoint nào không khai báo policy vẫn yêu cầu đăng nhập
+    o.FallbackPolicy = new AuthorizationPolicyBuilder()
+        .RequireAuthenticatedUser()
+        .Build();
+
+    // 2) Coarse-grained: scope (client được ủy quyền gì)
+    o.AddPolicy("orders.read", p =&gt; p.RequireAssertion(ctx =&gt; HasScope(ctx.User, "orders.read")));
+
+    // 3) Coarse-grained: scope + role (client được phép VÀ user là Manager)
+    o.AddPolicy("orders.approve", p =&gt; p
+        .RequireAssertion(ctx =&gt; HasScope(ctx.User, "orders.write"))
+        .RequireRole("Manager"));
+});
+
+// 4) Fine-grained: handler theo tài nguyên Order
+builder.Services.AddSingleton&lt;IAuthorizationHandler, OrderAuthorizationHandler&gt;();
+builder.Services.AddScoped&lt;IOrderRepository, OrderRepository&gt;();
+
+var app = builder.Build();
+app.UseAuthentication();
+app.UseAuthorization();
+
+app.MapGet("/health", () =&gt; "ok").AllowAnonymous();   // công khai CÓ CHỦ ĐÍCH
+
+app.MapGet("/orders/{id:int}", async (int id, ClaimsPrincipal user,
+        IOrderRepository repo, IAuthorizationService authz) =&gt;
+    {
+        var order = await repo.FindAsync(id);
+        if (order is null) return Results.NotFound();
+
+        var result = await authz.AuthorizeAsync(user, order, OrderOperations.Read);
+        return result.Succeeded ? Results.Ok(order) : Results.Forbid();   // Forbid → 403
+    })
+    .RequireAuthorization("orders.read");
+
+app.MapPost("/orders/{id:int}/approve", async (int id, ClaimsPrincipal user,
+        IOrderRepository repo, IAuthorizationService authz) =&gt;
+    {
+        var order = await repo.FindAsync(id);
+        if (order is null) return Results.NotFound();
+
+        var result = await authz.AuthorizeAsync(user, order, OrderOperations.Approve);
+        if (!result.Succeeded) return Results.Forbid();
+
+        order.Approve(approvedBy: user.FindFirst("sub")!.Value);
+        await repo.SaveAsync(order);
+        return Results.NoContent();
+    })
+    .RequireAuthorization("orders.approve");
+
+app.Run();
+
+// Keycloak đặt nhiều scope trong MỘT claim "scope" cách nhau bởi dấu cách.
+// (Entra ID dùng claim "scp" cho delegated scope và "roles" cho app role.)
+static bool HasScope(ClaimsPrincipal user, string scope) =&gt;
+    user.FindAll("scope").SelectMany(c =&gt; c.Value.Split(' ')).Contains(scope);</code></pre>
+
+<pre data-title="OrderAuthorizationHandler.cs"><code class="language-csharp">using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authorization.Infrastructure;
+
+public static class OrderOperations
+{
+    public static readonly OperationAuthorizationRequirement Read    = new() { Name = nameof(Read) };
+    public static readonly OperationAuthorizationRequirement Approve = new() { Name = nameof(Approve) };
+}
+
+public sealed class OrderAuthorizationHandler
+    : AuthorizationHandler&lt;OperationAuthorizationRequirement, Order&gt;
+{
+    private const decimal ApprovalLimit = 50_000_000m;
+
+    protected override Task HandleRequirementAsync(
+        AuthorizationHandlerContext context,
+        OperationAuthorizationRequirement requirement,
+        Order order)
+    {
+        var userId    = context.User.FindFirst("sub")?.Value;
+        var dept      = context.User.FindFirst("department")?.Value;
+        var isManager = context.User.IsInRole("Manager");
+
+        if (userId is null) return Task.CompletedTask;   // không Succeed = deny
+
+        if (requirement.Name == OrderOperations.Read.Name)
+        {
+            if (order.OwnerId == userId)                              // ownership
+                context.Succeed(requirement);
+            else if (isManager &amp;&amp; order.Department == dept)           // RBAC + ABAC
+                context.Succeed(requirement);
+        }
+        else if (requirement.Name == OrderOperations.Approve.Name)
+        {
+            if (isManager
+                &amp;&amp; order.Department == dept        // cùng phòng ban
+                &amp;&amp; order.OwnerId != userId         // business rule: không tự duyệt
+                &amp;&amp; order.Status == OrderStatus.Pending
+                &amp;&amp; order.Amount &lt;= ApprovalLimit)  // business rule: hạn mức
+                context.Succeed(requirement);
+        }
+
+        return Task.CompletedTask;   // không gọi Succeed → requirement thất bại → deny
+    }
+}</code></pre>
+<div class="callout tip"><span class="callout-title">✅ Điểm cần nhớ khi đọc code</span>
+<ul>
+<li><b>Không gọi <code>context.Succeed</code></b> nghĩa là từ chối — deny by default ngay trong handler.</li>
+<li><code>[Authorize]</code>/<code>RequireAuthorization</code> được đánh giá <b>trước</b> khi tài nguyên được tải, nên không thể kiểm tra ownership; phải dùng <b>imperative</b> <code>AuthorizeAsync(user, resource, ...)</code> sau khi tải.</li>
+<li><code>MapInboundClaims = false</code> là bắt buộc để <code>FindFirst("sub")</code> hoạt động; nếu không, <code>sub</code> bị đổi thành <code>.../nameidentifier</code> (xem <a href="lab-2-api-jwt.html#lab2">Lab 2</a>).</li>
+<li>Claim <code>department</code>/<code>roles</code> phải do IdP phát hành (cấu hình mapper), <b>không</b> lấy từ request body.</li>
+</ul></div>
+
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Kiểm tra “user là chủ đơn” bằng <code>[Authorize(Policy=...)]</code> là được.</span><span class="f-label">Thực tế</span><span>Attribute được đánh giá <b>trước</b> khi tải đơn, nên chưa có <code>OwnerId</code> để so. Phải tải đơn rồi gọi <code>AuthorizeAsync(user, order, ...)</code> (imperative), như hai endpoint ở trên.</span></div>
+
+<div class="callout tip"><span class="callout-title">✅ Tự kiểm tra nhanh</span><ul>
+<li>Token của An hết hạn và An không phải Manager. API nên trả 401 hay 403? (Gợi ý: bước nào đứng trước trong pipeline?)</li>
+<li>Vì sao <code>[Authorize(Roles="Manager")]</code> một mình không chặn được Bình duyệt đơn của phòng HCM?</li>
+<li>Khi nào bạn chọn trả 404 thay vì 403 cho bản ghi không thuộc quyền?</li>
+</ul></div>
+
+<h2 id="quiz-bai">Quiz nhanh — Bài 6.2</h2>
+<div id="quiz"></div>
+
+</main>
+<script>
+window.QUIZ = [
+  { q: "Access token của An đã hết hạn từ tối qua, và An cũng không phải Manager. Sáng nay <code>hr-web</code> gọi <code>POST /orders/1024/approve</code> bằng token đó. API (code trong bài) trả gì?",
+    options: ["403 vì An không phải Manager", "401 vì authentication đứng trước authorization trong pipeline", "404 để không lộ đơn tồn tại", "400 Bad Request"],
+    answer: 1,
+    why: ["Kiểm tra role chỉ chạy khi đã có user được xác thực; token hết hạn bị loại từ tầng trước đó.", "JwtBearer từ chối token hết hạn → không có user đã xác thực → challenge 401 kèm <code>error=invalid_token</code>.", "Chưa xác thực được thì API chưa tải đơn, nên chưa tới câu hỏi có giấu sự tồn tại hay không.", "400 (<code>invalid_request</code>) dành cho request sai định dạng; token hết hạn là lỗi xác thực."],
+    explain: "Trượt ở tầng nào dừng ở tầng đó. Sau khi refresh và gọi lại, An mới nhận 403. Xem <a href='m06-2-api-authz.html#authz-pipeline'>B.1</a>." },
+  { q: "<code>hr-api</code> trả <code>403</code> khi Chi gọi <code>GET /payroll/an</code> (nhân viên an có tồn tại, Chi không được xem) và trả <code>404</code> khi gọi <code>GET /payroll/xyz</code> (không có ai mã xyz). Đánh giá nào đúng nhất?",
+    tricky: true,
+    options: ["Đúng chuẩn HTTP, không cần sửa", "Có rò rỉ: Chi dò được mã nhân viên nào tồn tại; với bảng lương nên trả 404 cho cả hai trường hợp", "Nên trả 401 cho cả hai để Chi đăng nhập lại", "Nên trả 200 với body rỗng cho cả hai"],
+    answer: 1,
+    why: ["Từng mã riêng lẻ đều “đúng sách”, nhưng hai mã khác nhau tạo thành một máy dò sự tồn tại của nhân viên.", "Khi sự tồn tại là bí mật, trả 404 nhất quán khiến “không có” và “không được xem” trông giống hệt nhau.", "Token của Chi hợp lệ; 401 sai ngữ nghĩa và khiến client refresh/đăng nhập lại vô ích.", "200 báo thành công giả, làm client và log hiểu sai; đây không phải cách từ chối."],
+    explain: "Bẫy: 403 là mã “chuẩn” cho thiếu quyền, nhưng chính nó lộ thông tin. Tồn tại là bí mật → 404; ngược lại → 403; nhất quán toàn API. Xem <a href='m06-2-api-authz.html#401-vs-403'>B.2</a>." },
+  { q: "Endpoint <code>PUT /leave/{id}</code> có <code>RequireAuthorization</code> với policy yêu cầu scope <code>hr.write</code> và role Employee. An (Employee, token đủ scope) đổi id trên URL và sửa được đơn nghỉ phép của Chi. Tầng kiểm tra nào đang thiếu?",
+    tricky: true,
+    options: ["Authentication — cần kiểm tra chữ ký token chặt hơn", "Coarse-grained — cần scope hoặc role mạnh hơn", "Fine-grained (object-level) — kiểm tra đơn có id này có thuộc quyền của An không", "Business rule — giới hạn số lần sửa đơn mỗi ngày"],
+    answer: 2,
+    why: ["Token đúng là của An và hợp lệ; xác thực không có lỗi.", "Mọi Employee đều có scope và role này; siết role không phân biệt được đơn của An với đơn của Chi.", "Đây là BOLA: thiếu kiểm tra quyền trên <i>từng</i> object sau khi tải, hoặc thiếu lọc truy vấn theo người gọi.", "Giới hạn số lần chỉ làm chậm, không ngăn An sửa đơn không thuộc về mình."],
+    explain: "Bẫy: “token đúng, role đúng” khiến ta tưởng request hợp lệ. BOLA nằm ngay sau tầng coarse-grained. Xem <a href='m06-2-api-authz.html#idor-bola'>B.5</a>." },
+  { q: "Frontend đã ẩn nút “Duyệt” với Employee. Những việc nào <b>phía server</b> vẫn bắt buộc phải làm? (chọn nhiều)",
+    options: ["API kiểm tra role/permission Manager cho endpoint duyệt", "Lấy role từ token đã xác minh, không nhận <code>role</code> trong body/header do client gửi", "Minify/obfuscate JavaScript để người dùng không tìm thấy URL duyệt", "Kiểm tra đơn cùng phòng ban và không phải đơn của chính người duyệt"],
+    answer: [0, 1, 3],
+    why: ["Ai có token cũng gọi API trực tiếp được; API là trust boundary.", "Dữ liệu client gửi lên tự khai báo được; chỉ claim trong token đã xác minh (hoặc tra DB theo <code>sub</code>) mới đáng tin.", "Che giấu URL không phải phân quyền: URL hiện ngay trong tab Network của DevTools.", "Role đúng chưa đủ; ownership/department và business rule phải kiểm tra trên đơn cụ thể."],
+    explain: "UI chỉ là gợi ý; server quyết định. Xem <a href='m06-2-api-authz.html#ui-not-enough'>B.4</a>." },
+  { q: "Theo <code>OrderAuthorizationHandler</code> trong bài, Bình (Manager, phòng Sales-HN, token đủ scope <code>orders.write</code>) gọi duyệt đơn 1050 của <b>chính Bình</b>: phòng Sales-HN, 30 triệu, trạng thái Pending. Kết quả?",
+    options: ["204 No Content — role, phòng ban, hạn mức đều đạt", "403 — handler không gọi <code>Succeed</code> vì <code>order.OwnerId == userId</code>", "401 — token không chứng minh được Bình là chủ đơn", "404 — Bình không được thấy đơn của chính mình"],
+    answer: 1,
+    why: ["Ba điều kiện kia đạt, nhưng business rule “không tự duyệt” (<code>order.OwnerId != userId</code>) bị vi phạm.", "Không Succeed = deny; endpoint thấy <code>result.Succeeded</code> là false và trả <code>Results.Forbid()</code> → 403.", "Xác thực đã thành công; đây là quyết định authorization.", "Endpoint chỉ trả 404 khi <code>repo.FindAsync</code> không tìm thấy đơn; ở đây đơn tồn tại."],
+    explain: "Business rule là tầng cuối của pipeline và nằm trong handler. Xem <a href='m06-2-api-authz.html#authz-code'>B.6</a>." }
+];
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="assets/pages.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

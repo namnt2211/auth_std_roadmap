@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M04 · Bài 4.3 · SP/IdP-initiated SSO &amp; bindings</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<main class="content">
+
+<div class="page-head">
+  <div class="breadcrumb"><a href="index.html">Lộ trình</a> / <a href="m04-saml.html">Module 04</a> / Bài 4.3</div>
+  <h1>Bài 4.3 — SP/IdP-initiated SSO &amp; bindings</h1>
+  <p class="lead">Đăng nhập SAML có thể bắt đầu từ ứng dụng (SP-initiated) hoặc từ cổng IdP (IdP-initiated) — và vì sao kiểu thứ hai rủi ro hơn. Sau đó: message SAML được trình duyệt chở bằng cách nào (HTTP-Redirect, HTTP-POST), đăng xuất toàn hệ thống (SLO) và chữ ký XML.</p>
+  <div class="meta-row">
+    <span class="chip">⏱ ~20 phút</span>
+    <span class="chip">📘 <a href="m04-saml.html">Module 04 · SAML 2.0 &amp; Enterprise SSO</a></span>
+  </div>
+</div>
+
+<div class="terms"><span class="terms-title">📖 Thuật ngữ trong bài</span><dl>
+<dt>SP-initiated</dt><dd>Người dùng mở ứng dụng trước; ứng dụng gửi AuthnRequest sang IdP.</dd>
+<dt>IdP-initiated</dt><dd>Người dùng bấm icon ứng dụng trên cổng IdP; IdP tự gửi Response mà không ai yêu cầu.</dd>
+<dt>Unsolicited response</dt><dd>Response “không được yêu cầu” — không có AuthnRequest nào đứng trước, nên không có <code>InResponseTo</code>.</dd>
+<dt>RelayState</dt><dd>Giá trị nhỏ SP gửi kèm request và IdP trả lại nguyên vẹn, thường để nhớ “quay về trang nào”.</dd>
+<dt>Binding</dt><dd>Cách message SAML được chở qua HTTP: nhét vào URL (Redirect), vào form (POST), hay đổi qua mã (Artifact).</dd>
+<dt>Front-channel / back-channel</dt><dd>Front-channel: đi vòng qua trình duyệt. Back-channel: server gọi thẳng server, trình duyệt không thấy.</dd>
+<dt>SLO (Single Logout)</dt><dd>Đăng xuất một nơi thì cố gắng đăng xuất khỏi mọi ứng dụng cùng phiên SSO.</dd>
+<dt>Canonicalization (C14N)</dt><dd>Quy tắc “viết lại XML về dạng chuẩn” trước khi ký/kiểm để hai bên so cùng một chuỗi byte.</dd>
+</dl></div>
+
+<!-- ===================================================== -->
+<h2 id="sp-initiated">D. SP-initiated SSO <span class="badge must">Must</span></h2>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Bạn đến tòa nhà đối tác (SP) trước. Bảo vệ đưa bạn một <b>phiếu có số</b>, bảo “mang sang phòng nhân sự công ty bạn xin xác nhận”. Bạn quay lại với giấy xác nhận <b>ghi đúng số phiếu đó</b> — bảo vệ đối chiếu cuống phiếu và cho vào. Số phiếu chính là <code>InResponseTo</code>: nó chứng minh giấy này là câu trả lời cho yêu cầu do <b>chính bảo vệ</b> phát ra, cho <b>chính bạn</b>.</div>
+<p>Luồng phổ biến và an toàn hơn: người dùng bắt đầu từ ứng dụng (SP). Khi đọc sơ đồ, hãy để ý 3 chỗ: SP <b>lưu ID</b> của AuthnRequest ngay trước bước 2, IdP trả về một <b>form HTML tự submit</b> (bước 6), và SP <b>kiểm tra xong rồi mới</b> cấp cookie session (bước 8).</p>
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant B as 🌐 Browser (An)
+  participant SP as 🧾 SP Expense
+  participant IdP as 🔐 IdP Keycloak
+  B->>SP: GET https://expense.example.com/reports
+  Note over SP: Chưa có session.<br/>Tạo AuthnRequest ID=_a1b2..., lưu ID + URL gốc
+  SP-->>B: 302 tới SSO URL của IdP<br/>?SAMLRequest, RelayState, SigAlg, Signature
+  Note over B,SP: HTTP-Redirect binding (DEFLATE + base64 + URL-encode)
+  B->>IdP: GET /realms/corp/protocol/saml?SAMLRequest=...
+  Note over IdP: Kiểm tra Issuer SP đã đăng ký, chữ ký request,<br/>ACS URL khớp metadata
+  IdP-->>B: Trang đăng nhập (nếu chưa có phiên IdP)
+  B->>IdP: Mật khẩu + MFA
+  Note over IdP: Tạo phiên IdP, tạo Response + Assertion đã ký
+  IdP-->>B: 200 HTML form ẩn (action = ACS)<br/>SAMLResponse (base64), RelayState
+  Note over B,SP: HTTP-POST binding (form tự submit bằng JS)
+  B->>SP: POST /saml/acs (SAMLResponse, RelayState)
+  Note over SP: Validate: chữ ký, Issuer, Audience, Destination/Recipient,<br/>InResponseTo, thời gian, replay
+  SP-->>B: 302 tới /reports + Set-Cookie session của SP
+  B->>SP: GET /reports (kèm cookie SP)
+</pre>
+<div class="caption">SP-initiated SSO: Redirect binding cho AuthnRequest (nhỏ), POST binding cho Response (lớn, có chữ ký XML). Đây là cấu hình phổ biến nhất.</div>
+</div>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Bước roadmap</th><th>Chi tiết kỹ thuật</th><th>Binding thường dùng</th></tr></thead>
+<tbody>
+<tr><td>1. User truy cập ứng dụng SP</td><td>SP phát hiện chưa có session, ghi nhớ URL gốc.</td><td>HTTP bình thường</td></tr>
+<tr><td>2. SP tạo AuthnRequest, chuyển browser tới IdP</td><td>SP sinh <code>ID</code> ngẫu nhiên, lưu lại; có thể ký request.</td><td><b>HTTP-Redirect</b> (đôi khi POST)</td></tr>
+<tr><td>3. IdP xác thực user</td><td>Nếu đã có phiên IdP (SSO) thì bỏ qua bước nhập mật khẩu.</td><td>— (UI của IdP)</td></tr>
+<tr><td>4. IdP gửi Response về ACS qua browser</td><td>Form HTML ẩn tự POST tới ACS.</td><td><b>HTTP-POST</b> (hoặc Artifact)</td></tr>
+<tr><td>5. SP xác minh và tạo local session</td><td>Chạy toàn bộ <a href="m04-4-security.html#saml-validation">checklist</a>, rồi cấp cookie session riêng của SP (<a href="m02-2-session-cookie.html#session-cookie">M02</a>).</td><td>—</td></tr>
+</tbody></table></div>
+
+<div class="callout info"><span class="callout-title">ℹ️ RelayState</span>
+<code>RelayState</code> là giá trị mờ (opaque — IdP không cần hiểu) SP gửi kèm request và IdP trả nguyên vẹn. Thường dùng để nhớ “sau khi đăng nhập thì quay về trang nào”.
+<ul>
+<li>Theo spec Bindings, RelayState <b>không được vượt quá 80 byte</b>. Vì vậy SP nên lưu URL thật ở server và chỉ gửi một khóa tham chiếu — trong ví dụ là <code>r_7Kq2</code> → <code>/reports</code>.</li>
+<li>Nếu SP dùng RelayState làm URL redirect trực tiếp thì phải whitelist — nếu không sẽ thành <b>open redirect</b> (kẻ xấu dùng trang của bạn để chuyển nạn nhân sang trang lừa đảo).</li>
+</ul></div>
+
+<div class="callout warn"><span class="callout-title">⚠️ Cookie SameSite và POST cross-site</span>
+Response được POST từ domain IdP (<code>sso.company.com</code>) sang domain SP (<code>expense.example.com</code>) — đây là request <b>cross-site</b> (khác site).
+<ol>
+<li>SP thường lưu “AuthnRequest đang chờ” trong một cookie tạm.</li>
+<li>Nếu cookie đó để <code>SameSite=Lax</code>/<code>Strict</code>, trình duyệt <b>không gửi kèm</b> nó trong POST cross-site này.</li>
+<li>SP không tìm thấy request đang chờ → lỗi “InResponseTo không khớp”.</li>
+</ol>
+Các thư viện thường đặt cookie tạm này <code>SameSite=None; Secure</code> (xem <a href="m02-2-session-cookie.html#cookie-attributes">cookie attributes</a>).</div>
+
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Lỗi “InResponseTo không khớp” nghĩa là IdP gửi sai.</span><span class="f-label">Thực tế</span><span>Thường là SP <b>làm mất</b> “request đang chờ”: cookie tạm bị chặn do SameSite, nhiều instance SP không dùng chung state, người dùng mở nhiều tab hoặc bấm Back rồi đăng nhập lại. Kiểm tra phía SP trước khi đổ lỗi cho IdP.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Cứ nhét nguyên URL quay về vào RelayState rồi redirect theo nó.</span><span class="f-label">Thực tế</span><span>Spec giới hạn RelayState tối đa 80 byte, và redirect theo giá trị không kiểm tra là open redirect. Lưu URL thật ở server, chỉ gửi một khóa tham chiếu (vd. <code>r_7Kq2</code>).</span></div>
+
+<!-- ===================================================== -->
+<h2 id="idp-initiated">IdP-initiated SSO <span class="badge should">Should</span></h2>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Lần này bạn đến phòng nhân sự trước, xin sẵn giấy giới thiệu rồi mới mang sang tòa nhà đối tác. Bảo vệ <b>không có cuống phiếu nào</b> để đối chiếu — chỉ biết con dấu thật. Vấn đề: một kẻ xấu cũng có giấy thật (của chính hắn) và có thể lén nhét vào tay bạn — bảo vệ không phân biệt được.</div>
+<p>Người dùng bắt đầu từ <b>portal của IdP</b> (ví dụ trang “My Apps” của Entra ID, hoặc bấm icon “Expense” trên portal Keycloak). IdP gửi một Response <b>không được yêu cầu</b> (unsolicited) tới SP.</p>
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant B as 🌐 Browser (An)
+  participant IdP as 🔐 IdP Portal
+  participant SP as 🧾 SP Expense
+  B->>IdP: Mở portal, đăng nhập (hoặc đã có phiên)
+  B->>IdP: Bấm icon Expense
+  IdP-->>B: HTML form ẩn, SAMLResponse (KHÔNG có InResponseTo)
+  B->>SP: POST /saml/acs (unsolicited Response)
+  Note over SP: Không có AuthnRequest nào để đối chiếu.<br/>Chỉ kiểm tra được chữ ký, Issuer, Audience,<br/>Recipient, thời gian, replay
+  SP-->>B: Tạo session (nếu chính sách cho phép)
+</pre>
+<div class="caption">IdP-initiated: thiếu mắt xích “request do chính SP tạo ra” → SP không phân biệt được response này do người dùng hiện tại chủ động yêu cầu hay bị kẻ khác “đẩy” vào.</div>
+</div>
+
+<h3 id="idp-initiated-risks">Rủi ro của IdP-initiated</h3>
+<div class="grid cols-3">
+  <div class="card bad"><span class="icon">🎭</span><h4>Login CSRF / injection</h4><p>Kẻ tấn công lấy một Response <b>hợp lệ của chính hắn</b> rồi dựng trang tự POST vào ACS của nạn nhân. Nạn nhân bị đăng nhập vào <b>tài khoản của kẻ tấn công</b> mà không biết, rồi nhập dữ liệu nhạy cảm (thẻ, hóa đơn) vào đó.</p></div>
+  <div class="card bad"><span class="icon">🔁</span><h4>Replay</h4><p>Response bị lộ (log, proxy, máy dùng chung, lịch sử trình duyệt) có thể được nộp lại trong cửa sổ hiệu lực. Với SP-initiated, <code>InResponseTo</code> gắn với một request dùng một lần giúp chặn; IdP-initiated không có lớp bảo vệ đó.</p></div>
+  <div class="card bad"><span class="icon">↪️</span><h4>RelayState → open redirect</h4><p>Trong IdP-initiated, RelayState không do SP tạo; nếu SP redirect theo nó mà không kiểm tra thì thành open redirect, tiếp tay phishing.</p></div>
+</div>
+
+<div class="dodont">
+<div class="do"><h5>✅ Nên</h5><ul>
+<li>Tắt IdP-initiated nếu không thật sự cần (nhiều thư viện mặc định tắt; ví dụ Sustainsys.Saml2 chỉ chấp nhận khi bật <code>AllowUnsolicitedAuthnResponse</code> cho IdP đó).</li>
+<li>Nếu bắt buộc hỗ trợ: assertion sống ngắn, <b>cache ID assertion</b> để chặn dùng lại, whitelist RelayState.</li>
+<li>Mẫu an toàn hơn: khi nhận unsolicited response, SP <b>bỏ qua</b> nó và khởi động lại một luồng SP-initiated (IdP đã có phiên nên người dùng không phải đăng nhập lại).</li>
+</ul></div>
+<div class="dont"><h5>❌ Không nên</h5><ul>
+<li>Coi IdP-initiated “an toàn như SP-initiated” chỉ vì có chữ ký.</li>
+<li>Bỏ qua kiểm tra <code>InResponseTo</code> cho mọi response chỉ để IdP-initiated chạy được.</li>
+<li>Redirect theo RelayState tùy ý.</li>
+</ul></div>
+</div>
+
+<div class="compare" id="sp-vs-idp-initiated"><span class="compare-title">Phân biệt dễ nhầm: SP-initiated vs IdP-initiated</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>SP-initiated</th><th>IdP-initiated</th></tr></thead>
+<tbody>
+<tr><td>Điểm bắt đầu</td><td>Ứng dụng (SP)</td><td>Portal của IdP</td></tr>
+<tr><td>AuthnRequest</td><td>Có</td><td>Không</td></tr>
+<tr><td><code>InResponseTo</code></td><td>Có, phải khớp request đang chờ</td><td>Không có</td></tr>
+<tr><td>Chống login CSRF</td><td>Tốt (response gắn với phiên trình duyệt đã gửi request)</td><td>Yếu</td></tr>
+<tr><td>Deep link (quay về đúng trang)</td><td>Dễ (RelayState do SP tạo)</td><td>Khó, phụ thuộc cấu hình</td></tr>
+<tr><td>Khuyến nghị</td><td>Mặc định nên dùng</td><td>Chỉ bật khi cần, kèm biện pháp giảm thiểu</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b></p>
+<ul>
+<li><b>SP-initiated:</b> An gõ <code>https://expense.example.com/reports</code> → Expense gửi AuthnRequest <code>_a1b2…</code> → Response về có <code>InResponseTo="_a1b2…"</code> → khớp với request Expense đang chờ trong phiên trình duyệt của An → cho vào, đưa về đúng <code>/reports</code>.</li>
+<li><b>IdP-initiated:</b> An mở cổng Keycloak, bấm icon “Expense” → Response về <b>không có</b> InResponseTo. Expense chỉ biết “chữ ký thật, gửi cho tôi”, nhưng không biết chính An có vừa bấm hay không — kẻ xấu gửi cho An một link tự POST Response của hắn cũng trông y hệt.</li>
+</ul>
+<span class="rule">Có phiếu (AuthnRequest) mới có số phiếu (InResponseTo) để đối chiếu. Không phiếu → không đối chiếu được → rủi ro.</span>
+</div>
+
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>IdP-initiated an toàn như SP-initiated vì assertion vẫn được ký.</span><span class="f-label">Thực tế</span><span>Thiếu InResponseTo → dễ bị login CSRF/injection và replay. Chữ ký chỉ chứng minh IdP viết, không chứng minh <b>người đang ngồi trước trình duyệt</b> vừa yêu cầu. Chỉ bật khi cần, kèm biện pháp giảm thiểu.</span></div>
+
+<!-- ===================================================== -->
+<h2 id="bindings">E. Binding và protocol <span class="badge should">Should</span></h2>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+<b>Protocol</b> là <i>nội dung lá thư</i>; <b>binding</b> là <i>cách gửi thư</i>. Thư ngắn thì viết luôn lên <b>bưu thiếp</b> (Redirect — nhét vào URL). Thư dày thì bỏ vào <b>bưu kiện</b> (POST — gửi trong thân form). Hoặc chỉ đưa <b>phiếu nhận hàng</b> rồi người nhận tự đến kho lấy (Artifact).</div>
+<p>Hai thuật ngữ mã hóa sẽ gặp: <b>base64</b> = cách biến dữ liệu nhị phân/XML thành chuỗi chỉ gồm chữ, số và vài ký tự an toàn để truyền qua HTTP (<b>không phải mã hóa bảo mật</b> — ai cũng giải được); <b>DEFLATE</b> = thuật toán nén (giống nén ZIP) để URL ngắn lại.</p>
+<p><b>Protocol</b> định nghĩa <i>message gì</i> (AuthnRequest, Response, LogoutRequest…). <b>Binding</b> định nghĩa <i>message được chở bằng gì</i> qua HTTP. Cùng một AuthnRequest có thể đi bằng Redirect hoặc POST.</p>
+
+<div class="compare" id="redirect-vs-post"><span class="compare-title">Phân biệt dễ nhầm: HTTP-Redirect vs HTTP-POST (và Artifact)</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Binding</th><th>URI</th><th>Cách chở</th><th>Chữ ký nằm ở đâu</th><th>Thường dùng cho</th></tr></thead>
+<tbody>
+<tr><td><b>HTTP-Redirect</b></td><td><code>urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect</code></td><td>Query string của URL (302): XML → <b>DEFLATE</b> → <b>base64</b> → <b>URL-encode</b>.</td><td>Ngoài XML: tham số <code>SigAlg</code> và <code>Signature</code> trên query (ds:Signature trong XML phải bỏ đi).</td><td>AuthnRequest, LogoutRequest/Response (message nhỏ).</td></tr>
+<tr><td><b>HTTP-POST</b></td><td><code>…:bindings:HTTP-POST</code></td><td>Form HTML ẩn, tự submit bằng JS; XML → <b>base64</b> (không DEFLATE).</td><td>Bên trong XML (<code>ds:Signature</code>).</td><td>SAML Response (lớn, có assertion ký).</td></tr>
+<tr><td><b>HTTP-Artifact</b></td><td><code>…:bindings:HTTP-Artifact</code></td><td>Browser chỉ chở một “mã tham chiếu” (artifact) ngắn; SP gọi <b>back-channel</b> (SOAP) tới IdP để đổi lấy message thật.</td><td>Trong message lấy qua back-channel.</td><td>Khi không muốn assertion đi qua browser. Ít gặp — chỉ cần nhận biết.</td></tr>
+</tbody></table></div>
+<p><b>Vì sao Response gần như không đi bằng Redirect?</b> URL có giới hạn độ dài (trình duyệt, proxy, server thường chỉ chịu vài KB), mà Response có chữ ký và certificate dễ vượt mức đó. Thêm nữa, mọi thứ trên URL dễ bị ghi vào log server, lịch sử trình duyệt, header Referer — không nên để assertion (bearer credential) nằm ở đó.</p>
+<p><b>Ví dụ:</b> trong luồng của An, <b>cả hai</b> binding cùng xuất hiện:</p>
+<ul>
+<li>Expense → Keycloak: AuthnRequest nhỏ (~500 byte XML) đi bằng <b>Redirect</b>: <code>302 Location: …/protocol/saml?SAMLRequest=fZJN…&amp;Signature=…</code>.</li>
+<li>Keycloak → Expense: Response vài KB, có 2 chữ ký, đi bằng <b>POST</b>: một form ẩn <code>&lt;input name="SAMLResponse" value="PHNhbWxw…"&gt;</code> tự submit tới <code>/saml/acs</code>.</li>
+</ul>
+<p>Khi debug, bạn nhận ra binding qua chỗ dữ liệu nằm: thấy <code>SAMLRequest=</code> trên URL → Redirect; thấy <code>SAMLResponse</code> trong form data của request POST → POST.</p>
+<span class="rule">Nhỏ → Redirect (bưu thiếp trên URL, ký trên query). Lớn → POST (bưu kiện trong form, ký trong XML).</span>
+</div>
+
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Với HTTP-Redirect, chữ ký vẫn nằm trong XML như HTTP-POST.</span><span class="f-label">Thực tế</span><span>Redirect binding ký <b>chuỗi query</b> (<code>SAMLRequest</code>, <code>RelayState</code>, <code>SigAlg</code>) và đặt kết quả ở tham số <code>Signature</code>; <code>ds:Signature</code> trong XML phải bỏ đi. Tìm chữ ký trong XML của một Redirect request sẽ không thấy.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Response cũng gửi bằng Redirect được, miễn là ngắn.</span><span class="f-label">Thực tế</span><span>Web Browser SSO profile không cho dùng HTTP-Redirect để gửi Response, vì Response có chữ ký + certificate thường vượt giới hạn độ dài URL. Ngoài ra assertion trên URL dễ lọt vào log, lịch sử, Referer.</span></div>
+
+<h3 id="redirect-binding">HTTP-Redirect: mã hóa và ký</h3>
+<div class="flow">
+  <div class="step"><b>XML</b>AuthnRequest (không có ds:Signature)</div><span class="arrow">→</span>
+  <div class="step"><b>DEFLATE</b>nén raw (không header zlib)</div><span class="arrow">→</span>
+  <div class="step"><b>base64</b>thành chuỗi ký tự</div><span class="arrow">→</span>
+  <div class="step"><b>URL-encode</b>đặt vào <code>SAMLRequest=</code></div><span class="arrow">→</span>
+  <div class="step"><b>Ký</b>chuỗi query → <code>Signature=</code></div>
+</div>
+<p>Chuỗi được ký là ghép các tham số đã URL-encode theo <b>đúng thứ tự</b>: <code>SAMLRequest=…&amp;RelayState=…&amp;SigAlg=…</code> (bỏ RelayState nếu không có). Chữ ký (base64) được thêm làm tham số <code>Signature</code>.</p>
+<p><b>Cần nhìn gì trong response 302 dưới?</b> Chỉ 4 tham số trên <code>Location</code>: <code>SAMLRequest</code> (AuthnRequest đã nén + mã hóa base64), <code>RelayState</code> (khóa nhớ trang quay về), <code>SigAlg</code> (thuật toán ký, ở đây RSA-SHA256) và <code>Signature</code> (chữ ký của SP).</p>
+<pre data-title="HTTP 302 từ SP (rút gọn)"><code class="language-plaintext">HTTP/1.1 302 Found
+Location: https://sso.company.com/realms/corp/protocol/saml
+  ?SAMLRequest=fZJNT8MwDIb%2FSu45t9Kq...%3D%3D
+  &amp;RelayState=r_7Kq2
+  &amp;SigAlg=http%3A%2F%2Fwww.w3.org%2F2001%2F04%2Fxmldsig-more%23rsa-sha256
+  &amp;Signature=Mn2xA...%3D%3D</code></pre>
+<p class="small muted">(Xuống dòng chỉ để dễ đọc; URL thật nằm trên một dòng.)</p>
+
+<h3 id="post-binding">HTTP-POST: form tự submit</h3>
+<p>Đây là trang HTML Keycloak trả cho trình duyệt của An ở bước 6. <b>Cần nhìn 3 chỗ:</b> <code>action="…/saml/acs"</code> (form gửi tới ACS của Expense), input <code>SAMLResponse</code> (Response đã base64 — decode ra chính là XML ở <a href="m04-2-assertion.html#saml-response-example">Bài 4.2</a>), và <code>onload="…submit()"</code> (JavaScript tự bấm “gửi” để người dùng không phải làm gì).</p>
+<pre data-title="Trang HTML IdP trả về cho browser"><code class="language-xml">&lt;html&gt;
+  &lt;body onload="document.forms[0].submit()"&gt;
+    &lt;form method="POST" action="https://expense.example.com/saml/acs"&gt;
+      &lt;input type="hidden" name="SAMLResponse" value="PHNhbWxwOlJlc3BvbnNlIHhtbG5z..." /&gt;
+      &lt;input type="hidden" name="RelayState" value="r_7Kq2" /&gt;
+      &lt;noscript&gt;&lt;button type="submit"&gt;Tiếp tục&lt;/button&gt;&lt;/noscript&gt;
+    &lt;/form&gt;
+  &lt;/body&gt;
+&lt;/html&gt;</code></pre>
+<div class="callout tip"><span class="callout-title">🔍 Mẹo debug</span>
+Dùng DevTools (tab Network, bật “Preserve log”) hoặc extension “SAML tracer” để xem <code>SAMLRequest</code>/<code>SAMLResponse</code>. Với POST: chỉ cần base64-decode. Với Redirect: URL-decode → base64-decode → inflate. Đừng dán SAMLResponse thật của production lên các công cụ decode online — nó chứa thông tin cá nhân và là bearer credential còn hiệu lực.</div>
+
+<h3 id="slo">Single Logout (SLO) <span class="badge nice">Nice</span></h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Như khi nghỉ việc phải đi <b>trả thẻ ở từng tòa nhà</b> đã vào: IdP lần lượt báo cho từng ứng dụng “hãy hủy phiên của người này”. Chỉ cần một tòa nhà đóng cửa không nhận, việc trả thẻ coi như dang dở.</div>
+<p>SLO cố gắng đăng xuất người dùng khỏi <b>tất cả</b> SP đã tham gia phiên SSO. IdP dùng <code>SessionIndex</code> và NameID để biết phiên nào cần kết thúc ở từng SP.</p>
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  participant B as 🌐 Browser
+  participant SP1 as SP Expense
+  participant IdP as IdP
+  participant SP2 as SP Wiki
+  B->>SP1: Bấm Đăng xuất
+  SP1-->>B: Xóa session SP1, redirect LogoutRequest<br/>(NameID, SessionIndex)
+  B->>IdP: LogoutRequest
+  IdP-->>B: redirect LogoutRequest tới SP2
+  B->>SP2: LogoutRequest
+  SP2-->>B: Xóa session SP2, LogoutResponse
+  B->>IdP: LogoutResponse từ SP2
+  Note over IdP: Kết thúc phiên IdP
+  IdP-->>B: LogoutResponse về SP1
+  B->>SP1: LogoutResponse (Success hoặc PartialLogout)
+</pre>
+<div class="caption">SLO front-channel: chuỗi redirect qua từng SP. Chỉ một SP lỗi/không phản hồi là chuỗi đứt → thực tế SLO thường “best effort”.</div>
+</div>
+<p>So sánh với logout của OIDC ở <a href="m03-6-discovery-logout.html#logout">M03</a>: cả hai đều khó đảm bảo đăng xuất 100% mọi nơi; thiết kế session ngắn hạn ở SP vẫn quan trọng.</p>
+
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Bật SLO thì bấm “Đăng xuất” ở một ứng dụng là chắc chắn thoát khỏi mọi ứng dụng.</span><span class="f-label">Thực tế</span><span>SLO front-channel là chuỗi redirect qua từng SP; một SP lỗi, timeout hoặc người dùng đóng tab giữa chừng là chuỗi đứt (kết quả có thể là <code>PartialLogout</code>). Coi SLO là “best effort” và giữ session SP ngắn.</span></div>
+
+<h3 id="xmldsig">XML Signature và canonicalization <span class="badge nice">Nice</span></h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Hai người viết cùng một câu nhưng một người thêm dấu cách, người kia đổi thứ tự từ — nghĩa giống nhau nhưng “chữ” khác, nên chữ ký số (tính trên từng byte) sẽ lệch. <b>Canonicalization</b> (chuẩn hóa) là quy tắc “viết lại cho đúng mẫu chuẩn” trước khi ký và trước khi kiểm, để hai bên luôn so cùng một chuỗi byte.</div>
+<p><b>XML Signature (XMLDSig)</b> khác chữ ký <a href="m02-3-token-jwt.html#jwt">JWT</a> (ký toàn bộ token) ở một điểm quan trọng: nó ký <i>một phần</i> của tài liệu XML, phần đó được chỉ định bằng <code>Reference URI="#ID"</code>. Trong <a href="m04-2-assertion.html#saml-response-example">Response mẫu</a>, chữ ký thứ hai có <code>Reference URI="#_as9d8e7f6a5b4c3"</code> — tức là chỉ ký phần tử Assertion có ID đó.</p>
+<p>Vấn đề: cùng một nội dung XML có thể viết theo nhiều cách (thứ tự thuộc tính, khoảng trắng, khai báo namespace…). <b>Canonicalization (C14N)</b> chuẩn hóa XML về một dạng byte duy nhất trước khi băm, để chữ ký không vỡ khi XML đi qua các hệ thống khác nhau. Loại phổ biến nhất trong SAML là <b>Exclusive C14N</b> (<code>http://www.w3.org/2001/10/xml-exc-c14n#</code>).</p>
+<div class="flow">
+  <div class="step"><b>1. Chọn phần tử</b>theo Reference URI</div><span class="arrow">→</span>
+  <div class="step"><b>2. Transforms</b>enveloped-signature, exc-c14n</div><span class="arrow">→</span>
+  <div class="step"><b>3. Digest</b>SHA-256 → DigestValue</div><span class="arrow">→</span>
+  <div class="step"><b>4. C14N SignedInfo</b>rồi ký → SignatureValue</div>
+</div>
+<p>Chính sự phức tạp này (chọn phần tử theo ID, nhiều transform, nhiều cách parse) là nguồn gốc của lỗi <a href="m04-4-security.html#xsw">XML Signature Wrapping</a>.</p>
+
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>XML Signature ký cả tài liệu giống chữ ký JWT.</span><span class="f-label">Thực tế</span><span>XMLDSig chỉ ký phần tử mà <code>Reference URI</code> trỏ tới. Phần còn lại của tài liệu (và <b>vị trí</b> của phần tử được ký) không được bảo vệ — đó là kẽ hở XSW khai thác.</span></div>
+
+<div class="callout tip"><span class="callout-title">✅ Tự kiểm tra nhanh</span><ul>
+<li>Vì sao SP-initiated chống được login CSRF còn IdP-initiated thì khó?</li>
+<li>Bạn thấy <code>SAMLRequest=</code> trên URL trong DevTools — đó là binding nào, và chữ ký nằm ở đâu?</li>
+<li>Vì sao cookie lưu “request đang chờ” cần <code>SameSite=None; Secure</code>?</li>
+</ul></div>
+
+<h2 id="quiz-bai">Quiz nhanh — Bài 4.3</h2>
+<div id="quiz"></div>
+
+</main>
+<script>
+window.QUIZ = [
+  { q: "Ngay trước khi redirect trình duyệt của An sang Keycloak (SP-initiated), Expense cần lưu lại gì để bước ACS kiểm tra được?",
+    options: ["ID của AuthnRequest, gắn với phiên trình duyệt của An (kèm URL gốc để quay về)", "Mật khẩu của An để đối chiếu sau", "Private key của Keycloak", "Bản sao SAMLResponse dự kiến sẽ nhận"],
+    answer: 0,
+    why: ["Request ID này sẽ được so với <code>InResponseTo</code> của Response; gắn với phiên để chống login CSRF.", "SP không bao giờ thấy mật khẩu trong SAML — việc xác thực do IdP làm.", "SP không bao giờ có private key của IdP; nó chỉ cần certificate từ metadata.", "SP không thể biết trước Response; nó chỉ nhớ “phiếu yêu cầu” để đối chiếu."],
+    explain: "SP lưu ID request → nhận Response → kiểm InResponseTo khớp → xóa ID. Xem <a href='m04-3-flows-bindings.html#sp-initiated'>SP-initiated</a>." },
+  { q: "Expense bật IdP-initiated. Nó kiểm tra đầy đủ chữ ký (cert từ metadata), Issuer, Audience, Recipient, thời gian, và có cache chống replay ID assertion. Kẻ tấn công (có tài khoản thật ở Keycloak) vẫn làm được gì?", tricky: true,
+    options: ["Không làm được gì — các kiểm tra trên đã đủ", "Lấy một Response mới, chưa dùng của chính hắn, dựng trang tự POST vào ACS của Expense và dụ An mở → An bị đăng nhập vào tài khoản của hắn (login CSRF)", "Giả chữ ký của Keycloak để đăng nhập thành An", "Đọc file trên server Expense qua DOCTYPE"],
+    answer: 1,
+    why: ["Mọi kiểm tra đều đạt vì Response đó là thật; cái thiếu là bằng chứng “chính An vừa yêu cầu đăng nhập”, thứ chỉ InResponseTo mới cho.", "Response của hắn hợp lệ và chưa từng dùng nên cache replay không chặn; không có InResponseTo để gắn với phiên của An → login CSRF.", "Không có private key của Keycloak thì không giả được chữ ký; tấn công này không cần giả gì cả.", "Đó là XXE — lỗi parser, không liên quan tới việc bật IdP-initiated."],
+    explain: "Bẫy: cache chống replay chỉ chặn <b>dùng lại</b>, không chặn một response <b>mới</b> bị đẩy vào trình duyệt người khác. Xem <a href='m04-3-flows-bindings.html#idp-initiated-risks'>Rủi ro IdP-initiated</a>." },
+  { q: "Sau khi đội dev đổi cookie tạm lưu “request đang chờ” sang <code>SameSite=Lax</code>, người dùng báo lỗi “InResponseTo không khớp” ở mọi lần đăng nhập. Nguyên nhân nhiều khả năng nhất?",
+    options: ["Keycloak đổi ID của AuthnRequest", "Response được POST cross-site từ domain IdP sang ACS; trình duyệt không gửi cookie Lax trong POST cross-site → SP không tìm thấy request đang chờ", "Đồng hồ server lệch nên InResponseTo hết hạn", "RelayState vượt quá 80 byte"],
+    answer: 1,
+    why: ["IdP chỉ chép ID request vào InResponseTo, không đổi nó.", "Cookie <code>SameSite=Lax</code> không đi kèm request POST cross-site, nên SP mất trạng thái → cần <code>SameSite=None; Secure</code>.", "Lệch giờ gây lỗi NotBefore/NotOnOrAfter, không gây lỗi InResponseTo; InResponseTo không có “hạn”.", "RelayState quá dài là vi phạm spec, không làm mất cookie lưu request."],
+    explain: "Xem <a href='m04-3-flows-bindings.html#sp-initiated'>callout SameSite</a> trong phần SP-initiated." },
+  { q: "Vì sao SAML Response gần như luôn đi bằng HTTP-POST thay vì HTTP-Redirect? (chọn nhiều)",
+    options: ["Response có chữ ký và certificate, thường vài KB — dễ vượt giới hạn độ dài URL", "Mọi thứ trên URL dễ bị ghi vào log, lịch sử trình duyệt, header Referer — không nên để assertion bearer nằm đó", "Redirect binding không hỗ trợ ký message", "POST binding mã hóa Response, còn Redirect thì không"],
+    answer: [0, 1],
+    why: ["Giới hạn URL của trình duyệt/proxy/server chỉ vài KB; Response lớn nên Web Browser SSO profile không cho gửi Response bằng Redirect.", "Assertion là bearer credential — lộ là bị dùng lại; URL là nơi dễ lộ nhất.", "Redirect vẫn ký được: ký chuỗi query, đặt ở tham số <code>Signature</code> kèm <code>SigAlg</code>.", "POST chỉ base64 — không phải mã hóa; nhầm encode với encrypt."],
+    explain: "Nhỏ → Redirect, lớn → POST. Xem <a href='m04-3-flows-bindings.html#redirect-vs-post'>HTTP-Redirect vs HTTP-POST</a>." },
+  { q: "An bấm “Đăng xuất” ở Expense (SLO front-channel). Server Wiki đang bảo trì, không phản hồi LogoutRequest. Điều gì có thể xảy ra?",
+    options: ["Không sao — SLO đảm bảo mọi ứng dụng đều đăng xuất", "Chuỗi SLO bị đứt: session ở Wiki có thể vẫn còn, Expense có thể nhận <code>PartialLogout</code> hoặc không nhận được LogoutResponse nào", "Keycloak xóa trực tiếp session trong database của Wiki", "Keycloak tự đăng nhập lại An vào Expense"],
+    answer: 1,
+    why: ["SLO là “best effort”; không có cơ chế bảo đảm khi một SP không phản hồi.", "Front-channel đi qua từng SP bằng redirect; một mắt xích hỏng là chuỗi đứt, nên session SP nên ngắn hạn.", "IdP không có quyền truy cập database/session nội bộ của SP; nó chỉ gửi LogoutRequest.", "SLO không tạo đăng nhập mới; chỉ phiên của Wiki có thể còn sót."],
+    explain: "Xem <a href='m04-3-flows-bindings.html#slo'>Single Logout</a>." }
+];
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="assets/pages.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

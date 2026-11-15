@@ -535,3 +535,82 @@ details > :not(summary) { color: var(--text-2); }
 .content h3 { display: block; }
 .lab-task > .lab-head h3 { padding-left: 0; }
 td:first-child code { white-space: nowrap; }
+
+/* ---------- module → lesson structure ---------- */
+.sidebar .nav-sub { margin: 2px 0 10px 22px; padding-left: 10px; border-left: 2px solid var(--border); }
+.sidebar a.nav-subitem {
+  display: flex; align-items: flex-start; gap: 8px; padding: 6px 8px; border-radius: 7px; margin: 1px 0;
+  color: var(--muted); font-size: 13px; line-height: 1.4;
+}
+.sidebar a.nav-subitem:hover { background: var(--surface-2); color: var(--text); text-decoration: none; }
+.sidebar a.nav-subitem.active { background: var(--accent-soft); color: var(--accent-text); font-weight: 600; }
+.sidebar a.nav-subitem .snum { flex: none; min-width: 26px; font-size: 11px; font-weight: 700; color: var(--muted); padding-top: 1px; }
+.sidebar a.nav-subitem.active .snum { color: var(--accent-text); }
+.sidebar a.nav-subitem .hours { font-size: 11px; }
+.sidebar a.nav-subitem.quiz .snum { color: var(--ok); }
+
+.lesson-strip {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: -6px; margin-bottom: 26px;
+  padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-soft);
+}
+.lesson-strip .ls-label { font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin-right: 6px; }
+.lesson-strip .ls-step {
+  font-size: 12.5px; font-weight: 600; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--border);
+  background: var(--surface); color: var(--text-2); white-space: nowrap;
+}
+.lesson-strip .ls-step:hover { text-decoration: none; border-color: var(--accent); color: var(--accent-text); }
+.lesson-strip .ls-step.past { color: var(--muted); }
+.lesson-strip .ls-step.current { background: var(--accent); border-color: var(--accent); color: #fff; }
+.lesson-strip .ls-step.quiz:not(.current) { border-color: var(--ok-line); color: var(--ok); }
+
+ol.lesson-list { padding-left: 1.4em; }
+ol.lesson-list li { margin: 10px 0; }
+
+.lesson-map { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); margin: 18px auto; }
+.lesson-map .lm-title { display: flex; gap: 8px; align-items: center; font-weight: 700; color: var(--text); margin-bottom: 6px; }
+.lesson-map .lm-num {
+  flex: none; min-width: 30px; height: 24px; padding: 0 5px; border-radius: 6px; display: grid; place-items: center;
+  background: var(--accent-soft); color: var(--accent-text); font-size: 11px; font-weight: 800;
+}
+.lesson-map ol { margin: 0; padding-left: 1.3em; }
+.lesson-map li { font-size: 13.5px; margin: 3px 0; }
+
+/* ---------- beginner aids: glossary box + "easy to confuse" comparison ---------- */
+.terms {
+  margin: 18px auto 22px; padding: 14px 18px 12px; border-radius: var(--radius);
+  border: 1px solid var(--info-line); background: var(--info-soft);
+}
+.terms .terms-title { display: block; font-weight: 700; color: var(--info); font-size: 12.5px; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 6px; }
+.terms dl { margin: 0; display: grid; grid-template-columns: minmax(120px, max-content) 1fr; gap: 6px 16px; }
+.terms dt { font-weight: 700; color: var(--text); font-size: 14.5px; }
+.terms dd { margin: 0; font-size: 14.5px; color: var(--text-2); }
+@media (max-width: 600px) { .terms dl { grid-template-columns: 1fr; gap: 2px; } .terms dd { margin-bottom: 8px; } }
+
+.compare {
+  margin: 20px auto; border-radius: var(--radius); border: 1px solid var(--purple-line);
+  background: var(--surface); overflow: hidden;
+}
+.compare .compare-title {
+  display: block; padding: 10px 16px; font-weight: 700; font-size: 14.5px; color: var(--purple);
+  background: var(--purple-soft); border-bottom: 1px solid var(--purple-line);
+}
+.compare .compare-title::before { content: "⚖️ "; }
+.compare .table-wrap { margin: 0; border: 0; border-radius: 0; }
+.compare > p, .compare > ul { margin: 10px 16px; }
+.compare .rule { display: block; margin: 0; padding: 10px 16px; font-size: 14.5px; border-top: 1px dashed var(--purple-line); background: var(--bg-soft); }
+.compare .rule::before { content: "🧠 Mẹo nhớ: "; font-weight: 700; color: var(--purple); }
+
+/* ---------- quiz: per-option reasons + tricky questions ---------- */
+.q .why { display: none; margin-top: 4px; font-size: 13.5px; line-height: 1.5; color: var(--muted); }
+.q.answered .why { display: block; }
+.q.answered label.opt.correct .why { color: var(--ok); }
+.q.answered label.opt.correct .why::before { content: "✓ Vì sao đúng: "; font-weight: 700; }
+.q.answered label.opt:not(.correct) .why::before { content: "✗ Vì sao sai: "; font-weight: 700; color: var(--danger); }
+.q.answered label.opt.wrong .why { color: var(--danger); }
+.q-tricky {
+  display: inline-block; font-size: 11.5px; font-weight: 700; padding: 1px 8px; border-radius: 999px; margin-right: 4px;
+  color: var(--purple); background: var(--purple-soft); border: 1px solid var(--purple-line); vertical-align: 1px;
+}
+.q.tricky { border-color: var(--purple-line); }
+.sidebar a.nav-subitem .done-mark { margin-left: auto; }
+.myth-head { margin: 22px auto 6px !important; font-weight: 700; font-size: 13px; color: var(--danger); text-transform: uppercase; letter-spacing: .05em; }

@@ -1,0 +1,645 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M02 · Bài 2.3 · Token &amp; JWT</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<main class="content">
+
+<div class="page-head">
+  <div class="breadcrumb"><a href="index.html">Lộ trình</a> / <a href="m02-crypto-session-token.html">Module 02</a> / Bài 2.3</div>
+  <h1>Bài 2.3 — Token &amp; JWT</h1>
+  <p class="lead">Token là “vé” chứng minh bạn đã đăng nhập hoặc được cấp quyền. Bài này giúp bạn phân biệt 3 loại token (access / ID / refresh), hiểu token dạng chuỗi ngẫu nhiên (opaque) khác JWT thế nào, đọc được một JWT, và biết API phải kiểm tra những gì trước khi tin nó.</p>
+  <div class="meta-row">
+    <span class="chip">⏱ ~20 phút</span>
+    <span class="chip">📘 <a href="m02-crypto-session-token.html">Module 02 · Cryptography, Session, Token &amp; HTTP Auth</a></span>
+  </div>
+</div>
+
+<!-- ===================================================== -->
+<h2 id="tokens">D. Token concepts <span class="badge must">Must</span></h2>
+<div class="terms"><span class="terms-title">📖 Thuật ngữ trong bài</span><dl>
+<dt>Authorization Server (AS)</dt><dd>Máy chủ đăng nhập và phát token, trong ví dụ là Keycloak realm <code>kaopiz</code>.</dd>
+<dt>Resource Server (RS) / API</dt><dd>Nơi giữ dữ liệu, nhận token và quyết định cho truy cập hay không, vd. hr-api.</dd>
+<dt>Client</dt><dd>Ứng dụng xin token thay mặt người dùng, vd. hr-web.</dd>
+<dt>Access token</dt><dd>“Vé” client đưa cho API để được gọi API; sống ngắn (vài phút).</dd>
+<dt>ID token</dt><dd>“Biên nhận đăng nhập” AS đưa cho client để client biết ai vừa đăng nhập.</dd>
+<dt>Refresh token</dt><dd>“Giấy hẹn đổi vé” — client đem tới AS để lấy access token mới mà không bắt đăng nhập lại.</dd>
+<dt>Opaque token</dt><dd>Token là chuỗi ngẫu nhiên, không đọc được gì bên trong; phải hỏi AS mới biết nó là gì.</dd>
+<dt>JWT</dt><dd>Token dạng JSON có chữ ký, tự mang thông tin (claims) bên trong.</dd>
+<dt>Claim</dt><dd>Một mẩu thông tin trong token, dạng <code>"tên": giá trị</code>, vd. <code>"sub": "8f2c…"</code>.</dd>
+<dt>JWKS / <code>kid</code></dt><dd>Danh sách public key AS công bố / mã số cho biết token được ký bằng key nào trong danh sách đó.</dd>
+</dl></div>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+<b>Access token</b> giống <b>thẻ ra vào tòa nhà có hạn dùng</b>: quẹt ở cửa (API) là vào, ai nhặt được cũng quẹt được, nên hạn dùng ngắn. <b>Refresh token</b> giống <b>giấy hẹn đổi thẻ mới</b> ở quầy lễ tân (Authorization Server) — không quẹt được ở cửa. <b>ID token</b> giống <b>biên nhận “đã kiểm tra căn cước”</b> lễ tân đưa cho <i>công ty mời bạn đến</i> (client) — chứ không phải đưa cho bảo vệ ở cửa.</div>
+<ul>
+<li><b>Token</b>: một chuỗi ký tự đại diện cho thông tin/quyền. Có 2 kiểu: token <b>tự mang</b> thông tin bên trong (JWT), hoặc chỉ là <b>số tham chiếu</b> tới thông tin lưu ở server (opaque token).</li>
+<li><b>Access Token</b>: dùng để gọi Resource Server/API. Người nhận (audience) là <b>API</b>.</li>
+<li><b>ID Token</b>: thuộc OIDC (OpenID Connect — lớp “đăng nhập” xây trên OAuth, học ở <a href="m03-5-oidc.html#oidc">M03</a>). Nó cho client biết <b>ai vừa đăng nhập, lúc nào, bằng cách nào</b>. Người nhận là <b>client</b> (còn gọi là RP — Relying Party). Luôn là JWT.</li>
+<li><b>Refresh Token</b>: dùng để xin access token mới từ Authorization Server. Chỉ gửi tới AS, <b>không</b> dùng gọi API.</li>
+</ul>
+
+<h3 id="token-compare">Bảng so sánh Access / ID / Refresh token</h3>
+<p><b>Deliverable 4.</b> Bảng này sẽ được bổ sung thêm ở <a href="m03-5-oidc.html#id-vs-access">M03 — ID token vs access token</a>, không làm lại. Mẹo đọc bảng: nhìn hàng <b>“Người nhận”</b> trước — mỗi token chỉ có <b>một</b> nơi nhận đúng.</p>
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: Access token vs ID token vs Refresh token</span>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>Access Token</th><th>ID Token</th><th>Refresh Token</th></tr></thead>
+<tbody>
+<tr><td><b>Thuộc chuẩn</b></td><td>OAuth 2.0 (RFC 6749)</td><td>OpenID Connect Core</td><td>OAuth 2.0 (RFC 6749)</td></tr>
+<tr><td><b>Mục đích</b></td><td>Ủy quyền gọi API</td><td>Báo cho client biết “ai vừa đăng nhập, khi nào, bằng cách nào”</td><td>Xin access token mới mà không bắt người dùng đăng nhập lại</td></tr>
+<tr><td><b>Người nhận / audience</b></td><td>Resource Server (API), vd. <code>aud: hr-api</code></td><td>Client, <code>aud</code> = <code>client_id</code> của client</td><td>Authorization Server (chính bên phát hành)</td></tr>
+<tr><td><b>Ai kiểm tra</b></td><td>API</td><td>Client/RP</td><td>Authorization Server</td></tr>
+<tr><td><b>Định dạng</b></td><td>JWT hoặc opaque (tùy AS); client <b>không nên</b> đọc nội dung</td><td>Luôn là JWT (ký)</td><td>Thường opaque với client (Keycloak dùng chuỗi dạng JWT nhưng client không nên dựa vào nội dung)</td></tr>
+<tr><td><b>Thời hạn điển hình</b></td><td>Ngắn: vài phút đến ~1 giờ (Keycloak mặc định 5 phút)</td><td>Ngắn; chỉ dùng lúc đăng nhập</td><td>Dài hơn: giờ/ngày, gắn với phiên SSO và chính sách</td></tr>
+<tr><td><b>Gửi đi đâu</b></td><td>Header <code>Authorization: Bearer</code> tới API</td><td>Không gửi đi đâu cả (trừ <code>id_token_hint</code> khi logout)</td><td>Chỉ tới token endpoint của AS</td></tr>
+<tr><td><b>Dùng gọi API?</b></td><td>✅ Có</td><td>❌ Không</td><td>❌ Không</td></tr>
+<tr><td><b>Nếu bị lộ</b></td><td>Kẻ gian gọi API tới khi hết hạn</td><td>Lộ thông tin cá nhân; có thể bị lạm dụng nếu API cấu hình sai chấp nhận ID token</td><td>Nghiêm trọng nhất: xin access token mới liên tục → cần rotation, reuse detection, ràng buộc client</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> An đăng nhập hr-web qua Keycloak và nhận về cả 3 token.</p>
+<ol>
+<li>hr-web đọc <b>ID token</b> để hiện “Xin chào, An” và biết <code>sub</code> của An — rồi giữ nó lại, không gửi đi đâu.</li>
+<li>hr-web gửi <b>access token</b> trong <code>Authorization: Bearer …</code> khi gọi <code>GET https://hr-api/payroll/57</code>.</li>
+<li>5 phút sau access token hết hạn → hr-web gửi <b>refresh token</b> tới token endpoint của Keycloak để lấy access token mới. An không phải nhập lại mật khẩu.</li>
+</ol>
+<p>Nếu hr-web gửi nhầm ID token cho hr-api, hr-api phải từ chối (sai <code>aud</code>, sai loại token). Nếu gửi refresh token cho hr-api thì vừa sai, vừa làm lộ token quan trọng nhất.</p>
+<span class="rule">Access → API · ID → client · Refresh → AS. Hỏi “token này gửi cho ai?” là phân biệt được.</span>
+</div>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Token nào cũng gửi cho API được, miễn là có chữ ký của AS.</span><span class="f-label">Thực tế</span><span>Chỉ <b>access token</b> gửi cho API. ID token dành cho client (<code>aud</code> = <code>client_id</code>), refresh token chỉ gửi tới AS. Ví dụ: ID token của An do Keycloak ký thật, nhưng <code>aud</code> là <code>hr-web</code> → hr-api phải từ chối. Hỏi “token này gửi cho ai?” để phân biệt.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Refresh token là “access token sống lâu”, dùng gọi API cho đỡ phải refresh.</span><span class="f-label">Thực tế</span><span>Refresh token không được gửi tới API — API không chấp nhận nó, và gửi đi khắp nơi chỉ làm tăng nguy cơ lộ token quan trọng nhất. Nó chỉ đi tới token endpoint của AS.</span></div>
+
+<h3 id="opaque-vs-jwt">Opaque token vs JWT</h3>
+<p>Access token có thể ở một trong hai dạng. Điểm khác cốt lõi: <b>thông tin nằm ở đâu</b> — trong chính token (JWT) hay ở server của AS (opaque).</p>
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: Opaque token vs JWT</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>🎫 Opaque token (by reference — “số tham chiếu”)</th><th>📜 JWT (by value — “tự mang giá trị”)</th></tr></thead>
+<tbody>
+<tr><td>Thông tin (claims) nằm ở</td><td>Database của AS</td><td>Ngay trong token, có chữ ký bảo vệ</td></tr>
+<tr><td>API kiểm tra bằng cách</td><td>Hỏi AS qua <a href="m02-4-token-lifecycle.html#introspection-revocation">introspection</a> (hoặc tra kho dữ liệu chung)</td><td>Tự verify chữ ký bằng public key của AS, không cần hỏi ai</td></tr>
+<tr><td>Thu hồi trước hạn</td><td>✅ Tức thì — AS xóa là xong</td><td>⚠️ Khó — token vẫn verify được tới <code>exp</code></td></tr>
+<tr><td>Ai đọc được nội dung</td><td>Không ai (trừ AS)</td><td>Bất kỳ ai cầm token (payload chỉ là Base64url)</td></tr>
+<tr><td>Chi phí</td><td>Thêm 1 lần gọi mạng mỗi request (có thể cache)</td><td>Nhanh, không phụ thuộc AS còn sống</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> hr-api nhận JWT từ Keycloak và tự verify — rất nhanh, không phải gọi mạng. Giả sử có thêm một API duyệt chi lương rất nhạy cảm, cần khóa user là có hiệu lực ngay: API đó nên dùng opaque token (hoặc introspect cả JWT) để mỗi request đều hỏi AS “token này còn hiệu lực không?”.</p>
+<span class="rule">Opaque = “số vé, phải tra sổ”; JWT = “vé in sẵn thông tin, có tem chống giả”.</span>
+</div>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Access token thì luôn là JWT.</span><span class="f-label">Thực tế</span><span>OAuth không quy định định dạng access token. Nhiều AS phát opaque token (chuỗi ngẫu nhiên không có dấu chấm). Gặp token không decode được thì đó có thể là opaque token — API phải dùng introspection, không phải token “hỏng”.</span></div>
+
+<h3 id="jws-jwe">JWT, JWS và JWE <span class="badge should">Should</span> (JWE)</h3>
+<p>Ba cái tên này hay bị dùng lẫn. Thực ra <b>JWT là định dạng nội dung</b>, còn JWS và JWE là <b>hai cách đóng gói</b> nó: ký hoặc mã hóa.</p>
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: JWT vs JWS vs JWE</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>JWT (RFC 7519)</th><th>JWS (RFC 7515)</th><th>JWE (RFC 7516)</th></tr></thead>
+<tbody>
+<tr><td>Là gì</td><td><b>Định dạng</b> để biểu diễn claims (các cặp thông tin JSON)</td><td>Cách <b>ký</b> nội dung</td><td>Cách <b>mã hóa</b> nội dung</td></tr>
+<tr><td>Bảo vệ điều gì</td><td>Tự nó không bảo vệ gì — cần JWS hoặc JWE</td><td><b>Toàn vẹn + nguồn gốc</b>: không sửa được, biết ai phát hành</td><td><b>Bí mật</b>: người ngoài không đọc được</td></tr>
+<tr><td>Dạng compact</td><td>—</td><td><b>3 phần</b>: <code>header.payload.signature</code></td><td><b>5 phần</b>: <code>header.encrypted_key.iv.ciphertext.tag</code></td></tr>
+<tr><td>Đọc được payload?</td><td>—</td><td>✅ Ai cầm cũng đọc được</td><td>❌ Chỉ người giữ key giải mã</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> khi người ta nói “access token của Keycloak là JWT”, ý thực sự là “một JWT được ký theo JWS” — nên bạn đếm thấy đúng 3 phần. Nếu bạn đếm được 5 phần, đó là JWE.</p>
+<span class="rule">JWT = nội dung; JWS = có tem (3 phần); JWE = bỏ phong bì kín (5 phần).</span>
+</div>
+<div class="callout danger"><span class="callout-title">🚫 JWT ký ≠ payload bí mật</span>
+Payload của JWS chỉ được <b>Base64url-encode</b> — ai cầm token cũng đọc được (thử với widget bên dưới). Đừng bao giờ đặt mật khẩu, số CMND, lương… vào payload của JWT ký. Cần giấu → dùng JWE, hoặc dùng opaque token.</div>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>JWT đã ký nên nội dung bí mật.</span><span class="f-label">Thực tế</span><span>Chữ ký chỉ chống <b>sửa đổi</b>, không chống <b>đọc</b>. Payload JWS chỉ là Base64url — ai cầm token cũng đọc được (dán vào widget bên dưới là thấy <code>preferred_username</code>, <code>scope</code>…). Cần bí mật → JWE hoặc opaque token.</span></div>
+
+<!-- ===================================================== -->
+<h2 id="jwt">E. JWT anatomy <span class="badge must">Must</span></h2>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+JWT giống <b>tấm vé có in thông tin và có tem chống giả</b>: phần in (header, payload) ai cũng đọc được; tem (signature) cho biết vé do đúng nơi phát hành và chưa bị sửa. Đọc được chữ trên vé <b>không</b> có nghĩa là đã kiểm tra tem.</div>
+<p>Dưới đây là một access token mẫu mà Keycloak cấp cho hr-web để gọi hr-api. Mục tiêu của bạn: nhận ra <b>3 phần</b> ngăn bởi dấu chấm, và biết mỗi phần chứa gì.</p>
+<div class="jwt"><span class="h">eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6ImhyLTIwMjYtMTEifQ</span><span class="dot">.</span><span class="p">eyJleHAiOjE3OTQyNzYzMDAsImlhdCI6MTc5NDI3NjAwMCwianRpIjoiNWMxZTdkMmEtOWI0Zi00YThlLWI2ZDEtM2YyYTljOGU3YjYwIiwiaXNzIjoiaHR0cHM6Ly9zc28ua2FvcGl6LmxvY2FsL3JlYWxtcy9rYW9waXoiLCJhdWQiOiJoci1hcGkiLCJzdWIiOiI4ZjJjMWE3ZS00YjlkLTRlMTUtOWEzZi0yZDZjN2I4ZTlmMTAiLCJ0eXAiOiJCZWFyZXIiLCJhenAiOiJoci13ZWIiLCJzY29wZSI6Im9wZW5pZCBwcm9maWxlIGhyLnJlYWQiLCJwcmVmZXJyZWRfdXNlcm5hbWUiOiJhbi5udiIsInJlYWxtX2FjY2VzcyI6eyJyb2xlcyI6WyJlbXBsb3llZSJdfX0</span><span class="dot">.</span><span class="s">Y2h1LWt5LW1pbmgtaG9hOiBkYXkgS0hPTkcgcGhhaSBjaHUga3kgUlMyNTYgdGhhdCAtIGNoaSBkZSBtaW5oIGhvYSBjYXUgdHJ1YyBKV1Q</span></div>
+<p class="small muted">⚠️ Phần chữ ký ở đây là <b>chữ ký minh họa</b> (Base64url của một câu ghi chú), không phải chữ ký RS256 thật — token này sẽ <b>không</b> verify được. Chữ ký RS256 thật dài khoảng 342 ký tự.</p>
+
+<div class="grid cols-2">
+<div>
+<pre data-title="Header (decode phần hồng)"><code class="language-json">{
+  "alg": "RS256",
+  "typ": "JWT",
+  "kid": "hr-2026-11"
+}</code></pre>
+<ul class="small">
+<li><code>alg</code>: thuật toán ký (RS256 = RSA + SHA-256).</li>
+<li><code>typ</code>: kiểu token. (RFC 9068 đề xuất <code>at+jwt</code> cho access token JWT; nhiều IdP vẫn dùng <code>JWT</code>.)</li>
+<li><code>kid</code>: Key ID — cho API biết dùng public key nào trong JWKS để verify.</li>
+</ul>
+</div>
+<div>
+<pre data-title="Payload (decode phần tím)"><code class="language-json">{
+  "exp": 1794276300,
+  "iat": 1794276000,
+  "jti": "5c1e7d2a-9b4f-4a8e-b6d1-3f2a9c8e7b60",
+  "iss": "https://sso.kaopiz.local/realms/kaopiz",
+  "aud": "hr-api",
+  "sub": "8f2c1a7e-4b9d-4e15-9a3f-2d6c7b8e9f10",
+  "typ": "Bearer",
+  "azp": "hr-web",
+  "scope": "openid profile hr.read",
+  "preferred_username": "an.nv",
+  "realm_access": { "roles": ["employee"] }
+}</code></pre>
+</div>
+</div>
+
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: Header vs Payload vs Signature</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Header (phần 1)</th><th>Payload (phần 2)</th><th>Signature (phần 3)</th></tr></thead>
+<tbody>
+<tr><td>Trả lời câu hỏi</td><td>“Token này được ký thế nào?”</td><td>“Token nói gì về ai?”</td><td>“Token có thật và còn nguyên vẹn không?”</td></tr>
+<tr><td>Chứa gì</td><td><code>alg</code>, <code>typ</code>, <code>kid</code></td><td>Claims: <code>iss</code>, <code>sub</code>, <code>aud</code>, <code>exp</code>, <code>scope</code>…</td><td>Chữ ký tính trên <code>header.payload</code> bằng private key của AS</td></tr>
+<tr><td>Nếu kẻ gian sửa</td><td colspan="2">Chữ ký không còn khớp → API verify sẽ phát hiện</td><td>Không tự tạo được chữ ký mới vì không có private key</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> kẻ gian đổi <code>"roles":["employee"]</code> thành <code>["admin"]</code> trong payload. Header và payload mới vẫn decode ra đẹp, nhưng signature cũ được tính cho payload cũ → hr-api verify thất bại → <code>401</code>.</p>
+<span class="rule">Header = “cách ký”, Payload = “nội dung”, Signature = “con dấu”. Đọc được 2 phần đầu không có nghĩa là tin được chúng.</span>
+</div>
+
+<p>Bảng dưới giải thích từng claim trong payload trên. Bạn chưa cần thuộc hết — hãy nhớ trước 3 claim API luôn kiểm tra (ngoài chữ ký): <code>iss</code>, <code>aud</code>, <code>exp</code>.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Claim</th><th>Tên đầy đủ</th><th>Ý nghĩa</th><th>Trong ví dụ</th></tr></thead>
+<tbody>
+<tr><td><code>iss</code></td><td>Issuer</td><td>Ai phát hành token. API so khớp chính xác với issuer mong đợi.</td><td>realm <code>kaopiz</code> của Keycloak</td></tr>
+<tr><td><code>sub</code></td><td>Subject</td><td>Định danh <b>ổn định</b> của chủ thể trong phạm vi issuer (không phải email).</td><td>UUID của An trong Keycloak</td></tr>
+<tr><td><code>aud</code></td><td>Audience</td><td>Token dành cho <b>ai</b>. API chỉ nhận token có aud là chính nó. Có thể là chuỗi hoặc mảng.</td><td><code>hr-api</code></td></tr>
+<tr><td><code>exp</code></td><td>Expiration time</td><td>Sau thời điểm này token hết hiệu lực. Dạng <b>NumericDate</b> = số giây từ 1970-01-01 UTC.</td><td>1794276300 = 10/11/2026 09:05:00 (giờ VN)</td></tr>
+<tr><td><code>nbf</code></td><td>Not before</td><td>Trước thời điểm này token chưa có hiệu lực.</td><td>(không có — Keycloak thường không phát)</td></tr>
+<tr><td><code>iat</code></td><td>Issued at</td><td>Thời điểm phát hành.</td><td>1794276000 = 09:00:00 → token sống 5 phút</td></tr>
+<tr><td><code>jti</code></td><td>JWT ID</td><td>Mã định danh duy nhất của token; dùng chống replay/denylist.</td><td>UUID</td></tr>
+<tr><td><code>scope</code> / <code>roles</code></td><td>—</td><td>Quyền/phạm vi; tên và cấu trúc <b>tùy hệ thống</b> (Keycloak: <code>scope</code>, <code>realm_access.roles</code>, <code>resource_access</code>; Entra ID: <code>scp</code>, <code>roles</code>).</td><td><code>hr.read</code>, role <code>employee</code></td></tr>
+<tr><td><code>azp</code></td><td>Authorized party</td><td>Client đã xin token (claim do OIDC định nghĩa, Keycloak đưa vào access token).</td><td><code>hr-web</code></td></tr>
+</tbody></table></div>
+
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: exp vs iat vs nbf</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th><code>iat</code> (Issued at)</th><th><code>nbf</code> (Not before)</th><th><code>exp</code> (Expiration)</th></tr></thead>
+<tbody>
+<tr><td>Nghĩa</td><td>Token được <b>phát hành</b> lúc nào</td><td>Token <b>bắt đầu</b> có hiệu lực lúc nào</td><td>Token <b>hết</b> hiệu lực lúc nào</td></tr>
+<tr><td>API dùng để</td><td>Tham khảo (tính tuổi token, phát hiện token quá cũ)</td><td>Từ chối nếu <code>bây giờ &lt; nbf</code></td><td>Từ chối nếu <code>bây giờ ≥ exp</code></td></tr>
+</tbody></table></div>
+<p><b>Ví dụ (token mẫu ở trên):</b> <code>iat</code> = 09:00:00, <code>exp</code> = 09:05:00 → token sống 5 phút. hr-api nhận token lúc 09:04 → hợp lệ; lúc 09:06 → <code>401 invalid_token</code> (expired). Nếu đồng hồ server hr-api chạy nhanh 20 giây, <code>ClockSkew</code> (độ lệch đồng hồ cho phép, vd. 30 giây) giúp không từ chối nhầm.</p>
+<span class="rule">Thứ tự trên trục thời gian: iat (sinh ra) → nbf (được dùng) → exp (hết hạn).</span>
+</div>
+
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: iss vs aud vs sub vs azp</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Claim</th><th>Trả lời câu hỏi</th><th>Nhầm/bỏ qua thì hỏng gì</th></tr></thead>
+<tbody>
+<tr><td><code>iss</code></td><td><b>Ai phát</b> token?</td><td>Không kiểm tra → chấp nhận token do realm/IdP khác phát</td></tr>
+<tr><td><code>aud</code></td><td>Token <b>dành cho</b> API nào?</td><td>Không kiểm tra → token cấp cho API khác đem sang dùng ở hr-api được</td></tr>
+<tr><td><code>sub</code></td><td>Token nói về <b>người nào</b>?</td><td>Dùng email/username thay <code>sub</code> làm khóa → đổi email là “mất” tài khoản</td></tr>
+<tr><td><code>azp</code></td><td><b>Ứng dụng nào</b> đã xin token?</td><td>Nhầm với <code>aud</code>: <code>azp</code> là client gửi token, <code>aud</code> là API nhận token</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> câu “<i>Keycloak (iss)</i> phát cho <i>hr-web (azp)</i> một token về <i>An (sub)</i> để gọi <i>hr-api (aud)</i>” chứa đủ cả 4 claim.</p>
+<span class="rule">iss = người phát · sub = nói về ai · azp = ai cầm đi · aud = đưa cho ai.</span>
+</div>
+<div class="callout info"><span class="callout-title">ℹ️ Về <code>aud</code> trong Keycloak</span>
+Mặc định, access token của Keycloak thường có <code>aud</code> là <code>account</code> hoặc không có audience của API bạn. Để token có <code>aud: hr-api</code>, cần cấu hình thêm (ví dụ audience mapper / client scope) — sẽ thực hành ở <a href="lab.html">Lab</a>. Tên menu cụ thể có thể khác theo phiên bản Keycloak.</div>
+
+<div class="widget" id="jwt-widget"><div class="w-title">🧪 JWT decoder — chạy hoàn toàn trên trình duyệt</div>
+<p class="small muted">Dán một JWT (có thể kèm chữ <code>Bearer </code>). Không gửi đi đâu. Đừng dán token production thật vào bất kỳ công cụ online nào.</p>
+<textarea id="jwtIn" spellcheck="false"></textarea>
+<div class="btn-row">
+<button class="btn" id="jwtDecode">Decode</button>
+<button class="btn ghost" id="jwtSample">Điền JWT mẫu</button>
+<button class="btn ghost" id="jwtTamper">Giả mạo: sửa role thành admin</button>
+<button class="btn ghost" id="jwtNone">Giả mạo: alg = none</button>
+</div>
+<div class="out" id="jwtOut">Bấm “Điền JWT mẫu” rồi “Decode”.</div>
+</div>
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: “decode” JWT vs “verify” JWT</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Decode</th><th>Verify (validate)</th></tr></thead>
+<tbody>
+<tr><td>Làm gì</td><td>Đổi Base64url → JSON để <b>đọc</b></td><td>Kiểm tra chữ ký + <code>iss</code>/<code>aud</code>/<code>exp</code>… để quyết định <b>tin</b> hay không</td></tr>
+<tr><td>Cần key?</td><td>Không</td><td>Có — public key của AS (lấy từ JWKS)</td></tr>
+<tr><td>Dùng khi nào</td><td>Debug, xem token có claim gì (jwt.io, widget trên)</td><td><b>Mọi request</b> tới API, trước khi cho truy cập</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> dev hr-api viết <code>var roles = DecodePayload(token).roles;</code> rồi cho phép xóa dữ liệu nếu có <code>admin</code>. Kẻ gian chỉ cần tự tạo payload có <code>admin</code> là xong. Bấm nút “Giả mạo: sửa role thành admin” ở widget trên: token giả vẫn decode ra đẹp y như thật — chỉ bước <b>verify chữ ký</b> bằng public key của issuer mới phát hiện được.</p>
+<span class="rule">Decode để <b>xem</b>, verify để <b>tin</b>.</span>
+</div>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Decode được JWT (ra JSON đẹp) là đã validate.</span><span class="f-label">Thực tế</span><span>Decode chỉ đọc; ai cũng tự tạo được JWT có payload tùy ý. Phải verify chữ ký, <code>iss</code>, <code>aud</code>, <code>exp</code>/<code>nbf</code>, loại token, scope — xem checklist ở mục E.1.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Header ghi <code>alg</code> nào thì API dùng thuật toán đó để verify.</span><span class="f-label">Thực tế</span><span>Header do người gửi token viết, kẻ gian sửa được. API chỉ chấp nhận thuật toán trong <b>allowlist</b> của chính nó (vd. chỉ <code>RS256</code>). Tin <code>alg</code> trong token là mở cửa cho token <code>alg: none</code> (không chữ ký) và tấn công alg confusion.</span></div>
+
+<!-- ===================================================== -->
+<h2 id="jwt-validation">E.1. JWT validation — checklist cho access token <span class="badge must">Must</span></h2>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Bảo vệ ở cửa tòa nhà kiểm tra thẻ theo thứ tự: <b>tem chống giả thật không</b> (chữ ký) → <b>do đúng công ty phát hành không</b> (iss) → <b>thẻ dành cho tòa nhà này không</b> (aud) → <b>còn hạn không</b> (exp/nbf) → <b>đúng loại thẻ ra vào không</b>, không phải biên nhận (token type) → <b>có quyền vào tầng này không</b> (scope/role).</div>
+<p><b>Deliverable 5.</b> Checklist cho API khi nhận access token JWT. Thực tế bạn <b>không tự code</b> từng bước — thư viện (JwtBearer) làm giúp. Nhưng bạn cần hiểu checklist để <b>cấu hình đúng</b> và <b>đọc được lỗi 401</b>. <a href="m03-5-oidc.html#id-vs-access">M03</a> sẽ bổ sung phần validation ID token (<code>nonce</code>, <code>aud</code> = client_id…).</p>
+<ul class="checklist">
+<li><span><b>Định dạng</b>: đúng 3 phần (JWS); token lấy từ header <code>Authorization: Bearer</code>, không từ query string.</span></li>
+<li><span><b>Thuật toán</b>: <code>alg</code> nằm trong <b>allowlist</b> do API cấu hình (vd. chỉ <code>RS256</code>). Từ chối <code>none</code> (token không ký); không để token tự chọn thuật toán. Lý do: tấn công “alg confusion” — kẻ gian đổi <code>alg</code> từ RS256 sang HS256 và ký bằng chính public key (vốn công khai); API lỏng lẻo sẽ dùng public key làm secret HMAC và chấp nhận.</span></li>
+<li><span><b>Chữ ký</b>: verify bằng key <b>đáng tin cậy</b> — public key lấy từ JWKS của issuer đã cấu hình (qua HTTPS), chọn theo <code>kid</code>. Không lấy key từ chính token (vd. header <code>jku</code>/<code>jwk</code> do token tự khai).</span></li>
+<li><span><b><code>iss</code></b> khớp <b>chính xác</b> issuer mong đợi (kể cả dấu <code>/</code> cuối).</span></li>
+<li><span><b><code>aud</code></b> chứa định danh của <b>chính API này</b> (vd. <code>hr-api</code>).</span></li>
+<li><span><b>Thời hạn</b>: <code>exp</code> chưa qua, <code>nbf</code> (nếu có) đã tới; clock skew nhỏ (vài chục giây đến vài phút).</span></li>
+<li><span><b>Đúng loại token/ngữ cảnh</b>: là access token, không phải ID token hay refresh token (kiểm tra <code>typ</code> header nếu IdP dùng <code>at+jwt</code>, hoặc claim/audience đặc trưng).</span></li>
+<li><span><b>Quyền</b>: có scope/role cần thiết cho endpoint (thiếu → <code>403</code> + <code>insufficient_scope</code>), sau đó còn kiểm tra quyền trên <b>dữ liệu cụ thể</b> (An chỉ xem payroll của An — <a href="m06-2-api-authz.html#api-authz">M06</a>).</span></li>
+<li><span><b>Tùy yêu cầu</b>: kiểm tra thu hồi (introspection/denylist <code>jti</code>), ràng buộc sender (DPoP/mTLS), client được phép (<code>azp</code>/<code>client_id</code>).</span></li>
+<li><span><b>Không tự viết</b>: dùng thư viện đã kiểm chứng (Microsoft.IdentityModel / JwtBearer); log lý do từ chối ở server, không lộ chi tiết cho client.</span></li>
+</ul>
+
+<div class="diagram">
+<pre class="mermaid">
+flowchart TD
+  A["Request + Authorization: Bearer token"] --> B{"Đúng định dạng JWS?<br/>alg trong allowlist?"}
+  B -->|"không"| X401["401 invalid_token"]
+  B -->|"có"| C{"Tìm được key theo kid<br/>trong JWKS tin cậy?"}
+  C -->|"không"| R["Làm mới JWKS 1 lần<br/>(có thể đang key rotation)"]
+  R -->|"vẫn không"| X401
+  R -->|"tìm thấy"| D
+  C -->|"có"| D{"Chữ ký hợp lệ?"}
+  D -->|"không"| X401
+  D -->|"có"| E{"iss đúng? aud đúng?<br/>exp/nbf hợp lệ? đúng loại token?"}
+  E -->|"không"| X401
+  E -->|"có"| F{"Có scope/role cần thiết?"}
+  F -->|"không"| X403["403 insufficient_scope"]
+  F -->|"có"| G{"Được phép trên tài nguyên này?<br/>(vd. payroll của chính mình)"}
+  G -->|"không"| X403b["403 Forbidden"]
+  G -->|"có"| OK["✅ 200 OK"]
+</pre>
+<div class="caption">Lỗi xác thực token → 401; token hợp lệ nhưng thiếu quyền → 403 (nhắc lại <a href="m01-1-identity-roles.html#401-403">M01</a>).</div>
+</div>
+<div class="callout example"><span class="callout-title">🧪 Ví dụ: 4 request tới hr-api, 4 kết quả</span>
+<ul>
+<li>Token mẫu của An, gọi <code>GET /payroll/57</code> (payroll của An) lúc 09:03 → mọi bước qua → <b>200</b>.</li>
+<li>Cùng token đó gọi lúc 09:07 → <code>exp</code> đã qua → <b>401</b> <code>invalid_token</code>. hr-web cần refresh.</li>
+<li>Token có <code>aud: report-api</code> → sai audience → <b>401</b> <code>invalid_token</code>.</li>
+<li>Token hợp lệ của An gọi <code>PUT /payroll/57</code> cần <code>hr.write</code> → thiếu scope → <b>403</b> <code>insufficient_scope</code>.</li>
+</ul>
+Nhớ: <b>401</b> = “tôi không tin token này”; <b>403</b> = “tôi tin token, nhưng bạn không được làm việc này”.</div>
+
+<p>Đoạn code dưới cho thấy checklist trên được “bật” trong ASP.NET Core như thế nào. Điều cần rút ra: chỉ cần khai báo <code>Authority</code> (issuer) và <code>Audience</code>, thư viện tự tải JWKS, chọn key theo <code>kid</code> và kiểm tra chữ ký, <code>iss</code>, <code>aud</code>, <code>exp</code>.</p>
+<pre data-title="Program.cs — hr-api validate access token từ Keycloak"><code class="language-csharp">using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
+
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(o =&gt;
+    {
+        // Authority → tự tải discovery document + JWKS (và làm mới khi key rotation)
+        o.Authority = "https://sso.kaopiz.local/realms/kaopiz";
+        o.Audience  = "hr-api";
+        // Mặc định (true) đổi tên claim: sub → ClaimTypes.NameIdentifier,
+        // scp → ".../identity/claims/scope" (claim "scope" của Keycloak thì KHÔNG bị đổi)
+        o.MapInboundClaims = false;            // giữ nguyên tên claim gốc: sub, scope...
+        o.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            ValidAlgorithms = new[] { SecurityAlgorithms.RsaSha256 },
+            ClockSkew = TimeSpan.FromSeconds(30) // mặc định là 5 phút
+        };
+    });
+
+builder.Services.AddAuthorization(o =&gt;
+    o.AddPolicy("hr.read", p =&gt; p.RequireAssertion(ctx =&gt;
+        ctx.User.FindFirst("scope")?.Value.Split(' ').Contains("hr.read") == true)));</code></pre>
+<div class="callout warn"><span class="callout-title">⚠️ Đừng tắt validation để “cho chạy được”</span>
+Gặp lỗi audience? Đừng đặt <code>ValidateAudience = false</code> — sửa cấu hình để token có đúng <code>aud</code>. Các cách troubleshooting lỗi 401 xem <a href="lab-quiz.html#error-table">Lab — bảng lỗi</a> và <a href="m07-4-cases-troubleshooting.html#troubleshooting">M07</a>.</div>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Chữ ký hợp lệ và chưa hết hạn là token hợp lệ.</span><span class="f-label">Thực tế</span><span>Chữ ký chỉ chứng minh “Keycloak phát và không ai sửa”. Token cấp cho <code>report-api</code>, hay ID token của hr-web, cũng có chữ ký thật của Keycloak — hr-api vẫn phải từ chối vì sai <code>aud</code>/sai loại token.</span></div>
+
+<div class="callout tip"><span class="callout-title">✅ Tự kiểm tra nhanh</span><ul>
+<li>hr-web nhận được 3 token sau khi An đăng nhập. Token nào gửi cho hr-api, token nào gửi cho Keycloak, token nào giữ lại?</li>
+<li>Một token có 5 phần ngăn bởi dấu chấm — đó là JWS hay JWE? Bạn có đọc được payload không?</li>
+<li>Vì sao một API “decode payload rồi đọc <code>roles</code>” là lỗ hổng, dù token trông hoàn toàn hợp lệ?</li>
+</ul></div>
+
+<h2 id="quiz-bai">Quiz nhanh — Bài 2.3</h2>
+<div id="quiz"></div>
+
+</main>
+<script>
+(function () {
+  "use strict";
+  function $(id) { return document.getElementById(id); }
+  function esc(s) {
+    return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+  function utf8Encode(str) { return new TextEncoder().encode(str); }
+  function utf8Decode(bytes) { return new TextDecoder("utf-8", { fatal: false }).decode(bytes); }
+  function bytesToB64(bytes) {
+    var bin = "";
+    for (var i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+    return btoa(bin);
+  }
+  function b64ToBytes(b64) {
+    var bin = atob(b64);
+    var out = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+  function b64urlEncodeStr(str) {
+    return bytesToB64(utf8Encode(str)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  }
+  function b64urlDecodeStr(s) {
+    if (!/^[A-Za-z0-9_-]*$/.test(s)) throw new Error("Chứa ký tự không thuộc bảng Base64url");
+    var t = s.replace(/-/g, "+").replace(/_/g, "/");
+    while (t.length % 4) t += "=";
+    return utf8Decode(b64ToBytes(t));
+  }
+  var box = 'style="white-space:normal;font-family:var(--font);margin:6px 0"';
+
+  // ---------------- JWT decoder ----------------
+  var SAMPLE_H = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6ImhyLTIwMjYtMTEifQ";
+  var SAMPLE_P = "eyJleHAiOjE3OTQyNzYzMDAsImlhdCI6MTc5NDI3NjAwMCwianRpIjoiNWMxZTdkMmEtOWI0Zi00YThlLWI2ZDEtM2YyYTljOGU3YjYwIiwiaXNzIjoiaHR0cHM6Ly9zc28ua2FvcGl6LmxvY2FsL3JlYWxtcy9rYW9waXoiLCJhdWQiOiJoci1hcGkiLCJzdWIiOiI4ZjJjMWE3ZS00YjlkLTRlMTUtOWEzZi0yZDZjN2I4ZTlmMTAiLCJ0eXAiOiJCZWFyZXIiLCJhenAiOiJoci13ZWIiLCJzY29wZSI6Im9wZW5pZCBwcm9maWxlIGhyLnJlYWQiLCJwcmVmZXJyZWRfdXNlcm5hbWUiOiJhbi5udiIsInJlYWxtX2FjY2VzcyI6eyJyb2xlcyI6WyJlbXBsb3llZSJdfX0";
+  var SAMPLE_S = "Y2h1LWt5LW1pbmgtaG9hOiBkYXkgS0hPTkcgcGhhaSBjaHUga3kgUlMyNTYgdGhhdCAtIGNoaSBkZSBtaW5oIGhvYSBjYXUgdHJ1YyBKV1Q";
+  var SAMPLE = SAMPLE_H + "." + SAMPLE_P + "." + SAMPLE_S;
+
+  var CLAIMS = {
+    iss: "Issuer — ai phát hành token",
+    sub: "Subject — định danh ổn định của chủ thể (trong phạm vi iss)",
+    aud: "Audience — token dành cho ai (API phải là một trong số này)",
+    exp: "Expiration — hết hạn sau thời điểm này",
+    nbf: "Not before — chưa hiệu lực trước thời điểm này",
+    iat: "Issued at — thời điểm phát hành",
+    auth_time: "Thời điểm người dùng thực sự xác thực",
+    jti: "JWT ID — mã duy nhất của token",
+    azp: "Authorized party — client đã xin token",
+    scope: "Phạm vi quyền (chuỗi, cách nhau bởi dấu cách)",
+    scp: "Phạm vi quyền (tên claim kiểu Entra ID)",
+    roles: "Vai trò (tùy hệ thống)",
+    realm_access: "Vai trò cấp realm (Keycloak)",
+    resource_access: "Vai trò theo client (Keycloak)",
+    typ: "Loại token (claim riêng của Keycloak)",
+    sid: "Session ID phía IdP",
+    nonce: "Chống replay ID token (OIDC)",
+    preferred_username: "Tên đăng nhập hiển thị — không dùng làm khóa định danh",
+    email: "Email — không dùng làm khóa định danh",
+    client_id: "Client đã xin token"
+  };
+  var TIME_CLAIMS = { exp: 1, nbf: 1, iat: 1, auth_time: 1 };
+
+  function fmtTime(v) {
+    if (typeof v !== "number") return "";
+    var d = new Date(v * 1000);
+    var vn;
+    try { vn = d.toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" }) + " (giờ VN)"; }
+    catch (e) { vn = d.toLocaleString(); }
+    return vn + " · " + d.toISOString().replace(".000Z", "Z");
+  }
+
+  function renderJwt(raw) {
+    var out = $("jwtOut");
+    var tok = (raw || "").trim().replace(/^Authorization:\s*/i, "").replace(/^Bearer\s+/i, "").trim();
+    if (!tok) { out.innerHTML = "Chưa có token."; return; }
+    var parts = tok.split(".");
+    var html = "";
+    if (parts.length === 5) {
+      var jh = "";
+      try { jh = esc(JSON.stringify(JSON.parse(b64urlDecodeStr(parts[0])), null, 2)); } catch (e) { jh = "(không decode được header)"; }
+      out.innerHTML = '<div ' + box + '>🔒 Token có <b>5 phần</b> → đây là <b>JWE</b> (mã hóa). Chỉ header đọc được; payload là ciphertext, cần private key/secret của người nhận để giải mã.</div>' +
+        '<div class="small">Header:</div>' + jh;
+      return;
+    }
+    if (parts.length !== 3) {
+      out.innerHTML = '<div ' + box + '>❌ Token có ' + parts.length + ' phần. JWS compact phải có 3 phần (header.payload.signature), JWE có 5. Có thể đây là <b>opaque token</b> — không decode được, API phải dùng introspection.</div>';
+      return;
+    }
+    html += '<div class="jwt" style="margin:6px 0"><span class="h">' + esc(parts[0]) + '</span><span class="dot">.</span><span class="p">' + esc(parts[1]) + '</span><span class="dot">.</span><span class="s">' + esc(parts[2] || "(trống)") + '</span></div>';
+    var header, payload;
+    try { header = JSON.parse(b64urlDecodeStr(parts[0])); }
+    catch (e) { out.innerHTML = html + '<div ' + box + '>❌ Header không phải Base64url/JSON hợp lệ: ' + esc(e.message) + '</div>'; return; }
+    try { payload = JSON.parse(b64urlDecodeStr(parts[1])); }
+    catch (e) { out.innerHTML = html + '<div ' + box + '>❌ Payload không phải Base64url/JSON hợp lệ: ' + esc(e.message) + '</div>'; return; }
+
+    html += '<div ' + box + '><b style="color:var(--jwt-h)">Header</b></div>' + esc(JSON.stringify(header, null, 2));
+    html += '<div ' + box + '><b style="color:var(--jwt-p)">Payload</b></div>' + esc(JSON.stringify(payload, null, 2));
+
+    var warns = [];
+    var alg = String(header.alg || "");
+    if (!alg || alg.toLowerCase() === "none") warns.push("🚨 <code>alg</code> = <b>" + esc(alg || "(thiếu)") + "</b>: token <b>không có chữ ký</b>. API phải từ chối — thuật toán chỉ lấy từ allowlist của API.");
+    else if (/^HS/i.test(alg)) warns.push("ℹ️ <code>" + esc(alg) + "</code> là HMAC (secret dùng chung): ai verify được cũng ký được.");
+    if (!parts[2]) warns.push("🚨 Phần chữ ký trống.");
+    if (parts[2] === SAMPLE_S) warns.push("ℹ️ Chữ ký của token mẫu là <b>chữ ký minh họa</b> (Base64url của một câu ghi chú), không phải RS256 thật.");
+    if (header.kid) warns.push("🔑 <code>kid</code> = " + esc(header.kid) + " → API tìm public key có kid này trong JWKS của issuer.");
+
+    var now = Math.floor(Date.now() / 1000);
+    var rows = "";
+    Object.keys(payload).forEach(function (k) {
+      var v = payload[k];
+      var val = typeof v === "string" ? v : JSON.stringify(v);
+      var extra = "";
+      if (TIME_CLAIMS[k] && typeof v === "number") {
+        extra = "<br><span class=\"small\">" + esc(fmtTime(v)) + "</span>";
+        if (k === "exp") extra += v < now ? ' <b style="color:var(--danger)">— ĐÃ HẾT HẠN</b>' : ' <b style="color:var(--ok)">— còn ' + Math.round((v - now) / 60) + ' phút</b>';
+        if (k === "nbf" && v > now) extra += ' <b style="color:var(--danger)">— CHƯA HIỆU LỰC</b>';
+      }
+      rows += "<tr><td><code>" + esc(k) + "</code></td><td>" + esc(val) + extra + "</td><td>" + esc(CLAIMS[k] || "Claim riêng / tùy hệ thống") + "</td></tr>";
+    });
+    if (typeof payload.exp === "number" && typeof payload.iat === "number") {
+      warns.push("⏱ Thời gian sống: " + Math.round((payload.exp - payload.iat) / 60) + " phút (exp − iat).");
+    }
+    if (payload.aud === undefined) warns.push("⚠️ Không có <code>aud</code> — API không xác định được token có dành cho mình không.");
+    html += '<div ' + box + '><b>Claims</b></div><div class="table-wrap" style="white-space:normal"><table><thead><tr><th>Claim</th><th>Giá trị</th><th>Ý nghĩa</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+    if (warns.length) html += '<div ' + box + '>' + warns.join("<br>") + '</div>';
+    html += '<div ' + box + '><b style="color:var(--danger)">⛔ DECODE ≠ VERIFY.</b> Widget này chỉ Base64url-decode, <b>không kiểm tra chữ ký</b> (không có public key của issuer). Mọi thông tin trên có thể đã bị sửa. API phải verify chữ ký + iss + aud + exp/nbf + loại token + scope bằng thư viện chuẩn.</div>';
+    out.innerHTML = html;
+  }
+
+  if ($("jwtIn")) {
+    $("jwtIn").value = SAMPLE;
+    $("jwtDecode").addEventListener("click", function () { renderJwt($("jwtIn").value); });
+    $("jwtSample").addEventListener("click", function () { $("jwtIn").value = SAMPLE; renderJwt(SAMPLE); });
+    $("jwtTamper").addEventListener("click", function () {
+      var p = JSON.parse(b64urlDecodeStr(SAMPLE_P));
+      p.realm_access = { roles: ["employee", "admin"] };
+      p.scope = "openid profile hr.read hr.write hr.admin";
+      p.exp = Math.floor(Date.now() / 1000) + 365 * 24 * 3600;
+      var t = SAMPLE_H + "." + b64urlEncodeStr(JSON.stringify(p)) + "." + SAMPLE_S;
+      $("jwtIn").value = t; renderJwt(t);
+      $("jwtOut").insertAdjacentHTML("afterbegin", '<div ' + box + '>🦹 Token vừa bị <b>sửa payload</b> (thêm role admin, scope hr.admin, hạn 1 năm) nhưng giữ nguyên chữ ký cũ. Decode vẫn “đẹp” — chỉ bước verify chữ ký mới phát hiện được.</div>');
+    });
+    $("jwtNone").addEventListener("click", function () {
+      var h = b64urlEncodeStr(JSON.stringify({ alg: "none", typ: "JWT" }));
+      var p = JSON.parse(b64urlDecodeStr(SAMPLE_P));
+      p.realm_access = { roles: ["admin"] };
+      var t = h + "." + b64urlEncodeStr(JSON.stringify(p)) + ".";
+      $("jwtIn").value = t; renderJwt(t);
+    });
+  }
+
+  // ---------------- Hash demo ----------------
+  function sha256Fallback(bytes) {
+    function rr(v, n) { return (v >>> n) | (v << (32 - n)); }
+    var H = [], K = [], primes = [], cand = 2, i, t;
+    while (primes.length < 64) {
+      var isP = true;
+      for (i = 0; i < primes.length; i++) { if (cand % primes[i] === 0) { isP = false; break; } }
+      if (isP) primes.push(cand);
+      cand++;
+    }
+    for (i = 0; i < 64; i++) {
+      if (i < 8) H[i] = (Math.pow(primes[i], 1 / 2) * 4294967296) | 0;
+      K[i] = (Math.pow(primes[i], 1 / 3) * 4294967296) | 0;
+    }
+    var m = [], l = bytes.length;
+    for (i = 0; i < l; i++) m.push(bytes[i]);
+    m.push(0x80);
+    while ((m.length % 64) !== 56) m.push(0);
+    var bitHi = Math.floor(l / 536870912), bitLo = (l * 8) >>> 0;
+    m.push((bitHi >>> 24) & 255, (bitHi >>> 16) & 255, (bitHi >>> 8) & 255, bitHi & 255,
+           (bitLo >>> 24) & 255, (bitLo >>> 16) & 255, (bitLo >>> 8) & 255, bitLo & 255);
+    var w = [];
+    for (var off = 0; off < m.length; off += 64) {
+      for (t = 0; t < 16; t++) {
+        var j = off + t * 4;
+        w[t] = (m[j] << 24) | (m[j + 1] << 16) | (m[j + 2] << 8) | m[j + 3];
+      }
+      for (t = 16; t < 64; t++) {
+        var x = w[t - 15], y = w[t - 2];
+        var s0 = rr(x, 7) ^ rr(x, 18) ^ (x >>> 3);
+        var s1 = rr(y, 17) ^ rr(y, 19) ^ (y >>> 10);
+        w[t] = (w[t - 16] + s0 + w[t - 7] + s1) | 0;
+      }
+      var a = H[0], b = H[1], c = H[2], d = H[3], e = H[4], f = H[5], g = H[6], h = H[7];
+      for (t = 0; t < 64; t++) {
+        var S1 = rr(e, 6) ^ rr(e, 11) ^ rr(e, 25);
+        var ch = (e & f) ^ (~e & g);
+        var t1 = (h + S1 + ch + K[t] + w[t]) | 0;
+        var S0 = rr(a, 2) ^ rr(a, 13) ^ rr(a, 22);
+        var maj = (a & b) ^ (a & c) ^ (b & c);
+        var t2 = (S0 + maj) | 0;
+        h = g; g = f; f = e; e = (d + t1) | 0; d = c; c = b; b = a; a = (t1 + t2) | 0;
+      }
+      H[0] = (H[0] + a) | 0; H[1] = (H[1] + b) | 0; H[2] = (H[2] + c) | 0; H[3] = (H[3] + d) | 0;
+      H[4] = (H[4] + e) | 0; H[5] = (H[5] + f) | 0; H[6] = (H[6] + g) | 0; H[7] = (H[7] + h) | 0;
+    }
+    var hex = "";
+    for (i = 0; i < 8; i++) { var s = (H[i] >>> 0).toString(16); while (s.length < 8) s = "0" + s; hex += s; }
+    return hex;
+  }
+  function sha256Hex(str) {
+    var bytes = utf8Encode(str);
+    if (window.crypto && window.crypto.subtle && window.crypto.subtle.digest) {
+      return window.crypto.subtle.digest("SHA-256", bytes).then(function (buf) {
+        return Array.prototype.map.call(new Uint8Array(buf), function (x) { return ("0" + x.toString(16)).slice(-2); }).join("");
+      });
+    }
+    return Promise.resolve(sha256Fallback(bytes)); // fallback khi crypto.subtle không khả dụng (ngữ cảnh không bảo mật)
+  }
+  function bitDiff(h1, h2) {
+    var n = 0;
+    for (var i = 0; i < h1.length; i++) {
+      var v = parseInt(h1[i], 16) ^ parseInt(h2[i], 16);
+      while (v) { n += v & 1; v >>= 1; }
+    }
+    return n;
+  }
+  function highlightDiff(h1, h2) {
+    var s = "";
+    for (var i = 0; i < h2.length; i++) {
+      s += h1[i] === h2[i] ? h2[i] : '<b style="color:var(--danger)">' + h2[i] + "</b>";
+    }
+    return s;
+  }
+  function runHash() {
+    var a = $("hashA").value, b = $("hashB").value;
+    Promise.all([sha256Hex(a), sha256Hex(b)]).then(function (r) {
+      var ha = r[0], hb = r[1];
+      var same = 0;
+      for (var i = 0; i < 64; i++) if (ha[i] === hb[i]) same++;
+      var api = (window.crypto && window.crypto.subtle) ? "crypto.subtle" : "JS fallback";
+      $("hashOut").innerHTML =
+        "SHA-256(A) = " + ha + "\n" +
+        "SHA-256(B) = " + highlightDiff(ha, hb) + "\n\n" +
+        '<span style="font-family:var(--font)">' +
+        (a === b ? "A và B giống nhau → digest giống hệt nhau (hash là tất định)." :
+          "Khác <b>" + bitDiff(ha, hb) + "/256 bit</b> (lý tưởng ≈ 128 = một nửa). Chỉ " + same + "/64 ký tự hex trùng vị trí — không đoán được A từ B hay ngược lại.") +
+        "\nĐộ dài digest luôn là 64 ký tự hex (256 bit), dù input dài hay ngắn. (Tính bằng " + api + ")</span>";
+    });
+  }
+  if ($("hashRun")) {
+    $("hashRun").addEventListener("click", runHash);
+    $("hashSalt").addEventListener("click", function () {
+      var arr = new Uint8Array(8);
+      if (window.crypto && window.crypto.getRandomValues) window.crypto.getRandomValues(arr);
+      else for (var i = 0; i < 8; i++) arr[i] = Math.floor(Math.random() * 256);
+      var salt = Array.prototype.map.call(arr, function (x) { return ("0" + x.toString(16)).slice(-2); }).join("");
+      var base = $("hashA").value.replace(/^[0-9a-f]{16}\$/, "");
+      $("hashA").value = salt + "$" + base;
+      $("hashB").value = base;
+      runHash();
+      setTimeout(function () {
+        $("hashOut").insertAdjacentHTML("beforeend", '<span style="font-family:var(--font)">\n\n🧂 A giờ là <b>salt + "$" + mật khẩu</b>. Cùng mật khẩu nhưng salt khác → hash khác, nên bảng hash tính sẵn vô dụng. Nhưng việc tính vẫn tức thì → kẻ tấn công vẫn thử nhanh từng mật khẩu với salt đã biết. Vì vậy cần thuật toán <b>chậm</b> (Argon2id/scrypt/PBKDF2).</span>');
+      }, 50);
+    });
+  }
+
+  // ---------------- Base64 / Basic ----------------
+  if ($("b64Decode")) {
+    $("b64Decode").addEventListener("click", function () {
+      var v = $("b64In").value.trim().replace(/^Authorization:\s*/i, "").replace(/^Basic\s+/i, "").trim();
+      try {
+        var txt = utf8Decode(b64ToBytes(v));
+        var idx = txt.indexOf(":");
+        var html = "Base64 : " + esc(v) + "\nDecode : " + esc(txt) + "\n\n";
+        if (idx >= 0) {
+          html += "username = " + esc(txt.slice(0, idx)) + "\npassword = <b style=\"color:var(--danger)\">" + esc(txt.slice(idx + 1)) + "</b>\n\n";
+        }
+        html += '<span style="font-family:var(--font)">⚠️ Không cần key, không cần mật khẩu nào để decode — Base64 chỉ là <b>encoding</b>. Bảo vệ thật sự phải đến từ <b>TLS</b>.</span>';
+        $("b64Out").innerHTML = html;
+      } catch (e) {
+        $("b64Out").textContent = "Không phải chuỗi Base64 hợp lệ: " + e.message;
+      }
+    });
+    $("b64Encode").addEventListener("click", function () {
+      var raw = $("b64User").value + ":" + $("b64Pass").value;
+      var enc = bytesToB64(utf8Encode(raw));
+      $("b64In").value = "Authorization: Basic " + enc;
+      $("b64Out").innerHTML = "Chuỗi gốc : " + esc(raw) + "\nHeader    : Authorization: Basic " + esc(enc) +
+        '\n\n<span style="font-family:var(--font)">Bấm “Decode” để thấy nó đảo ngược dễ thế nào.</span>';
+    });
+  }
+})();
+</script>
+<script>
+window.QUIZ = [
+  { q: "Sau khi An đăng nhập, hr-web có ID token, access token và refresh token. hr-web cần hiện “Xin chào, An” và gọi <code>GET https://hr-api/payroll/57</code>. Cách dùng nào đúng?",
+    options: ["Đọc tên từ access token; gửi ID token cho hr-api", "Đọc tên từ ID token; gửi access token trong <code>Authorization: Bearer</code> tới hr-api", "Gửi refresh token cho hr-api vì nó sống lâu hơn, đỡ phải refresh", "Gửi cả 3 token cho hr-api để API tự chọn cái phù hợp"],
+    answer: 1,
+    why: ["Ngược vai: ID token mới là token dành cho client đọc; access token client không nên dựa vào nội dung, và ID token không được gửi cho API.", "ID token cho client biết ai đăng nhập; access token là “vé” duy nhất dành cho API.", "Refresh token chỉ gửi tới token endpoint của AS; gửi cho API vừa bị từ chối vừa làm lộ token nguy hiểm nhất.", "Mỗi token chỉ có một nơi nhận đúng; rải token ra nhiều nơi chỉ tăng nguy cơ lộ, nhất là refresh token."],
+    explain: "Access → API · ID → client · Refresh → AS. Xem <a href='m02-3-token-jwt.html#token-compare'>bảng so sánh 3 token</a>." },
+  { q: "hr-api nhận một JWT: chữ ký RS256 verify được bằng public key của Keycloak, <code>iss</code> đúng realm <code>kaopiz</code>, <code>exp</code> còn 3 phút. Nhưng payload có <code>\"aud\": \"hr-web\"</code> và có claim <code>nonce</code>. hr-api nên làm gì?",
+    tricky: true,
+    options: ["Chấp nhận, vì chữ ký, <code>iss</code> và <code>exp</code> đều hợp lệ", "Từ chối với 401 <code>invalid_token</code>: đây là ID token của hr-web, sai audience và sai loại token", "Trả 403 <code>insufficient_scope</code> vì token không có scope cho hr-api", "Chấp nhận nhưng chỉ cho quyền đọc"],
+    answer: 1,
+    why: ["Đây chính là cái bẫy: chữ ký chỉ chứng minh Keycloak phát và không ai sửa, không chứng minh token dành cho hr-api.", "<code>aud</code> = client_id và có <code>nonce</code> là dấu hiệu ID token; token không dành cho hr-api là token không hợp lệ ở hr-api → 401.", "403 dành cho token <b>hợp lệ</b> nhưng thiếu quyền; ở đây hr-api không tin token ngay từ bước kiểm tra <code>aud</code>, nên là 401.", "Không có “chấp nhận một nửa”: token sai audience phải bị từ chối hoàn toàn, nếu không ID token của bất kỳ client nào cũng mở được API."],
+    explain: "Chữ ký hợp lệ + chưa hết hạn vẫn chưa đủ: còn <code>aud</code> và loại token. Xem <a href='m02-3-token-jwt.html#jwt-validation'>checklist E.1</a>." },
+  { q: "Một access token gồm 3 phần ngăn bởi dấu chấm, header là <code>{\"alg\":\"RS256\",\"kid\":\"hr-2026-11\"}</code>. Những phát biểu nào đúng?",
+    options: ["Ai cầm token cũng đọc được payload mà không cần key", "Đây là JWT dạng JWS (đã ký), không phải JWE", "Payload đã được mã hóa bằng private key của Keycloak nên chỉ hr-api đọc được", "Nếu sửa một ký tự trong payload mà giữ nguyên chữ ký, hr-api verify sẽ phát hiện"],
+    answer: [0, 1, 3],
+    why: ["Payload JWS chỉ là Base64url-encode, decode không cần key.", "3 phần là JWS (header.payload.signature); JWE có 5 phần.", "Nhầm ký với mã hóa: private key dùng để <b>ký</b>, payload không bị mã hóa; ai cũng đọc được.", "Chữ ký được tính trên <code>header.payload</code>; payload đổi thì chữ ký cũ không còn khớp."],
+    explain: "JWS = có tem chống giả, không có phong bì. Xem <a href='m02-3-token-jwt.html#jws-jwe'>JWT, JWS, JWE</a>." },
+  { q: "Kẻ gian lấy access token của An, đổi header thành <code>{\"alg\":\"none\"}</code>, sửa role thành <code>admin</code> và xóa phần chữ ký. hr-api cấu hình như code trong bài (<code>ValidAlgorithms = RS256</code>). Kết quả?",
+    options: ["Được chấp nhận, vì không có chữ ký thì không thể “sai chữ ký”", "Bị từ chối 401: <code>none</code> không nằm trong allowlist, token không có chữ ký hợp lệ", "Bị từ chối 403 vì role admin không tồn tại", "Được chấp nhận nếu <code>exp</code> còn hạn"],
+    answer: 1,
+    why: ["Thiếu chữ ký không có nghĩa là “không có gì để kiểm tra”: API yêu cầu chữ ký RS256 hợp lệ, không có thì từ chối.", "Thuật toán do API quyết định qua allowlist, không do header token; <code>alg: none</code> bị loại ngay.", "Token bị loại ở bước xác thực (chữ ký/thuật toán) → 401, chưa tới bước kiểm tra quyền để thành 403.", "Kiểm tra hạn dùng chỉ có ý nghĩa sau khi chữ ký hợp lệ; token không ký thì <code>exp</code> do kẻ gian tự viết."],
+    explain: "Bấm nút “Giả mạo: alg = none” ở <a href='m02-3-token-jwt.html#jwt'>widget</a> để xem token này trông thế nào." },
+  { q: "Một API <b>tự viết</b> code verify: đọc <code>alg</code> từ header token, rồi verify bằng “key” đã cấu hình — là public key RSA của Keycloak — cho mọi thuật toán. Kẻ gian không có private key của Keycloak. Hắn có giả được token không?",
+    tricky: true,
+    options: ["Không, vì không có private key thì không thể ký", "Có: đổi <code>alg</code> sang <code>HS256</code> và ký HMAC bằng chính public key (vốn công khai); API dùng public key đó làm secret HMAC nên chữ ký khớp", "Không, vì HS256 yếu hơn RS256 nên thư viện tự từ chối", "Chỉ giả được nếu biết thêm client secret của hr-web"],
+    answer: 1,
+    why: ["Đáp án “hiển nhiên” nhưng sai: điều đó chỉ đúng khi API ép dùng RS256; ở đây API để token tự chọn thuật toán.", "Đây là tấn công alg confusion: với HMAC, key verify cũng là key ký, mà public key thì ai cũng tải được từ JWKS.", "Thuật toán không bị “tự từ chối” vì yếu hay mạnh; chỉ allowlist do API cấu hình mới chặn được.", "Client secret của hr-web không liên quan đến việc ký access token; kẻ gian chỉ cần public key công khai."],
+    explain: "Bài học: luôn cấu hình allowlist thuật toán và dùng thư viện chuẩn. Xem <a href='m02-3-token-jwt.html#jwt-validation'>checklist E.1</a>." },
+  { q: "hr-api nhận <code>Authorization: Bearer kz8Hq2vN0pXc7TfL3mWd9rYb</code> (không có dấu chấm nào). Decode thất bại. Hướng xử lý đúng?",
+    options: ["Token hỏng, trả 400 cho client", "Nhiều khả năng là opaque token: hr-api phải hỏi AS qua introspection", "Đây là JWE, cần private key để giải mã", "Base64-decode cả chuỗi là ra payload"],
+    answer: 1,
+    why: ["Không decode được không có nghĩa là hỏng; opaque token vốn không chứa gì để decode.", "Opaque token là “số tham chiếu”: thông tin nằm ở AS, API hỏi qua introspection.", "JWE có 5 phần ngăn bởi dấu chấm; chuỗi không có dấu chấm nào không phải JWE.", "Opaque token là chuỗi ngẫu nhiên, decode ra chỉ là byte vô nghĩa, không có claims."],
+    explain: "Xem <a href='m02-3-token-jwt.html#opaque-vs-jwt'>Opaque token vs JWT</a>." }
+];
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="assets/pages.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

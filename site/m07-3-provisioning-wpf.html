@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M07 · Bài 7.3 · Provisioning &amp; ví dụ WPF + API</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<main class="content">
+
+<div class="page-head">
+  <div class="breadcrumb"><a href="index.html">Lộ trình</a> / <a href="m07-architecture.html">Module 07</a> / Bài 7.3</div>
+  <h1>Bài 7.3 — Provisioning &amp; ví dụ WPF + API</h1>
+  <p class="lead">Vòng đời tài khoản (provisioning/offboarding) và ví dụ tổng hợp WPF + ASP.NET Core Web API.</p>
+  <div class="meta-row">
+    <span class="chip">⏱ ~15 phút</span>
+    <span class="chip">📘 <a href="m07-architecture.html">Module 07 · Architecture &amp; Practical Cases</a></span>
+  </div>
+</div>
+
+<!-- ===================================================== -->
+<h2 id="provisioning">C. Provisioning, deprovisioning và offboarding <span class="badge should">Should</span></h2>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+<b>Provisioning</b> = làm thẻ cho nhân viên mới ở từng phòng ban. <b>JIT</b> giống “ai đến cửa lần đầu thì làm thẻ ngay tại chỗ” — nhanh, nhưng <b>không ai báo</b> khi người đó nghỉ việc. <b>SCIM</b> giống <b>phòng nhân sự gửi danh sách</b> cho mọi phòng ban: ai vào, ai đổi vị trí, ai nghỉ — cập nhật ngay. Và khóa tài khoản ở cổng chính chưa đủ: thẻ đang cầm trên tay (session, refresh token) phải bị <b>thu hồi</b>.</div>
+<div class="terms"><span class="terms-title">📖 Thuật ngữ trong bài</span><dl>
+<dt>Provisioning</dt><dd>Tạo (và cập nhật) tài khoản cho người dùng trong từng ứng dụng.</dd>
+<dt>Deprovisioning</dt><dd>Vô hiệu hóa hoặc xóa tài khoản trong ứng dụng.</dd>
+<dt>Offboarding</dt><dd>Toàn bộ quy trình khi nhân viên nghỉ việc: khóa tài khoản, thu hồi phiên/token, thiết bị, key…</dd>
+<dt>JIT provisioning</dt><dd>App tự tạo tài khoản ngay lần đầu người dùng đăng nhập SSO.</dd>
+<dt>SCIM</dt><dd>Chuẩn REST API để IdP chủ động báo cho app: tạo, sửa, khóa user/group.</dd>
+<dt>Revoke</dt><dd>Thu hồi một token/phiên trước khi nó tự hết hạn.</dd>
+<dt>CAE</dt><dd>Continuous Access Evaluation: IdP báo cho API “user này vừa bị khóa” để API từ chối token sớm.</dd>
+<dt>DPAPI</dt><dd>API của Windows mã hóa dữ liệu bằng khóa gắn với tài khoản Windows của người dùng.</dd>
+</dl></div>
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: Provisioning vs Deprovisioning vs Offboarding</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Provisioning</th><th>Deprovisioning</th><th>Offboarding</th></tr></thead>
+<tbody>
+<tr><td>Là gì</td><td>Tạo/cập nhật account trong app</td><td>Khóa/xóa account trong app</td><td>Quy trình nhân sự + IT khi người dùng rời đi</td></tr>
+<tr><td>Phạm vi</td><td>Một account ở một app</td><td>Một account ở một app</td><td>Mọi thứ: IdP, mọi app, session, token, thiết bị, key, secret dùng chung</td></tr>
+<tr><td>Kích hoạt bởi</td><td>Nhân viên mới, đổi phòng, đăng nhập lần đầu (JIT)</td><td>Nghỉ việc, đổi vai trò, hết hợp đồng</td><td>HR báo nghỉ việc</td></tr>
+<tr><td>Thiếu thì hỏng gì</td><td>Người mới không vào được app</td><td>Người cũ vẫn còn account trong app</td><td>Người cũ vẫn dùng được token, thiết bị, API key cũ</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> An chuyển công ty. <i>Deprovisioning</i> là việc Kaopiz HR khóa account của An. <i>Offboarding</i> là cả danh sách: khóa An ở Entra ID/Keycloak, khóa account ở Kaopiz HR và các app khác, thu hồi refresh token trên app mobile, thu hồi laptop, xóa passkey, đổi mật khẩu Wi-Fi khách mà An biết.</p>
+<span class="rule">Deprovisioning là một bước; offboarding là cả quy trình.</span>
+</div>
+<p>Có hai cách để app nhận được thông tin tài khoản từ IdP — JIT và SCIM. Khác biệt quan trọng nhất là <b>app có biết khi user nghỉ việc hay không</b>:</p>
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: JIT provisioning vs SCIM</span>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>JIT (Just-in-Time) provisioning</th><th>SCIM 2.0 (RFC 7643 / 7644)</th></tr></thead>
+<tbody>
+<tr><td>Cách hoạt động</td><td>App tạo account khi user đăng nhập SSO <b>lần đầu</b>, dựa trên claims/attributes trong token/assertion.</td><td>IdP <b>chủ động đẩy</b> thao tác tạo, cập nhật, vô hiệu hóa user/group sang app qua REST API chuẩn.</td></tr>
+<tr><td>Ưu điểm</td><td>Đơn giản, không cần API riêng.</td><td>Offboarding gần như tức thời; đồng bộ group; tạo account trước khi user đăng nhập.</td></tr>
+<tr><td>Nhược điểm</td><td>App <b>không biết</b> khi nào user nghỉ việc/đổi phòng; thuộc tính chỉ cập nhật khi user đăng nhập lại.</td><td>App phải triển khai endpoint SCIM; xử lý lỗi đồng bộ.</td></tr>
+<tr><td>Chuẩn</td><td>Không có chuẩn riêng (dựa trên OIDC/SAML).</td><td>RFC 7643 (schema: User, Group, thuộc tính <code>active</code>…), RFC 7644 (protocol: <code>/Users</code>, <code>/Groups</code>, PATCH…).</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> Kaopiz HR dùng JIT. Lần đầu An đăng nhập, <code>hr-web</code> đọc <code>sub</code>, <code>email</code>, <code>name</code> trong ID token và tạo account. Khi An nghỉ việc, An bị khóa ở IdP — nhưng account trong Kaopiz HR vẫn “active”, và báo cáo “nhân viên đang làm việc” của HR vẫn đếm An. Với SCIM, IdP gửi ngay <code>PATCH active=false</code> (request mẫu bên dưới) tới Kaopiz HR.</p>
+<span class="rule">JIT = app biết khi bạn <i>đến</i>. SCIM = app biết cả khi bạn <i>đi</i>.</span>
+</div>
+<p>Đây là request IdP gửi khi khóa một user qua SCIM — chỉ đổi một thuộc tính <code>active</code> thành <code>false</code>:</p>
+<pre data-title="SCIM PATCH: vô hiệu hóa user (RFC 7644 §3.5.2)"><code class="language-plaintext">PATCH /scim/v2/Users/2819c223-7f76-453a-919d-413861904646 HTTP/1.1
+Host: orders.example.com
+Authorization: Bearer eyJ...   (token của IdP để gọi SCIM endpoint)
+Content-Type: application/scim+json
+
+{
+  "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+  "Operations": [
+    { "op": "replace", "path": "active", "value": false }
+  ]
+}</code></pre>
+<div class="callout warn"><span class="callout-title">⚠️ Vô hiệu hóa ở IdP chưa phải là offboarding</span>
+Khóa tài khoản ở IdP chỉ chặn <b>đăng nhập mới</b>. Những thứ đã cấp trước đó vẫn sống:
+<ul>
+<li>Session cookie của các app và refresh token đã cấp <b>vẫn còn hiệu lực</b>.</li>
+<li>Access token JWT vẫn dùng được đến khi hết hạn, vì API tự kiểm tra chữ ký chứ không hỏi lại IdP.</li>
+</ul>
+Cần thêm:
+<ul>
+<li>Revoke session/refresh token; access token ngắn hạn.</li>
+<li>SCIM để app vô hiệu hóa account.</li>
+<li>Cơ chế đánh giá liên tục nếu IdP hỗ trợ — ví dụ <b>Continuous Access Evaluation (CAE)</b> của Microsoft Entra ID (resource provider được báo sự kiện như vô hiệu hóa user, đổi mật khẩu và từ chối token sớm), hoặc chuẩn OpenID <b>Shared Signals Framework / CAEP</b>.</li>
+</ul></div>
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  participant HR as HR / IT admin
+  participant I as IdP
+  participant App as Order app
+  participant API as Order API
+  HR->>I: Vô hiệu hóa user An
+  I->>I: Thu hồi refresh token, phiên SSO
+  I->>App: SCIM PATCH active=false
+  App->>App: Khóa account, xóa session của An
+  Note over API: Access token cũ còn sống đến exp<br/>(vd 10 phút) nếu API chỉ xác minh JWT
+  opt IdP và API hỗ trợ CAE / introspection
+    I-->>API: Sự kiện user bị vô hiệu hóa
+    API->>API: Từ chối token của An ngay
+  end
+</pre>
+<div class="caption">Offboarding đầy đủ: IdP + app (SCIM) + token (revoke, lifetime ngắn, CAE).</div>
+</div>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Khóa tài khoản ở IdP là nhân viên mất quyền ngay.</span><span class="f-label">Thực tế</span><span>Khóa ở IdP chỉ chặn đăng nhập mới. Session cookie của app và token đã cấp vẫn sống; cần revoke, access token ngắn hạn, SCIM, CAE.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Dùng JIT provisioning thì nhân viên nghỉ việc cũng tự bị khóa trong app.</span><span class="f-label">Thực tế</span><span>JIT chỉ tạo account khi đăng nhập lần đầu; app không được báo khi user nghỉ. Cần SCIM hoặc quy trình deprovisioning riêng.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Revoke refresh token là access token JWT đã cấp hết hiệu lực ngay.</span><span class="f-label">Thực tế</span><span>API kiểm tra JWT bằng chữ ký (JWKS), không hỏi lại IdP, nên access token cũ vẫn được chấp nhận đến <code>exp</code>. Revoke chỉ chặn việc xin token mới. Muốn chặn sớm hơn: lifetime ngắn (5–15 phút), introspection, hoặc CAE.</span></div>
+
+<!-- ===================================================== -->
+<h2 id="wpf-example">D. Ví dụ tổng hợp: WPF + ASP.NET Core Web API <span class="badge must">Must</span></h2>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+App WPF là <b>khách</b>, IdP là <b>quầy cấp thẻ</b>, Web API là <b>cửa kho</b>. Khách ra quầy (qua trình duyệt thật) lấy thẻ; cửa kho tự <b>kiểm tra thẻ thật/giả, còn hạn, đúng kho</b>, rồi xem nội quy (policy) để quyết định cho lấy món hàng nào. Kho không bao giờ tin câu “tôi là quản lý” do khách tự nói.</div>
+<p>Phần này ghép mọi thứ đã học thành một hệ thống hoàn chỉnh: app desktop WPF cho nhân viên xem đơn hàng, gọi Order API viết bằng ASP.NET Core. Khi đọc sơ đồ, để ý hai điều: <b>token đi qua trust boundary ở đâu</b>, và <b>ai quyết định quyền</b> (luôn là API).</p>
+<div class="diagram">
+<pre class="mermaid">
+flowchart TD
+  IDP["🔐 Identity Provider<br/>OIDC / Authorization Server"]
+  subgraph PC["Máy người dùng (không tin cậy hoàn toàn)"]
+    WPF["🖥 WPF Desktop<br/>Public Client"]
+    BR["🌐 System browser"]
+    TC[("Token cache<br/>DPAPI")]
+  end
+  subgraph SRV["Hạ tầng công ty (trust boundary)"]
+    API["⚙️ ASP.NET Core Web API<br/>JWT Bearer validation"]
+    POL["🛂 Authorization policy<br/>scope + role + resource"]
+    BIZ[("📦 Business resources<br/>Services / Database")]
+  end
+  WPF -- "mở URL đăng nhập" --> BR
+  BR -- "Authorization Code + PKCE" --> IDP
+  IDP -- "code → token" --> WPF
+  WPF --- TC
+  WPF -- "Access token" --> API
+  API --> POL
+  POL --> BIZ
+  API -. "JWKS (public key)" .-> IDP
+</pre>
+<div class="caption">Vẽ lại sơ đồ tham khảo của roadmap: WPF lấy token qua system browser; API tự xác minh token bằng JWKS và tự phân quyền.</div>
+</div>
+
+<h3 id="wpf-sequence">D.1. Sequence: đăng nhập và gọi API</h3>
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  participant U as Người dùng
+  participant W as WPF app
+  participant B as System browser
+  participant I as IdP
+  participant A as Order API
+  U->>W: Bấm Đăng nhập
+  W->>B: /authorize (code_challenge, state, nonce)
+  B->>I: Login + MFA
+  I-->>B: Redirect 127.0.0.1 với code
+  B-->>W: code + state (loopback)
+  W->>I: /token (code + code_verifier)
+  I-->>W: ID token, access token, refresh token
+  W->>W: Kiểm tra ID token, lưu cache DPAPI
+  U->>W: Mở danh sách đơn
+  W->>A: GET /orders + Bearer access token
+  A->>A: Verify chữ ký, iss, aud, exp
+  A->>A: Policy scope + role + ownership
+  A-->>W: 200 JSON (hoặc 401 / 403)
+</pre>
+<div class="caption">Đăng nhập (trên) và gọi API (dưới).</div>
+</div>
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  participant W as WPF app
+  participant I as IdP
+  participant A as Order API
+  W->>A: GET /orders + access token cũ
+  A-->>W: 401 invalid_token (expired)
+  W->>I: /token grant_type=refresh_token
+  alt Refresh hợp lệ
+    I-->>W: access token mới + refresh token mới (rotation)
+    W->>A: Gọi lại GET /orders
+    A-->>W: 200 OK
+  else Refresh hết hạn / bị thu hồi
+    I-->>W: 400 invalid_grant
+    W->>W: Xóa cache, yêu cầu đăng nhập lại
+  end
+</pre>
+<div class="caption">Xử lý token hết hạn: refresh một lần; thất bại thì đăng nhập lại. Không lặp vô hạn.</div>
+</div>
+
+<div class="callout example"><span class="callout-title">🧪 Ví dụ: access token WPF gửi lên Order API (phần payload, đã rút gọn)</span>
+<pre><code class="language-json">{
+  "iss": "http://localhost:8080/realms/demo",
+  "aud": "orders-api",
+  "azp": "wpf-client",
+  "sub": "8f1c…",
+  "scope": "openid profile orders.read",
+  "exp": 1767000600
+}</code></pre>
+Order API kiểm tra: <code>iss</code> đúng realm, <code>aud</code> là chính nó (<code>orders-api</code>), <code>exp</code> chưa qua, chữ ký khớp JWKS. Sau đó mới xét quyền: có scope <code>orders.read</code>? đơn hàng này có thuộc người dùng <code>sub</code> không? Trường <code>azp</code> cho biết token được cấp cho client nào (ở đây là app WPF).</div>
+
+<h3 id="wpf-points">D.2. Các điểm cần giải thích</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>Điểm</th><th>Giải thích</th></tr></thead>
+<tbody>
+<tr><td>WPF là <b>public client</b></td><td>File .exe/.dll có thể dịch ngược (ILSpy, dnSpy) → không bảo vệ được client secret nhúng trong app.</td></tr>
+<tr><td><b>Authorization Code + PKCE</b></td><td>PKCE thay vai trò của secret: chỉ app tạo <code>code_verifier</code> mới đổi được code (<a href="m03-2-auth-code-pkce.html#pkce">M03</a>).</td></tr>
+<tr><td><b>ID token vs access token</b></td><td>ID token cho <i>client</i> biết kết quả đăng nhập (<code>aud</code> = client_id). Access token dùng để gọi API (<code>aud</code> = API). API không nhận ID token (<a href="m03-5-oidc.html#id-vs-access">M03</a>).</td></tr>
+<tr><td>API <b>xác minh token</b></td><td>Chữ ký (JWKS), <code>iss</code>, <code>aud</code>, <code>exp</code>, thuật toán, loại token (<a href="m02-3-token-jwt.html#jwt-validation">M02</a>, <a href="lab-2-api-jwt.html#lab2">Lab 2</a>).</td></tr>
+<tr><td>API <b>phân quyền</b></td><td>Scope/role/policy + business rules + ownership (<a href="m06-2-api-authz.html#authz-code">M06</a>).</td></tr>
+<tr><td><b>Không tin role do UI gửi</b></td><td>WPF có thể bị sửa; role phải lấy từ token đã xác minh hoặc DB.</td></tr>
+<tr><td><b>Token storage</b></td><td>DPAPI (CurrentUser) / MSAL cache / Credential Manager; không file plaintext.</td></tr>
+<tr><td><b>Vòng đời</b></td><td>Logout (xóa cache + revoke refresh token + end_session ở IdP), refresh/revoke, xử lý token hết hạn, audit log ở API.</td></tr>
+</tbody></table></div>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>WPF đã ẩn nút “Duyệt” với người không phải Manager, vậy là đã phân quyền.</span><span class="f-label">Thực tế</span><span>Ẩn nút chỉ là trải nghiệm người dùng. Ai có access token cũng gọi thẳng <code>POST /orders/1024/approve</code> bằng curl được. Order API phải tự kiểm tra scope/role từ token đã xác minh và quyền trên đơn đó.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>ID token cũng là JWT do IdP ký, nên API nhận nó thay access token cũng được.</span><span class="f-label">Thực tế</span><span>ID token có <code>aud</code> = client_id (vd <code>wpf-client</code>), dành cho client đọc kết quả đăng nhập, không mang scope cho API. API chỉ nhận access token có <code>aud</code> là chính nó.</span></div>
+
+<h3 id="wpf-code">D.3. Code tham khảo phía WPF</h3>
+<p>Hai đoạn code dưới làm cùng một việc cho hai IdP khác nhau: mở system browser, nhận code qua loopback, đổi lấy token (PKCE tự động), rồi cất token đã mã hóa. Bạn không cần nhớ từng dòng — chỉ cần thấy <b>không có client secret</b> và <b>không có WebView</b>.</p>
+<p>Với Keycloak (như <a href="lab-3-pkce-client.html#lab3">Lab 3</a>): thư viện <code>Duende.IdentityModel.OidcClient</code> (trước đây là <code>IdentityModel.OidcClient</code>). Lớp <code>SystemBrowser</code> dưới đây <b>không</b> có sẵn trong thư viện — lấy từ sample của dự án (mở browser + <code>HttpListener</code> trên loopback).</p>
+<pre data-title="LoginService.cs (WPF + OidcClient)"><code class="language-csharp">using Duende.IdentityModel.OidcClient;
+using System.Security.Cryptography;
+
+public sealed class LoginService
+{
+    private readonly OidcClient _client;
+
+    public LoginService()
+    {
+        var port = GetFreeTcpPort();
+        _client = new OidcClient(new OidcClientOptions
+        {
+            Authority   = "http://localhost:8080/realms/demo",
+            ClientId    = "wpf-client",                       // public client, KHÔNG có secret
+            Scope       = "openid profile orders.read offline_access",
+            RedirectUri = $"http://127.0.0.1:{port}/",
+            Browser     = new SystemBrowser(port)             // từ sample: mở system browser + loopback
+        });
+    }
+
+    public async Task&lt;LoginResult&gt; LoginAsync()
+    {
+        var result = await _client.LoginAsync(new LoginRequest());   // PKCE, state, nonce tự động
+        if (result.IsError) throw new InvalidOperationException(result.Error);
+
+        // Lưu refresh token đã mã hóa theo user Windows (DPAPI)
+        var protectedBytes = ProtectedData.Protect(
+            System.Text.Encoding.UTF8.GetBytes(result.RefreshToken),
+            optionalEntropy: null,
+            scope: DataProtectionScope.CurrentUser);
+        await File.WriteAllBytesAsync(TokenFilePath, protectedBytes);
+
+        return result;   // result.AccessToken dùng để gọi API; result.IdentityToken cho client
+    }
+    // GetFreeTcpPort(), TokenFilePath ... bỏ qua cho gọn
+}</code></pre>
+<p>Với Microsoft Entra ID: dùng <b>MSAL.NET</b> + cache đa nền tảng (theo <a href="https://learn.microsoft.com/entra/msal/dotnet/how-to/token-cache-serialization">Microsoft Learn — token cache serialization</a>):</p>
+<pre data-title="MSAL.NET (Entra ID)"><code class="language-csharp">var pca = PublicClientApplicationBuilder.Create(clientId)
+    .WithAuthority($"https://login.microsoftonline.com/{tenantId}")
+    .WithRedirectUri("http://localhost")          // MSAL tự chọn port, mở system browser
+    .Build();
+
+var storage = new StorageCreationPropertiesBuilder("msal.cache", cacheDir).Build();
+var cacheHelper = await MsalCacheHelper.CreateAsync(storage);   // Windows: mã hóa bằng DPAPI
+cacheHelper.RegisterCache(pca.UserTokenCache);
+
+string[] scopes = { "api://orders-api/orders.read" };
+AuthenticationResult result;
+try
+{
+    var account = (await pca.GetAccountsAsync()).FirstOrDefault();
+    result = await pca.AcquireTokenSilent(scopes, account).ExecuteAsync();   // cache / refresh
+}
+catch (MsalUiRequiredException)
+{
+    result = await pca.AcquireTokenInteractive(scopes)
+        .WithUseEmbeddedWebView(false)            // system browser
+        .ExecuteAsync();
+}
+httpClient.DefaultRequestHeaders.Authorization =
+    new AuthenticationHeaderValue("Bearer", result.AccessToken);</code></pre>
+
+<div class="callout tip"><span class="callout-title">✅ Tự kiểm tra nhanh</span><ul>
+<li>App dùng JIT provisioning. Nhân viên nghỉ việc bị khóa ở IdP — account trong app có tự bị khóa không?</li>
+<li>Sau khi khóa user ở IdP, access token JWT cũ còn dùng được bao lâu? Làm gì để rút ngắn?</li>
+<li>Trong ví dụ WPF + API, ai quyết định user được xem đơn hàng nào: WPF hay Order API?</li>
+</ul></div>
+
+<h2 id="quiz-bai">Quiz nhanh — Bài 7.3</h2>
+<div id="quiz"></div>
+
+</main>
+<script>
+window.QUIZ = [
+  { q: "Kaopiz HR dùng JIT provisioning, không có SCIM, không có back-channel logout. An nghỉ việc; IT khóa An ở Keycloak và thu hồi mọi phiên SSO, refresh token của An. Điều nào <b>vẫn có thể</b> đúng ngay sau đó? (chọn nhiều)",
+    tricky: true,
+    options: ["Account của An trong Kaopiz HR vẫn “active”, báo cáo nhân sự vẫn đếm An", "Access token An vừa nhận vẫn được <code>hr-api</code> chấp nhận đến <code>exp</code>", "An đăng nhập SSO mới vào Kaopiz HR thành công", "Cookie phiên <code>hr-web</code> An đang mở trên browser vẫn dùng được đến khi hết hạn", "Kaopiz HR tự đặt <code>active=false</code> cho An nhờ JIT"],
+    answer: [0, 1, 3],
+    why: ["JIT chỉ tạo account khi đăng nhập lần đầu; không ai báo cho app khi An nghỉ, nên account trong app vẫn như cũ.", "<code>hr-api</code> xác minh JWT bằng chữ ký, không hỏi IdP; revoke chỉ chặn xin token mới.", "Đăng nhập mới phải đi qua Keycloak — nơi An đã bị khóa — nên bước này bị chặn.", "Phiên của app là cookie riêng của <code>hr-web</code>, tách khỏi phiên ở IdP; không có back-channel logout/SCIM thì app không biết để xóa.", "JIT không có kênh nào để IdP báo “user đã nghỉ”; đó chính là việc của SCIM."],
+    explain: "Khóa ở IdP chỉ chặn đăng nhập mới. Offboarding đủ = revoke + token ngắn hạn + SCIM (+ CAE, back-channel logout). Xem <a href='m07-3-provisioning-wpf.html#provisioning'>C. Provisioning</a>." },
+  { q: "Lúc 16:58 WPF nhận access token sống 10 phút. Lúc 17:00 IdP revoke refresh token của An. <code>hr-api</code> chỉ xác minh JWT bằng JWKS. Lúc 17:05 WPF gọi API thì sao?",
+    options: ["401 ngay, vì revoke có hiệu lực với mọi token của An", "200 OK — access token còn hạn đến 17:08; lần refresh sau đó mới thất bại (<code>invalid_grant</code>)", "403, vì IdP đã đổi JWKS", "200 OK mãi mãi, vì access token JWT không bao giờ bị thu hồi"],
+    answer: 1,
+    why: ["Revoke refresh token không làm API biết gì; API không gọi IdP khi kiểm tra JWT.", "Token tự chứa, chữ ký vẫn đúng và <code>exp</code> chưa qua → API chấp nhận; khi hết hạn, WPF refresh và bị từ chối.", "Revoke một user không làm IdP đổi khóa ký; JWKS vẫn như cũ.", "Token vẫn hết hạn ở <code>exp</code>; lifetime ngắn chính là cách giới hạn khoảng hở này."],
+    explain: "Khoảng hở = lifetime access token. Muốn ngắn hơn: introspection hoặc CAE. Xem <a href='m07-3-provisioning-wpf.html#provisioning'>cảnh báo “Vô hiệu hóa ở IdP chưa phải là offboarding”</a>." },
+  { q: "Để tiết kiệm một lần tra DB, WPF gửi kèm header <code>X-Role: Manager</code> lấy từ màn hình đăng nhập. Order API nên làm gì với header này?",
+    options: ["Tin header vì request đã có access token hợp lệ", "Bỏ qua; lấy role từ access token đã xác minh hoặc từ DB phía API", "Chỉ tin nếu WPF đã được obfuscate", "Trả 401 vì có header lạ"],
+    answer: 1,
+    why: ["Token hợp lệ chứng minh <i>ai</i> gọi, không chứng minh header khác là thật; user sửa được WPF hoặc dùng curl để đặt <code>X-Role</code> bất kỳ.", "Role phải đến từ nguồn API tin được: claim trong token có chữ ký của IdP, hoặc dữ liệu của chính API.", "Obfuscate không ngăn ai tự gửi HTTP request với header tùy ý.", "Header thừa không làm token sai; 401 là cho credential không hợp lệ. API chỉ cần không dùng header đó."],
+    explain: "Không tin role do UI gửi. Xem <a href='m07-3-provisioning-wpf.html#wpf-points'>D.2. Các điểm cần giải thích</a>." },
+  { q: "Token gửi tới Order API có <code>aud</code> = <code>orders-api</code>, <code>azp</code> = <code>wpf-client</code>, <code>scope</code> = <code>openid profile orders.read</code>, chữ ký và <code>exp</code> đều hợp lệ. User gọi <code>DELETE /orders/1024</code>. API nên trả gì?",
+    options: ["200, vì token hợp lệ", "401, vì token thiếu quyền xóa", "403 (hoặc 404 nếu không muốn lộ đơn có tồn tại): token hợp lệ nhưng chỉ có <code>orders.read</code>", "400, vì method sai"],
+    answer: 2,
+    why: ["Token hợp lệ mới chỉ qua bước xác thực; xóa đơn cần quyền mà token không có.", "401 dành cho token thiếu/không hợp lệ; ở đây token hợp lệ, xác thực lại cũng không thêm được quyền.", "Đã xác thực nhưng thiếu scope/quyền → 403; một số API chọn 404 để không lộ sự tồn tại của tài nguyên.", "Request đúng cú pháp; vấn đề là quyền, không phải định dạng."],
+    explain: "Xác minh token (chữ ký, <code>iss</code>, <code>aud</code>, <code>exp</code>) rồi mới phân quyền. Xem <a href='m07-3-provisioning-wpf.html#wpf-sequence'>D.1</a> và <a href='m06-2-api-authz.html#401-vs-403'>M06 — 401 vs 403</a>." },
+  { q: "Trong code tham khảo phía WPF (OidcClient và MSAL), dấu hiệu nào cho thấy thiết kế đúng cho public client? (chọn nhiều)",
+    options: ["Không có <code>ClientSecret</code> nào trong cấu hình", "Redirect về loopback (<code>http://127.0.0.1:{port}/</code>, hoặc <code>http://localhost</code> theo quy ước MSAL)", "<code>WithUseEmbeddedWebView(false)</code> — mở system browser", "Refresh token được ghi ra <code>tokens.json</code> dạng rõ cho dễ debug"],
+    answer: [0, 1, 2],
+    why: ["Public client không giữ được secret nên không cấu hình secret; PKCE được thư viện tự thêm.", "Loopback là kiểu redirect RFC 8252 khuyến nghị cho desktop; MSAL với Entra ID có quy ước <code>http://localhost</code> riêng.", "Đăng nhập qua system browser theo RFC 8252, không dùng WebView nhúng.", "Code mẫu mã hóa bằng DPAPI (<code>ProtectedData.Protect</code>) hoặc MSAL cache; file plaintext thì ai đọc được ổ đĩa là lấy được token."],
+    explain: "Không secret, không WebView, token cache mã hóa. Xem <a href='m07-3-provisioning-wpf.html#wpf-code'>D.3. Code tham khảo</a>." }
+];
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="assets/pages.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

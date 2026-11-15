@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M05 · Bài 5.4 · Chống phishing, UP/UV &amp; Passkey</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<main class="content">
+
+<div class="page-head">
+  <div class="breadcrumb"><a href="index.html">Lộ trình</a> / <a href="m05-enterprise-passwordless.html">Module 05</a> / Bài 5.4</div>
+  <h1>Bài 5.4 — Chống phishing, UP/UV &amp; Passkey</h1>
+  <p class="lead">Bạn đã biết WebAuthn hoạt động thế nào ở <a href="m05-3-webauthn.html">bài 5.3</a>. Bài này trả lời các câu hỏi thực tế: vì sao passkey không bị lừa bởi trang giả, “chạm” khác “quét vân tay” ở đâu (UP vs UV), mất điện thoại thì sao (passkey đồng bộ vs gắn thiết bị), và Windows Hello đứng ở đâu trong bức tranh.</p>
+  <div class="meta-row">
+    <span class="chip">⏱ ~15 phút</span>
+    <span class="chip">📘 <a href="m05-enterprise-passwordless.html">Module 05 · Enterprise Auth &amp; Passwordless</a></span>
+  </div>
+</div>
+
+<div class="terms"><span class="terms-title">📖 Thuật ngữ trong bài</span><dl>
+<dt>Phishing</dt><dd>Lừa người dùng vào trang giả trông giống trang thật để lấy thông tin đăng nhập.</dd>
+<dt>AiTM</dt><dd>Adversary-in-the-Middle: trang giả đứng giữa, chuyển tiếp mọi thứ bạn gõ tới trang thật ngay lập tức.</dd>
+<dt>Origin binding</dt><dd>Passkey bị “khóa” vào đúng tên miền; trình duyệt không cho dùng ở tên miền khác.</dd>
+<dt>User Presence (UP)</dt><dd>Có một người đang chạm/bấm vào authenticator — chưa biết là ai.</dd>
+<dt>User Verification (UV)</dt><dd>Authenticator đã kiểm đúng chủ nhân bằng PIN hoặc sinh trắc.</dd>
+<dt>Synced passkey</dt><dd>Passkey được sao chép an toàn qua cloud sang các thiết bị khác của bạn.</dd>
+<dt>Device-bound passkey</dt><dd>Passkey chỉ nằm trong một thiết bị, không sao chép ra được.</dd>
+<dt>Recovery</dt><dd>Quy trình lấy lại quyền truy cập khi mất hết passkey.</dd>
+</dl></div>
+
+<h3 id="phishing-resistance">D. Vì sao WebAuthn chống phishing? <span class="badge must">Must</span></h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Mật khẩu và mã OTP là thứ <b>bạn tự gõ</b> — bạn có thể bị lừa gõ vào trang giả. Passkey thì <b>trình duyệt tự kiểm tên website</b> trước khi cho dùng chìa, và chữ ký ghi luôn tên website. Bạn có bị lừa vào trang giả thì chìa cũng “không vừa ổ”.</div>
+<p>Sơ đồ dưới so sánh cùng một tình huống: An bấm vào link giả <code>hr-company-login.com</code> trong email. Bên trái An dùng mật khẩu + OTP, bên phải An dùng passkey. Điểm mấu chốt: với passkey, <b>trình duyệt</b> (không phải An) là bên kiểm tra tên miền — và trình duyệt thì không bị đánh lừa bởi giao diện giống hệt.</p>
+<div class="diagram">
+<pre class="mermaid">
+flowchart TB
+  subgraph PW["Mật khẩu / OTP"]
+    direction LR
+    P1["👤 An mở link giả<br/>hr-company-login.com"] --> P2["Gõ mật khẩu + mã OTP"]
+    P2 --> P3["Trang giả chuyển tiếp ngay<br/>tới hr.company.com thật"]
+    P3 --> P4["❌ Kẻ tấn công đăng nhập thành công<br/>và lấy session cookie"]
+  end
+  subgraph PK["Passkey (WebAuthn)"]
+    direction LR
+    K1["👤 An mở link giả<br/>hr-company-login.com"] --> K2["Trang giả gọi WebAuthn<br/>với rpId hr.company.com"]
+    K2 --> K3["Browser từ chối: rpId không khớp origin.<br/>Nếu dùng rpId của chính nó: không có passkey nào"]
+    K3 --> K4["Kể cả chuyển tiếp dữ liệu: origin trong<br/>clientDataJSON là trang giả → RP thật từ chối"]
+    K4 --> K5["✅ Tấn công thất bại"]
+  end
+</pre>
+<div class="caption">Origin binding: credential gắn với RP ID, và origin thật do browser ghi vào dữ liệu được ký. Đây là lý do passkey chống được AiTM phishing (<a href="m06-4-identity-attacks.html#aitm">M06</a>) mà OTP/push không chống được.</div>
+</div>
+<div class="callout warn"><span class="callout-title">⚠️ Giới hạn</span>
+Passkey chống phishing ở <b>bước đăng nhập</b>. Nó không bảo vệ nếu máy đã nhiễm malware đánh cắp session cookie <i>sau</i> khi đăng nhập, hoặc nếu quy trình <b>khôi phục tài khoản</b> (recovery) yếu (vd. chỉ cần mã SMS để thêm passkey mới). Kẻ tấn công sẽ nhắm vào khâu yếu nhất.</div>
+
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Passkey chống phishing là nhờ sinh trắc học (vân tay, khuôn mặt).</span><span class="f-label">Thực tế</span><span>Chống phishing là nhờ <b>origin binding</b>: trình duyệt kiểm RP ID với tên miền và ghi origin thật vào dữ liệu được ký. Security key chỉ chạm (không PIN, không sinh trắc) vẫn chống phishing y như vậy; sinh trắc chỉ trả lời câu “có đúng chủ nhân không” (UV).</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>OTP cũng chống phishing như passkey.</span><span class="f-label">Thực tế</span><span>OTP do người dùng tự gõ nên trang giả AiTM thu và chuyển tiếp ngay trong thời gian mã còn hạn; passkey gắn với origin nên trang giả không dùng được.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Push notification (bấm “Duyệt”) chống phishing vì không phải gõ mã.</span><span class="f-label">Thực tế</span><span>Trang giả vẫn kích hoạt đăng nhập thật và người dùng bấm duyệt; ngoài ra còn MFA fatigue. Kể cả có “nhập số khớp” (number matching), trang AiTM vẫn hiển thị được con số đó cho nạn nhân. Chỉ passkey có origin binding.</span></div>
+
+<h3 id="up-uv">E. User Presence vs User Verification <span class="badge should">Should</span></h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+<b>UP</b> = “có <b>ai đó</b> đang ở đây” (chạm vào security key — con mèo cũng chạm được). <b>UV</b> = “đúng <b>chủ nhân</b> đang ở đây” (đã nhập PIN hoặc quét vân tay khớp).</div>
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: User Presence vs User Verification</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>User Presence (UP)</th><th>User Verification (UV)</th></tr></thead>
+<tbody>
+<tr><td>Chứng minh</td><td>Có người tương tác vật lý (chạm, bấm)</td><td>Authenticator đã xác minh <b>người dùng cụ thể</b> bằng PIN, mật khẩu thiết bị hoặc sinh trắc</td></tr>
+<tr><td>Flag</td><td>Bit 0 của flags</td><td>Bit 2 của flags</td></tr>
+<tr><td>Chống</td><td>Malware âm thầm dùng authenticator khi không ai thao tác</td><td>Người khác nhặt được thiết bị/security key</td></tr>
+<tr><td>Ý nghĩa với MFA</td><td>Chỉ “something you have”</td><td>“Have” + “know/are” → passkey có UV đáp ứng MFA (<a href="m01-2-sso-federation-mfa.html#factors">M01</a>)</td></tr>
+<tr><td>RP yêu cầu</td><td>Luôn kiểm UP</td><td><code>userVerification: "required" | "preferred" | "discouraged"</code>, và <b>tự kiểm flag UV</b> theo policy</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> An dùng một security key đời cũ chưa đặt PIN, chỉ chạm vào → authenticatorData có <code>UP=1, UV=0</code>. An dùng Face ID trên iPhone → <code>UP=1, UV=1</code>. Nếu thao tác “duyệt bảng lương” của Kaopiz HR yêu cầu UV, lượt chạm security key ở trên phải bị từ chối dù chữ ký hợp lệ.</p>
+<span class="rule">UP: “có ai đó”. UV: “đúng là chủ nhân”. Chỉ UV mới làm passkey thành MFA.</span>
+</div>
+<div class="callout warn"><span class="callout-title">⚠️ Bẫy thường gặp</span>
+<code>"preferred"</code> nghĩa là <i>có thể</i> nhận về UV = 0. Nếu ứng dụng coi passkey là MFA đầy đủ, server phải <b>kiểm tra flag UV = 1</b>, không chỉ dựa vào việc đã gửi option. Sinh trắc học được xử lý cục bộ — server chỉ thấy bit UV và chữ ký, không thấy vân tay.</div>
+
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Passkey gửi vân tay/khuôn mặt lên server để so khớp.</span><span class="f-label">Thực tế</span><span>Sinh trắc xử lý cục bộ để mở khóa private key; server chỉ nhận chữ ký và flag UV. Server HR không có (và không nên có) dữ liệu sinh trắc nào.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span><code>UV=0</code> nghĩa là không có ai thao tác, chắc là malware.</span><span class="f-label">Thực tế</span><span>UV=0 chỉ nói “authenticator chưa xác minh <i>là ai</i>”. Nếu <code>UP=1</code> thì vẫn có người chạm/bấm thật — vd. security key chưa đặt PIN. RP luôn kiểm UP, và kiểm thêm UV khi policy đòi.</span></div>
+
+<h3 id="passkey">F. Passkey: đồng bộ, gắn thiết bị, recovery <span class="badge must">Must</span> <span class="badge should">Should: sync/recovery</span></h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+<b>Passkey đồng bộ</b> giống chìa khóa được <b>nhân bản an toàn qua két sắt đám mây</b> của bạn (iCloud Keychain, Google Password Manager, trình quản lý mật khẩu): mất điện thoại, mua máy mới đăng nhập tài khoản đám mây là có lại. <b>Passkey gắn thiết bị</b> giống chìa <b>không thể sao chép</b> (security key): an toàn hơn về kiểm soát, nhưng mất là mất.</div>
+<div class="diagram">
+<pre class="mermaid">
+flowchart LR
+  subgraph Synced["Passkey đồng bộ (BE=1, BS=1)"]
+    direction TB
+    S1["📱 iPhone của An"] <--> CL["☁️ Passkey provider<br/>(mã hóa đầu-cuối)"]
+    CL <--> S2["💻 MacBook của An"]
+    CL <--> S3["📱 iPhone mới (sau khi mất máy)"]
+  end
+  subgraph Bound["Passkey gắn thiết bị (BE=0)"]
+    direction TB
+    D1["🔑 Security key<br/>private key không thể xuất ra"]
+    D2["🔑 Security key dự phòng<br/>(đăng ký riêng)"]
+  end
+</pre>
+<div class="caption">Đồng bộ: tiện, recovery dễ, nhưng an toàn phụ thuộc tài khoản cloud của nhà cung cấp. Gắn thiết bị: kiểm soát chặt, cần đăng ký ≥ 2 key để dự phòng.</div>
+</div>
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: Synced passkey vs Device-bound passkey</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Synced passkey</th><th>Device-bound passkey</th></tr></thead>
+<tbody>
+<tr><td>Private key ở đâu</td><td>Trên các thiết bị của user, đồng bộ qua passkey provider (mã hóa đầu-cuối)</td><td>Chỉ trong một authenticator (security key, một số platform authenticator)</td></tr>
+<tr><td>Flag</td><td>BE = 1 (thường BS = 1)</td><td>BE = 0, BS = 0</td></tr>
+<tr><td>Mất thiết bị</td><td>Khôi phục qua tài khoản provider</td><td>Phải dùng key dự phòng hoặc quy trình recovery của RP</td></tr>
+<tr><td>Mô hình trust</td><td>Tin cả provider (bảo mật tài khoản Apple/Google/…)</td><td>Tin thiết bị vật lý</td></tr>
+<tr><td>Phù hợp</td><td>Người dùng phổ thông, nhân viên văn phòng</td><td>Quản trị viên, tài khoản đặc quyền, môi trường yêu cầu cao</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> An tạo passkey Kaopiz HR trên iPhone (lưu trong iCloud Keychain) → mở MacBook đã đăng nhập cùng Apple ID là thấy passkey đó luôn: đây là <b>synced</b>. Còn admin hệ thống của HR được cấp 2 YubiKey; passkey nằm trong từng key, không có bản sao trên cloud: đây là <b>device-bound</b>. Server phân biệt hai loại qua cờ <b>BE</b> (Backup Eligible) đã lưu khi đăng ký.</p>
+<span class="rule">Synced: tiện, mất máy không mất passkey, nhưng tin thêm nhà cung cấp cloud. Device-bound: chặt hơn, nhưng phải có key dự phòng.</span>
+</div>
+<ul>
+<li><b>Recovery</b> là phần thiết kế quan trọng nhất: cho phép đăng ký nhiều passkey, có mã khôi phục hoặc quy trình xác minh danh tính lại (helpdesk/IdP) đủ mạnh — không để SMS OTP thành “cửa sau” yếu hơn passkey.</li>
+<li>Doanh nghiệp có thể giới hạn chỉ cho phép một số loại authenticator (qua attestation/AAGUID) hoặc chỉ device-bound cho tài khoản đặc quyền.</li>
+<li>Đăng nhập trên máy lạ: dùng <b>hybrid</b> (quét QR bằng điện thoại, xác nhận qua Bluetooth ở gần) — passkey không rời điện thoại.</li>
+</ul>
+
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Passkey đồng bộ lên cloud nên không còn chống phishing.</span><span class="f-label">Thực tế</span><span>Synced passkey vẫn gắn RP ID và vẫn chống phishing như device-bound. Cái thay đổi là <b>mô hình trust</b>: an toàn phụ thuộc thêm vào tài khoản của passkey provider (Apple ID, tài khoản Google…).</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Đã có passkey thì tài khoản an toàn, khâu khôi phục làm sao cũng được.</span><span class="f-label">Thực tế</span><span>Nếu “quên passkey” chỉ cần mã SMS để thêm passkey mới, kẻ tấn công sẽ đi đường SMS (SIM swap, phishing mã). Độ an toàn bằng khâu yếu nhất.</span></div>
+
+<h3 id="windows-hello">G. Windows Hello và các so sánh</h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Windows Hello là “<b>ổ khóa vân tay/khuôn mặt/PIN</b>” của Windows. Nó có thể làm authenticator cho website (WebAuthn), nhưng cũng có thể là cách đăng nhập vào Windows/doanh nghiệp (Windows Hello for Business) — hai việc khác nhau dù cùng giao diện.</div>
+<ul>
+<li><b>Windows Hello</b> có thể đóng vai <b>platform authenticator</b> cho WebAuthn trong trình duyệt.</li>
+<li><b>Windows Hello for Business</b> là giải pháp đăng nhập Windows/Entra ID/AD bằng key hoặc certificate gắn với thiết bị — một mô hình triển khai khác, không đồng nghĩa với “website dùng WebAuthn”.</li>
+<li>PIN của Windows Hello là <b>cục bộ</b> (mở khóa private key trong TPM), khác mật khẩu domain gửi đi xác thực.</li>
+</ul>
+<div class="compare" id="hello-whfb-passkey"><span class="compare-title">Phân biệt dễ nhầm: Windows Hello vs Windows Hello for Business vs Passkey</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Windows Hello</th><th>Windows Hello for Business (WHfB)</th><th>Passkey</th></tr></thead>
+<tbody>
+<tr><td>Là gì</td><td><b>Tính năng</b> của Windows: mở khóa bằng PIN/vân tay/khuôn mặt</td><td><b>Giải pháp doanh nghiệp</b>: credential (key hoặc certificate trong TPM) để đăng nhập Windows vào AD/Entra ID</td><td><b>Credential FIDO</b> để đăng nhập một website/app</td></tr>
+<tr><td>Ai cấu hình</td><td>Người dùng tự bật</td><td>Admin công ty triển khai bằng chính sách</td><td>Người dùng tạo trên từng website</td></tr>
+<tr><td>Đăng nhập vào</td><td>Máy (tài khoản cá nhân/cục bộ), và làm authenticator cho WebAuthn</td><td>Windows + tài nguyên công ty (lấy vé Kerberos / token Entra ID)</td><td>Đúng RP đã đăng ký (vd. <code>hr.company.com</code>)</td></tr>
+<tr><td>Quan hệ</td><td colspan="3">Windows Hello là “cái khóa sinh trắc/PIN”. WHfB dùng cái khóa đó để mở credential doanh nghiệp. Passkey tạo trên Windows cũng được mở bằng cái khóa đó, nhưng là một credential khác, riêng cho website.</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> sáng An nhìn vào camera để vào laptop công ty → đó là <b>WHfB</b> (máy nhận vé Kerberos như ở <a href="m05-2-kerberos-enterprise.html#kerberos">bài 5.2</a>). Sau đó An mở Kaopiz HR, Chrome hỏi “Dùng passkey?”, An lại nhìn camera → Windows Hello đang làm <b>platform authenticator</b> cho <b>passkey</b> của <code>hr.company.com</code>. Cùng một khuôn mặt, hai credential khác nhau.</p>
+<span class="rule">Windows Hello = cách mở khóa; WHfB = credential đăng nhập Windows công ty; passkey = credential đăng nhập website.</span>
+</div>
+
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>PIN Windows Hello chỉ 6 số nên yếu hơn mật khẩu domain.</span><span class="f-label">Thực tế</span><span>PIN chỉ mở khóa private key trong TPM của <b>đúng máy đó</b>, không gửi qua mạng; TPM còn khóa lại khi đoán sai nhiều lần. Kẻ lấy được PIN mà không có máy thì không dùng được — khác mật khẩu domain dùng được từ bất kỳ đâu.</span></div>
+<div class="grid cols-2">
+  <div class="card"><h4>FIDO2/WebAuthn vs OIDC</h4><p>WebAuthn là <b>cơ chế xác thực</b> public-key tại RP. OIDC là <b>giao thức federation/identity layer</b> (<a href="m03-5-oidc.html#oidc">M03</a>). Kết hợp phổ biến: người dùng đăng nhập vào IdP (Keycloak/Entra ID) <b>bằng passkey</b>, rồi IdP phát ID token cho các app qua OIDC.</p></div>
+  <div class="card"><h4>Passkey vs OTP</h4><p>Passkey dựa trên <b>public-key credential</b> gắn origin; OTP dựa trên <b>mã dùng một lần</b> từ secret chung (TOTP) hoặc gửi qua SMS/email — người dùng tự gõ được vào trang giả.</p></div>
+</div>
+
+<h3 id="password-otp-passkey">Bảng so sánh password vs OTP vs push vs passkey (Deliverable 4)</h3>
+<p>Bảng này gom lại mọi thứ ở trên. Dòng quan trọng nhất là <b>Phishing / AiTM</b>: chỉ passkey chống được, vì chỉ passkey có trình duyệt kiểm tên miền thay cho người dùng.</p>
+<div class="compare" id="password-otp-push-passkey"><span class="compare-title">Phân biệt dễ nhầm: Password vs OTP vs Push vs Passkey</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Password</th><th>OTP (TOTP / SMS)</th><th>Push (bấm “Duyệt” trên app)</th><th>Passkey (FIDO2)</th></tr></thead>
+<tbody>
+<tr><td>Bản chất</td><td>Bí mật chung người dùng nhớ</td><td>Mã ngắn hạn từ secret chung (TOTP) hoặc gửi qua kênh (SMS/email)</td><td>Server gửi thông báo tới app đã đăng ký trên điện thoại; người dùng bấm duyệt (có thể kèm nhập số khớp)</td><td>Cặp khóa public/private, ký challenge</td></tr>
+<tr><td>Server lưu gì</td><td>Hash mật khẩu (<a href="m02-1-crypto.html#password-hashing">M02</a>)</td><td>Secret TOTP (phải bảo vệ được, không chỉ hash) / số điện thoại</td><td>Thông tin thiết bị/app đã đăng ký</td><td>Chỉ public key — lộ DB không lộ credential</td></tr>
+<tr><td>Phishing / AiTM</td><td>❌ Dễ</td><td>❌ Vẫn bị (gõ mã vào trang giả, bị chuyển tiếp trong thời gian sống)</td><td>❌ Vẫn bị (trang giả kích hoạt đăng nhập thật, người dùng bấm duyệt)</td><td>✅ Chống được nhờ origin binding</td></tr>
+<tr><td>Replay</td><td>❌ Dùng lại vô hạn</td><td>⚠️ Ngắn hạn (TOTP ~30 giây)</td><td>✅ Mỗi yêu cầu duyệt một lần</td><td>✅ Challenge mới mỗi lần</td></tr>
+<tr><td>Dùng lại giữa các site</td><td>❌ Người dùng hay dùng lại</td><td>Secret riêng mỗi site</td><td>Gắn với từng dịch vụ</td><td>✅ Cặp khóa riêng mỗi RP</td></tr>
+<tr><td>Đoán / brute force</td><td>❌ Có thể</td><td>⚠️ Cần rate limit</td><td>⚠️ Kẻ tấn công spam yêu cầu duyệt (MFA fatigue)</td><td>✅ Không khả thi</td></tr>
+<tr><td>Yếu tố</td><td>Know</td><td>Have (SMS là have yếu)</td><td>Have (+ know/are nếu app đòi mở khóa)</td><td>Have + (know/are nếu UV)</td></tr>
+<tr><td>Trải nghiệm</td><td>Phải nhớ, hay quên</td><td>Thêm bước gõ mã</td><td>Thêm bước mở điện thoại, bấm duyệt</td><td>Vân tay/khuôn mặt/PIN, nhanh</td></tr>
+<tr><td>Rủi ro chính còn lại</td><td>Lộ, đoán, reuse</td><td>SIM swap, phishing</td><td>MFA fatigue, AiTM phishing</td><td>Recovery yếu, tài khoản cloud provider bị chiếm, malware sau đăng nhập</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> kẻ tấn công gửi An link <code>hr-company-login.com</code>. Với <b>mật khẩu</b>: An gõ, mất. Với <b>OTP</b>: An gõ thêm mã 6 số, trang giả chuyển tiếp ngay trong 30 giây, vẫn mất. Với <b>push</b>: trang giả đăng nhập thật bằng mật khẩu An vừa gõ, điện thoại An hiện “Duyệt đăng nhập?”, An tưởng là của mình và bấm duyệt, vẫn mất. Với <b>passkey</b>: trình duyệt không tìm thấy passkey nào cho <code>hr-company-login.com</code>, không có gì để mất.</p>
+<span class="rule">Thứ gì người dùng gõ hoặc bấm duyệt được thì trang giả lừa được. Passkey an toàn vì trình duyệt kiểm tên miền, không phải người dùng.</span>
+</div>
+
+
+<div class="callout tip"><span class="callout-title">✅ Tự kiểm tra nhanh</span><ul>
+<li>Kaopiz HR cho đăng nhập bằng passkey, nhưng “quên passkey” thì chỉ cần mã SMS để tạo passkey mới. Kẻ tấn công sẽ nhắm vào đâu?</li>
+<li>Server nhận <code>UP=1, UV=0</code>. Khi nào được chấp nhận, khi nào không?</li>
+<li>Vì sao push notification không chống được AiTM dù không phải gõ mã?</li>
+</ul></div>
+
+<h2 id="quiz-bai">Quiz nhanh — Bài 5.4</h2>
+<div id="quiz"></div>
+</main>
+<script>
+window.QUIZ = [
+  { q: "Bình dùng một security key đời cũ <b>chưa đặt PIN</b> (chỉ chạm, <code>UP=1, UV=0</code>) cho tài khoản HR. Bình bấm link phishing <code>hr-company-login.com</code> giống hệt trang thật. Passkey trên key đó có bị lợi dụng không?", tricky: true,
+    options: ["Có, vì không có sinh trắc/PIN nên không chống phishing", "Không: trình duyệt không cho dùng credential của <code>hr.company.com</code> trên origin khác, và origin thật được ghi vào dữ liệu được ký — không phụ thuộc UV", "Chỉ an toàn nếu passkey là loại đồng bộ", "Chỉ an toàn nếu server yêu cầu <code>userVerification: \"required\"</code>"],
+    answer: 1,
+    why: ["Bẫy “passkey an toàn nhờ sinh trắc”: sinh trắc/PIN (UV) trả lời “có đúng chủ nhân không”, không liên quan tên miền.", "Chống phishing đến từ origin binding do trình duyệt thực hiện, có với mọi passkey dù UV=0.", "Synced hay device-bound đều gắn RP ID như nhau; đồng bộ chỉ đổi cách lưu và mô hình trust.", "Yêu cầu UV bảo vệ khi người khác nhặt được key, không phải lớp chống phishing."],
+    explain: "UV chống “người lạ cầm thiết bị”; origin binding chống “trang giả”. Xem <a href='m05-4-passkey.html#phishing-resistance'>phần D</a>." },
+  { q: "Server nhận assertion có <code>UP=1, UV=0</code>. Phát biểu nào đúng? (chọn nhiều)",
+    options: ["Đã có người tương tác vật lý với authenticator (chạm/bấm)", "Authenticator không xác minh được (hoặc không được yêu cầu xác minh) <i>đó là ai</i>", "Không có ai thao tác, chắc chắn là malware", "Chữ ký chắc chắn không hợp lệ"],
+    answer: [0, 1],
+    why: ["UP=1 nghĩa là User Present: có người chạm/bấm.", "UV=0 nghĩa là chưa có PIN/sinh trắc/mật khẩu thiết bị được kiểm — vd. security key chưa đặt PIN, hoặc RP gửi <code>\"preferred\"</code>/<code>\"discouraged\"</code>.", "Nhầm UV với UP: nếu không ai thao tác thì UP mới bằng 0.", "Flag UV và tính hợp lệ của chữ ký là hai việc độc lập; chữ ký vẫn có thể hợp lệ."],
+    explain: "Có chấp nhận hay không tùy policy: thao tác nhạy cảm yêu cầu UV=1. Xem <a href='m05-4-passkey.html#up-uv'>UP vs UV</a>." },
+  { q: "Kaopiz HR muốn passkey không bị “phí” vì khâu khôi phục yếu. Thiết kế nào hợp lý? (chọn nhiều)",
+    options: ["Cho mỗi người đăng ký nhiều passkey (vd. điện thoại + security key dự phòng)", "Khôi phục qua xác minh danh tính lại đủ mạnh (helpdesk/IdP), có ghi log và thông báo", "Quên passkey thì chỉ cần mã SMS là thêm được passkey mới", "Tắt passkey, quay lại mật khẩu cho đơn giản"],
+    answer: [0, 1],
+    why: ["Nhiều passkey giảm nhu cầu phải khôi phục khi mất một thiết bị.", "Recovery phải mạnh tương xứng với passkey, nếu không sẽ thành cửa sau.", "SMS OTP có thể bị SIM swap và phishing; biến nó thành đường thêm passkey là hạ độ an toàn xuống mức SMS.", "Quay lại mật khẩu mất luôn khả năng chống phishing — tệ hơn chứ không an toàn hơn."],
+    explain: "Kẻ tấn công nhắm vào khâu yếu nhất. Xem <a href='m05-4-passkey.html#passkey'>phần F</a>." },
+  { q: "Công ty bật push MFA có <b>number matching</b> (người dùng phải gõ số hiện trên màn hình đăng nhập vào app). An bấm link AiTM <code>hr-company-login.com</code>. Điều gì có thể xảy ra?",
+    options: ["An an toàn vì number matching chống được mọi phishing", "Trang AiTM chuyển tiếp mật khẩu tới trang thật, hiển thị lại con số cho An; An gõ số, duyệt, và kẻ tấn công lấy được session", "Trình duyệt chặn trang giả vì có number matching", "Push tự kiểm origin như passkey"],
+    answer: 1,
+    why: ["Number matching chủ yếu chống MFA fatigue (bấm duyệt bừa), không chống trang giả đứng giữa.", "Trang AiTM thấy được con số từ trang thật và hiện cho An; An không có cách nào biết tên miền sai từ app duyệt.", "Number matching nằm trong app MFA, trình duyệt không biết gì về nó.", "Push không có origin binding; chỉ WebAuthn có trình duyệt kiểm tên miền."],
+    explain: "Thứ gì người dùng gõ hoặc bấm duyệt được thì trang giả lừa được. Xem <a href='m05-4-passkey.html#password-otp-passkey'>bảng so sánh</a>." },
+  { q: "Sáng An nhìn camera để vào laptop công ty (WHfB), sau đó nhìn camera lần nữa để đăng nhập Kaopiz HR bằng passkey. Phát biểu nào đúng?",
+    options: ["Cùng một credential, chỉ là dùng hai lần", "Windows Hello là cách mở khóa; hai lần đó mở hai credential khác nhau: credential WHfB cho Windows/AD và passkey riêng cho <code>hr.company.com</code>", "Passkey của HR chính là certificate WHfB", "Khuôn mặt của An được gửi lên server HR để so khớp"],
+    answer: 1,
+    why: ["Cùng khuôn mặt nhưng mỗi lần mở một private key khác nhau.", "Windows Hello chỉ là “ổ khóa” sinh trắc/PIN; WHfB và passkey là hai credential riêng, dùng cho hai bên tin cậy khác nhau.", "WHfB dùng key/certificate để đăng nhập Windows; passkey là credential FIDO riêng cho từng website.", "Sinh trắc xử lý cục bộ, server chỉ nhận chữ ký và flag UV."],
+    explain: "Xem <a href='m05-4-passkey.html#hello-whfb-passkey'>Windows Hello vs WHfB vs passkey</a>." }
+];
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="assets/pages.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

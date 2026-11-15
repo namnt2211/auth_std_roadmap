@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M03 · Bài 3.5 · OpenID Connect &amp; ID token</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<main class="content">
+
+<div class="page-head">
+  <div class="breadcrumb"><a href="index.html">Lộ trình</a> / <a href="m03-oauth-oidc.html">Module 03</a> / Bài 3.5</div>
+  <h1>Bài 3.5 — OpenID Connect &amp; ID token</h1>
+  <p class="lead">OAuth chỉ trả lời “app được làm gì”. OpenID Connect (OIDC) thêm câu trả lời “người dùng là ai” bằng ID token. Bài này đi qua: ID token chứa gì, scope và claim khác nhau thế nào, UserInfo, flow đăng nhập đầy đủ và cách kiểm tra ID token cho đúng.</p>
+  <div class="meta-row">
+    <span class="chip">⏱ ~25 phút</span>
+    <span class="chip">📘 <a href="m03-oauth-oidc.html">Module 03 · OAuth 2.0 / 2.1 &amp; OpenID Connect</a></span>
+  </div>
+</div>
+
+<!-- ===================================================== -->
+<h2 id="oidc">OpenID Connect (OIDC) <span class="badge must">Must</span></h2>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>OAuth đưa cho app một <b>thẻ ra vào</b> (access token). OIDC đưa thêm một <b>CCCD có dấu giáp lai</b> (ID token): ghi rõ bạn là ai, ai cấp (iss), cấp cho app nào (aud), cấp lúc nào và hết hạn khi nào. App đọc CCCD để biết “ai đang đăng nhập”, còn thẻ ra vào thì đem đi quẹt ở API.</div>
+
+<div class="terms"><span class="terms-title">📖 Thuật ngữ trong bài</span><dl>
+<dt>OIDC</dt><dd>OpenID Connect — lớp “đăng nhập” xây trên OAuth 2.0, cho app biết chắc người dùng là ai.</dd>
+<dt>OP (OpenID Provider)</dt><dd>Bên xác thực người dùng và phát ID token — trong lab là Keycloak.</dd>
+<dt>RP (Relying Party)</dt><dd>App “dựa vào” kết quả đăng nhập của OP — chính là client trong OAuth.</dd>
+<dt>ID token</dt><dd>JWT có chữ ký, kể lại “ai vừa đăng nhập, lúc nào, cho app nào”; chỉ dành cho RP đọc.</dd>
+<dt>Claim</dt><dd>Một mẩu thông tin trong token, dạng cặp tên–giá trị, vd. <code>"email": "an.nv@example.com"</code>.</dd>
+<dt>Scope</dt><dd>Chuỗi app gửi lúc xin token để nói “tôi muốn những gì”, vd. <code>openid profile email</code>.</dd>
+<dt>UserInfo endpoint</dt><dd>API của OP trả thêm thông tin người dùng, gọi bằng access token.</dd>
+<dt>nonce</dt><dd>Số ngẫu nhiên RP gửi đi lúc đăng nhập và kiểm tra lại trong ID token — chống dùng lại ID token cũ.</dd>
+</dl></div>
+
+<h3 id="oidc-la-gi">A. OIDC là gì?</h3>
+<p><b>OpenID Connect 1.0</b> là lớp <b>identity/authentication</b> (xác định danh tính / đăng nhập) xây <b>trên</b> OAuth 2.0. Nó là đặc tả của OpenID Foundation, không phải của IETF.</p>
+<p>OIDC không phát minh flow mới. Nó dùng lại flow OAuth (thường là Authorization Code + PKCE) và chuẩn hóa thêm vài thứ:</p>
+<ul>
+<li>Scope đặc biệt <code>openid</code> — có nó thì request trở thành <b>authentication request</b> (yêu cầu đăng nhập) của OIDC.</li>
+<li><b>ID token</b> — một JWT có chữ ký, chứa kết quả xác thực.</li>
+<li><b>UserInfo endpoint</b>, tập <b>claim chuẩn</b> (<code>name</code>, <code>email</code>…), <b>Discovery</b>, <b>JWKS</b> và các đặc tả <b>logout</b> (xem <a href="m03-6-discovery-logout.html#discovery-jwks">Bài 3.6</a>).</li>
+</ul>
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: OAuth 2.0 vs OIDC</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>OAuth 2.0</th><th>OpenID Connect</th></tr></thead>
+<tbody>
+<tr><td>Trả lời câu hỏi</td><td>“App này <b>được làm gì</b> thay người dùng?” (ủy quyền)</td><td>“Người đang dùng app <b>là ai</b>?” (xác thực)</td></tr>
+<tr><td>Sản phẩm chính</td><td>Access token (+ refresh token)</td><td>ID token (và vẫn có access token)</td></tr>
+<tr><td>Người đọc sản phẩm</td><td>API (Resource Server)</td><td>Chính app (RP)</td></tr>
+<tr><td>Cách bật</td><td>Scope tùy API, vd. <code>orders.read</code></td><td>Thêm scope <code>openid</code></td></tr>
+<tr><td>Ai đặc tả</td><td>IETF (RFC 6749…)</td><td>OpenID Foundation (OIDC Core 1.0)</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> PrintNow chỉ cần đọc album ảnh trên PhotoCloud → OAuth là đủ, PrintNow không cần biết người dùng tên gì. Còn khi An bấm “Đăng nhập bằng Keycloak” vào web đặt hàng, web cần biết chắc “đây là An” → phải dùng OIDC, xin <code>scope=openid …</code> và validate ID token.</p>
+<span class="rule">OAuth = “được làm gì”. OIDC = “là ai”. OIDC chạy trên OAuth, không thay thế nó.</span>
+</div>
+<div class="diagram">
+<pre class="mermaid">
+flowchart TB
+  subgraph OIDC["OpenID Connect (lớp danh tính)"]
+    direction LR
+    I1["scope openid"] --- I2["ID token"] --- I3["UserInfo"] --- I4["Discovery + JWKS"] --- I5["Logout specs"]
+  end
+  subgraph OAUTH["OAuth 2.0 (lớp ủy quyền)"]
+    direction LR
+    O1["Authorization endpoint"] --- O2["Token endpoint"] --- O3["Access / refresh token"] --- O4["PKCE, state, redirect URI"]
+  end
+  subgraph BASE["Nền tảng"]
+    direction LR
+    B1["HTTPS / TLS"] --- B2["JSON"] --- B3["JWT, JWS, JWK"]
+  end
+  OIDC --> OAUTH --> BASE
+</pre>
+<div class="caption">OIDC không thay OAuth mà dựng thêm một tầng lên trên. Một request vừa có thể xin ID token (đăng nhập) vừa xin access token (gọi API).</div>
+</div>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Có access token nghĩa là người dùng đã đăng nhập vào app của tôi.</span><span class="f-label">Thực tế</span><span>Access token là để <b>gọi API</b>; nó có thể được cấp cho app khác rồi bị đem tới app bạn, và app không có cách chuẩn để kiểm tra nó “dành cho mình”. Đăng nhập cần <b>ID token</b> đã validate (<code>aud</code> = client_id của bạn, <code>nonce</code> khớp).</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>OIDC là giao thức mới thay thế OAuth 2.0, dùng OIDC thì không còn OAuth nữa.</span><span class="f-label">Thực tế</span><span>OIDC chạy <b>trên</b> OAuth: vẫn authorization endpoint, token endpoint, Authorization Code + PKCE. Chỉ thêm scope <code>openid</code> và ID token. Một lần đăng nhập OIDC thường trả về <b>cả</b> ID token lẫn access token.</span></div>
+
+<h3 id="oidc-terms">B. Thành phần và thuật ngữ</h3>
+<p>OIDC đặt tên mới cho vài vai trò của OAuth. Cột cuối giúp bạn “dịch” về tên OAuth đã học ở <a href="m03-1-oauth-basics.html#oauth-roles">Bài 3.1</a>.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Thuật ngữ</th><th>Ý nghĩa</th><th>Tương ứng OAuth</th></tr></thead>
+<tbody>
+<tr><td><b>OpenID Provider (OP)</b></td><td>Hệ thống cung cấp dịch vụ OIDC: xác thực người dùng, phát hành ID token. Thường chính là IdP.</td><td>Authorization Server có hỗ trợ OIDC</td></tr>
+<tr><td><b>Relying Party (RP)</b></td><td>Ứng dụng <b>tin cậy</b> kết quả xác thực từ OP.</td><td>Client</td></tr>
+<tr><td><b>ID Token</b></td><td>JWT có chữ ký chứa claims về <b>sự kiện xác thực</b> và <b>subject</b>. Dành cho RP.</td><td>(OAuth không có)</td></tr>
+<tr><td><b>UserInfo Endpoint</b></td><td>API của OP trả claims về người dùng, gọi bằng <b>access token</b>.</td><td>Một Resource Server của OP</td></tr>
+<tr><td><b>Discovery</b></td><td>Tài liệu metadata JSON tại <code>{issuer}/.well-known/openid-configuration</code>.</td><td>Tương tự RFC 8414</td></tr>
+<tr><td><b>JWKS</b> (JSON Web Key Set)</td><td>Tập public key của OP để xác minh chữ ký token.</td><td>—</td></tr>
+<tr><td><b>Claims</b></td><td>Từng mẩu thông tin về subject (<code>sub</code>, <code>name</code>, <code>email</code>…). Chỉ xin những gì cần — quyền riêng tư.</td><td>—</td></tr>
+</tbody></table></div>
+
+<h3 id="id-token">ID token: cấu trúc và claims</h3>
+<p>Phần này cho bạn xem một ID token thật “bên trong” trông thế nào. Điều cần rút ra: mỗi claim trả lời một câu hỏi — <b>ai</b> cấp (<code>iss</code>), <b>cho ai</b> dùng (<code>aud</code>), <b>về ai</b> (<code>sub</code>), <b>còn hạn không</b> (<code>exp</code>), và <b>có đúng lần đăng nhập mình vừa yêu cầu không</b> (<code>nonce</code>).</p>
+<p>Dưới đây là một ID token mẫu theo định dạng Keycloak realm <code>demo</code>. Header và payload decode được thật; phần chữ ký chỉ minh họa nên token này không verify được. Bạn có thể dán vào <a href="m02-3-token-jwt.html#jwt-widget">JWT decoder ở M02</a> để xem.</p>
+<div class="jwt"><span class="h">eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6ImtRM3g5dlQyYkwwbVI3d04ifQ</span><span class="dot">.</span><span class="p">eyJleHAiOjE3OTQyNzc1MDAsImlhdCI6MTc5NDI3NzIwMCwiYXV0aF90aW1lIjoxNzk0Mjc3MTkwLCJpc3MiOiJodHRwOi8vbG9jYWxob3N0OjgwODAvcmVhbG1zL2RlbW8iLCJhdWQiOiJkZW1vLWNsaWVudCIsInN1YiI6ImYzYjJjMWQwLTdhNmUtNGMyYi05ZDFhLTVlOGY3YTZiNGMzZCIsInR5cCI6IklEIiwiYXpwIjoiZGVtby1jbGllbnQiLCJub25jZSI6Im4tMFM2X1d6QTJNaiIsImFjciI6IjEiLCJuYW1lIjoiTmd1eWVuIFZhbiBBbiIsImVtYWlsIjoiYW4ubnZAZXhhbXBsZS5jb20iLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZX0</span><span class="dot">.</span><span class="s">NHVaYe26MbtOYhSKkoKYdFVomg4i8ZJd8_-RU8VNbftc4TSMb4bXP3l3YlNWACwyXPGffz5aXHc6lty1Y2t4SWRqGteragsVdZufDn5BlnJl9pdR_kdVFUsra2rWKEofkZeIC4yWytE58sMIihvo9H1ScmmVwBcQP6XETqYd0aSHp1gOa9RdUPDvoXQ5oqygTqVtxaDr6wUFKrKItgBMzWIdNZ6y7O9E0DhEPTbE9rfBo6KTFsHAZnMg4k68CDp2woYIaXbmYTWcvbzIuHO7_37GT79XdIwkm95QJ7hYC9RiwrV7mesbY4PAahERJawntho0my942XheVLmGwLMBkQ</span></div>
+<pre data-title="Header + payload sau khi decode"><code class="language-json">// Header
+{ "alg": "RS256", "typ": "JWT", "kid": "kQ3x9vT2bL0mR7wN" }
+
+// Payload
+{
+  "exp": 1794277500,                // hết hạn 10/11/2026 09:25 (giờ VN)
+  "iat": 1794277200,                // phát hành 09:20
+  "auth_time": 1794277190,          // người dùng thực sự nhập credential lúc 09:19:50
+  "iss": "http://localhost:8080/realms/demo",
+  "aud": "demo-client",             // = client_id của RP
+  "sub": "f3b2c1d0-7a6e-4c2b-9d1a-5e8f7a6b4c3d",
+  "typ": "ID",                      // claim riêng của Keycloak
+  "azp": "demo-client",
+  "nonce": "n-0S6_WzA2Mj",          // khớp nonce trong authorization request
+  "acr": "1",
+  "name": "Nguyen Van An",
+  "email": "an.nv@example.com",
+  "email_verified": true
+}</code></pre>
+
+<div class="table-wrap"><table>
+<thead><tr><th>Claim</th><th>Bắt buộc? (OIDC Core §2)</th><th>Ý nghĩa</th></tr></thead>
+<tbody>
+<tr><td><code>iss</code></td><td><b>REQUIRED</b></td><td>Issuer Identifier của OP (URL HTTPS; lab dùng HTTP localhost). Phải khớp <b>chính xác</b> issuer trong Discovery.</td></tr>
+<tr><td><code>sub</code></td><td><b>REQUIRED</b></td><td>Subject identifier: duy nhất <b>trong phạm vi issuer</b>, không bao giờ cấp lại cho người khác, phân biệt hoa thường, tối đa 255 ký tự ASCII.</td></tr>
+<tr><td><code>aud</code></td><td><b>REQUIRED</b></td><td>Audience — <b>phải chứa <code>client_id</code> của RP</b>. Có thể là chuỗi hoặc mảng.</td></tr>
+<tr><td><code>exp</code></td><td><b>REQUIRED</b></td><td>Thời điểm hết hạn (giây Unix). Sau thời điểm này không được chấp nhận.</td></tr>
+<tr><td><code>iat</code></td><td><b>REQUIRED</b></td><td>Thời điểm phát hành.</td></tr>
+<tr><td><code>auth_time</code></td><td>Bắt buộc khi request có <code>max_age</code> hoặc yêu cầu claim này là essential; còn lại tùy chọn</td><td>Thời điểm người dùng <b>thực sự xác thực</b> (khác <code>iat</code> khi SSO dùng lại phiên cũ).</td></tr>
+<tr><td><code>nonce</code></td><td>Nếu request có nonce thì OP <b>phải</b> đưa vào ID token và RP <b>phải</b> kiểm tra</td><td>Liên kết ID token với authentication request, chống replay.</td></tr>
+<tr><td><code>acr</code></td><td>OPTIONAL</td><td>Authentication Context Class Reference — “mức độ” xác thực (ý nghĩa giá trị tùy OP).</td></tr>
+<tr><td><code>amr</code></td><td>OPTIONAL</td><td>Authentication Methods References — phương thức đã dùng, vd. <code>["pwd","mfa"]</code>.</td></tr>
+<tr><td><code>azp</code></td><td>OPTIONAL</td><td>Authorized party — client_id của bên được cấp token. Nếu có, RP nên kiểm tra nó bằng client_id của mình. Một số OP (Keycloak, Google) luôn gửi.</td></tr>
+</tbody></table></div>
+<div class="callout example"><span class="callout-title">🧪 Ví dụ: <code>iat</code> khác <code>auth_time</code> khi có SSO</span>
+An nhập mật khẩu ở Keycloak lúc <b>08:00</b> để vào web đặt hàng. Lúc <b>09:20</b> An mở thêm app Wiki cùng realm; Keycloak còn phiên nên không hỏi lại mật khẩu (SSO). ID token cấp cho Wiki có <code>iat</code> = 09:20 (lúc phát token) nhưng <code>auth_time</code> = 08:00 (lúc An thật sự nhập mật khẩu). Trang nhạy cảm muốn “mật khẩu phải nhập trong 10 phút gần đây” thì gửi <code>max_age=600</code> và kiểm tra <code>auth_time</code>, không phải <code>iat</code>.</div>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span><code>iat</code> là lúc người dùng nhập mật khẩu.</span><span class="f-label">Thực tế</span><span><code>iat</code> là lúc <b>phát token</b>. Lúc người dùng thật sự xác thực là <code>auth_time</code>; với SSO hai giá trị có thể cách nhau hàng giờ (ví dụ trên).</span></div>
+
+<h3 id="scopes-userinfo">Scope OIDC, claims và UserInfo</h3>
+<p>Khi xin token, app gửi <b>scope</b> để nói “tôi muốn gì”. OP trả lại <b>claim</b> — các mẩu thông tin cụ thể. Bảng dưới cho biết mỗi scope chuẩn của OIDC “mở khóa” những claim nào.</p>
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: Scope vs Claim</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Scope</th><th>Claim</th></tr></thead>
+<tbody>
+<tr><td>Là gì</td><td>Lời <b>xin</b> — một nhóm quyền/thông tin</td><td>Một <b>giá trị cụ thể</b> nhận được</td></tr>
+<tr><td>Ai tạo</td><td>Client ghi vào authorization request</td><td>OP ghi vào ID token / access token / UserInfo</td></tr>
+<tr><td>Nằm ở đâu</td><td>Tham số <code>scope=openid profile email</code></td><td>Trong JSON: <code>"email": "an.nv@example.com"</code></td></tr>
+<tr><td>Quan hệ</td><td colspan="2">Một scope có thể kéo theo nhiều claim: xin <code>email</code> → nhận <code>email</code> và <code>email_verified</code>.</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> Web đặt hàng gửi <code>scope=openid profile email orders.read</code>. <code>openid</code> → có ID token với <code>sub</code>. <code>profile</code> → có <code>name</code>, <code>preferred_username</code>. <code>email</code> → có <code>email</code>, <code>email_verified</code> (các claim này nằm trong ID token hoặc lấy qua UserInfo, tùy OP — Keycloak mặc định đưa vào cả hai). Còn <code>orders.read</code> không phải scope OIDC: nó không thêm claim về người dùng mà chỉ xuất hiện trong claim <code>scope</code> của access token để API kiểm tra quyền.</p>
+<span class="rule">Scope = “tôi xin”. Claim = “đây là thứ bạn nhận”.</span>
+</div>
+<div class="table-wrap"><table>
+<thead><tr><th>Scope</th><th>Claims trả về (OIDC Core §5.4)</th></tr></thead>
+<tbody>
+<tr><td><code>openid</code></td><td><b>Bắt buộc</b> để là request OIDC; trả <code>sub</code>. Thiếu nó = OAuth thuần, không có ID token.</td></tr>
+<tr><td><code>profile</code></td><td><code>name</code>, <code>family_name</code>, <code>given_name</code>, <code>middle_name</code>, <code>nickname</code>, <code>preferred_username</code>, <code>profile</code>, <code>picture</code>, <code>website</code>, <code>gender</code>, <code>birthdate</code>, <code>zoneinfo</code>, <code>locale</code>, <code>updated_at</code></td></tr>
+<tr><td><code>email</code></td><td><code>email</code>, <code>email_verified</code></td></tr>
+<tr><td><code>address</code>, <code>phone</code></td><td><code>address</code>; <code>phone_number</code>, <code>phone_number_verified</code></td></tr>
+<tr><td><code>offline_access</code></td><td>Xin refresh token dùng được khi người dùng không còn phiên ở OP.</td></tr>
+</tbody></table></div>
+<p class="small muted">Nguyên tắc quyền riêng tư: chỉ xin scope bạn thật sự dùng. Web nội bộ chỉ cần biết “ai” thì <code>openid</code> là đủ; cần hiển thị tên thì thêm <code>profile</code>; cần gửi mail thì thêm <code>email</code>.</p>
+<p><b>UserInfo</b> là “quầy hỏi thêm thông tin”: khi ID token không chứa đủ claim, RP cầm <b>access token</b> gọi endpoint này để lấy thêm. Request và response trông như sau:</p>
+<pre data-title="UserInfo request / response"><code class="language-plaintext">GET /realms/demo/protocol/openid-connect/userinfo HTTP/1.1
+Host: localhost:8080
+Authorization: Bearer eyJhbGciOiJSUzI1NiIsInR5cCI...
+
+HTTP/1.1 200 OK
+Content-Type: application/json
+
+{
+  "sub": "f3b2c1d0-7a6e-4c2b-9d1a-5e8f7a6b4c3d",
+  "name": "Nguyen Van An",
+  "preferred_username": "an.nv",
+  "email": "an.nv@example.com",
+  "email_verified": true
+}</code></pre>
+<div class="callout warn"><span class="callout-title">⚠️ Kiểm tra <code>sub</code> của UserInfo</span>
+OIDC Core yêu cầu RP xác minh <code>sub</code> trong UserInfo response <b>trùng</b> <code>sub</code> trong ID token; nếu khác thì không được dùng dữ liệu UserInfo. Nhớ: UserInfo được gọi bằng <b>access token</b> — đây là ví dụ hiếm hoi client “dùng” access token cho chính OP.</div>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Đã xin scope <code>email</code> thì email nhận về chắc chắn đã được xác minh.</span><span class="f-label">Thực tế</span><span>Scope chỉ là lời xin; OP trả kèm claim <code>email_verified</code> để bạn tự kiểm tra. <code>email_verified = false</code> nghĩa là OP chưa xác nhận người dùng sở hữu hộp thư đó.</span></div>
+
+<h3 id="oidc-flow">D. OIDC flow đầy đủ (Authorization Code + PKCE)</h3>
+<p>Sơ đồ dưới ghép mọi mảnh lại: An mở web, bị chuyển sang Keycloak đăng nhập, quay về với code, web đổi code lấy token, kiểm tra ID token rồi tạo session riêng. Đọc theo 4 chặng:</p>
+<ol>
+<li><b>Bước 1–5:</b> web chưa biết An là ai → chuẩn bị <code>state</code>, <code>nonce</code>, PKCE rồi chuyển trình duyệt sang OP.</li>
+<li><b>Bước 6–9:</b> An đăng nhập ở OP (web không bao giờ thấy mật khẩu), OP trả <code>code</code> về callback.</li>
+<li><b>Bước 10–16:</b> web kiểm tra <code>state</code>, đổi code lấy token qua back-channel (server gọi thẳng server, trình duyệt không thấy), validate ID token, (tùy) gọi UserInfo.</li>
+<li><b>Bước 17–22:</b> web map <code>iss</code>+<code>sub</code> sang user nội bộ, tạo session cookie của riêng nó và dùng access token để gọi API.</li>
+</ol>
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant U as 👤 An
+  participant B as Browser
+  participant RP as RP: Web app ASP.NET Core
+  participant OP as OP: Keycloak
+  participant API as demo-api
+  U->>B: Mở /orders (chưa đăng nhập)
+  B->>RP: GET /orders
+  RP->>RP: Sinh state, nonce, code_verifier (lưu cookie tạm đã mã hóa)
+  RP-->>B: 302 tới authorization endpoint<br/>scope=openid profile orders.read, code_challenge, state, nonce
+  B->>OP: GET /auth?...
+  OP->>U: Đăng nhập (dùng lại phiên OP nếu đã có = SSO)
+  U->>OP: Credential + MFA
+  OP-->>B: 302 /signin-oidc?code=...&amp;state=...
+  B->>RP: GET /signin-oidc?code=...&amp;state=...
+  RP->>RP: Kiểm tra state
+  RP->>OP: POST /token (code, code_verifier, client auth)
+  OP-->>RP: id_token, access_token, refresh_token
+  RP->>OP: GET JWKS (đã cache theo kid)
+  RP->>RP: Validate ID token: chữ ký, iss, aud, exp, iat, nonce, azp
+  opt Cần thêm claims
+    RP->>OP: GET /userinfo (Bearer access_token)
+    OP-->>RP: Claims, kiểm tra sub trùng ID token
+  end
+  RP->>RP: Map iss+sub sang user nội bộ, tạo SESSION RIÊNG (cookie)
+  RP-->>B: 302 /orders + Set-Cookie session của app
+  B->>RP: GET /orders (cookie)
+  RP->>API: GET /orders (Bearer access_token)
+  API-->>RP: 200 OK
+  RP-->>B: Trang đơn hàng
+</pre>
+<div class="caption">Sau bước 18, RP không cần ID token cho mỗi request nữa — nó dùng <b>session cookie riêng</b> (<a href="m02-2-session-cookie.html#session-cookie">M02</a>). ID token là “bằng chứng đăng nhập” lúc vào cửa, không phải vé dùng mãi.</div>
+</div>
+
+<p>Trong ASP.NET Core, bạn không tự viết từng bước trên. Đoạn cấu hình dưới đây bật toàn bộ flow; đọc comment để biết mỗi dòng ứng với phần nào của sơ đồ.</p>
+<pre data-title="Program.cs — RP ASP.NET Core (confidential, server-side)"><code class="language-csharp">builder.Services.AddAuthentication(o =&gt;
+{
+    o.DefaultScheme          = CookieAuthenticationDefaults.AuthenticationScheme;
+    o.DefaultChallengeScheme = OpenIdConnectDefaults.AuthenticationScheme;
+})
+.AddCookie()
+.AddOpenIdConnect(o =&gt;
+{
+    o.Authority    = "http://localhost:8080/realms/demo"; // Discovery tự đọc từ đây
+    o.ClientId     = "demo-web";
+    o.ClientSecret = builder.Configuration["Oidc:ClientSecret"];
+    o.ResponseType = "code";            // Authorization Code
+    o.UsePkce      = true;              // mặc định đã true
+    o.Scope.Add("profile");             // "openid" và "profile" thường có sẵn mặc định
+    o.Scope.Add("orders.read");
+    o.SaveTokens   = true;              // lưu access/refresh token vào auth cookie để gọi API
+    o.MapInboundClaims = false;         // giữ tên claim gốc: sub, email...
+    o.RequireHttpsMetadata = false;     // CHỈ cho lab localhost
+});</code></pre>
+<p class="small muted">Handler tự sinh state/nonce/PKCE, tự tải Discovery + JWKS, và tự validate ID token theo checklist bên dưới. Việc của bạn: cấu hình đúng và hiểu khi nó báo lỗi.</p>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Sau khi đăng nhập, web gửi kèm ID token ở mỗi request để “giữ đăng nhập”.</span><span class="f-label">Thực tế</span><span>ID token chỉ là bằng chứng lúc vào cửa (bước 14 trong sơ đồ). Web server-side tạo <b>session cookie riêng</b> sau khi validate ID token (bước 17–18), và các request sau dùng cookie đó (<a href="m02-2-session-cookie.html#session-cookie">M02 — session cookie</a>).</span></div>
+
+<h3 id="id-token-validation">ID token validation checklist (OIDC Core §3.1.3.7)</h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>Nhận CCCD thì phải: xem dấu giáp lai thật (chữ ký), đúng cơ quan cấp (iss), cấp cho <b>mình</b> chứ không phải cho nơi khác (aud), còn hạn (exp), và đúng là tờ mình vừa yêu cầu chứ không phải bản photo cũ (nonce).</div>
+<ol class="steps">
+<li><b>Giải mã</b> nếu ID token được mã hóa (JWE) — ít gặp.</li>
+<li><b><code>iss</code></b> phải <b>khớp chính xác</b> Issuer Identifier của OP (lấy từ Discovery).</li>
+<li><b><code>aud</code></b> phải chứa <b><code>client_id</code></b> của RP; từ chối nếu không chứa, hoặc chứa audience khác mà RP không tin cậy.</li>
+<li>Nếu có <b><code>azp</code></b> → nên kiểm tra <code>azp</code> = <code>client_id</code> của mình.</li>
+<li><b>Chữ ký</b>: xác minh bằng public key của OP từ JWKS (chọn theo <code>kid</code>). Ngoại lệ: ID token nhận <b>trực tiếp</b> từ token endpoint qua TLS thì đặc tả cho phép dựa vào TLS thay cho kiểm tra chữ ký — nhưng thư viện thường vẫn kiểm tra, và bạn <b>nên</b> kiểm tra.</li>
+<li><b><code>alg</code></b>: phải là thuật toán đã thỏa thuận (mặc định <code>RS256</code>); <b>không</b> chấp nhận <code>none</code> hay đổi sang HMAC (<a href="m02-3-token-jwt.html#jwt-validation">M02 — algorithm confusion</a>).</li>
+<li><b><code>exp</code></b>: thời gian hiện tại phải trước <code>exp</code> (cho phép clock skew nhỏ).</li>
+<li><b><code>iat</code></b>: có thể từ chối token phát hành quá xa trong quá khứ.</li>
+<li><b><code>nonce</code></b>: nếu đã gửi nonce thì claim phải có và <b>khớp</b> giá trị đã lưu; nên chống dùng lại.</li>
+<li><b><code>acr</code></b> / <b><code>auth_time</code></b>: nếu đã yêu cầu mức xác thực hoặc <code>max_age</code> thì kiểm tra và yêu cầu đăng nhập lại khi cần.</li>
+</ol>
+<div class="callout example"><span class="callout-title">🧪 Ví dụ: checklist bắt được lỗi gì?</span>
+<ul>
+<li>Token có <code>iss = "http://localhost:8080/realms/test"</code> trong khi app cấu hình realm <code>demo</code> → sai <b>iss</b>, từ chối (token từ realm khác, dù cùng server Keycloak).</li>
+<li>Token có <code>aud = "wiki-client"</code> → đây là ID token cấp cho app Wiki, không phải cho <code>demo-client</code> → sai <b>aud</b>, từ chối.</li>
+<li>Token đúng hết nhưng <code>nonce</code> không khớp giá trị web đã lưu trong cookie tạm → có thể là ID token cũ bị chèn lại (replay) → từ chối.</li>
+</ul></div>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Chữ ký ID token hợp lệ là đủ, các bước còn lại chỉ là hình thức.</span><span class="f-label">Thực tế</span><span>Chữ ký chỉ chứng minh “OP này phát hành, không bị sửa”. Nó không nói token dành cho <b>app nào</b> (<code>aud</code>), từ <b>realm nào</b> (<code>iss</code>), còn hạn không (<code>exp</code>) hay có phải của <b>lần đăng nhập này</b> không (<code>nonce</code>). Cả ba ví dụ ở trên đều có chữ ký hợp lệ.</span></div>
+
+<h3 id="id-vs-access">C. ID token vs Access token (vs Refresh token)</h3>
+<p>Bảng này <b>mở rộng</b> bảng token ở <a href="m02-3-token-jwt.html#tokens">M02</a> — đây là <b>Deliverable 4</b>.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>ID token</th><th>Access token</th><th>Refresh token</th></tr></thead>
+<tbody>
+<tr><td>Chuẩn</td><td>OIDC Core</td><td>OAuth 2.0 (RFC 6749/6750; JWT profile RFC 9068)</td><td>OAuth 2.0</td></tr>
+<tr><td>Dành cho</td><td><b>Client/RP</b></td><td><b>Resource Server/API</b></td><td><b>Authorization Server</b></td></tr>
+<tr><td>Mục đích</td><td>Thông tin về <b>kết quả xác thực</b>: ai, khi nào, bằng cách nào</td><td><b>Truy cập tài nguyên</b> với scope cho phép</td><td>Xin access token mới</td></tr>
+<tr><td>Định dạng</td><td><b>Luôn là JWT</b> (có chữ ký)</td><td>JWT <b>hoặc</b> opaque — client không nên phụ thuộc vào nội dung</td><td>Thường opaque với client</td></tr>
+<tr><td><code>aud</code></td><td><b><code>client_id</code></b> của RP (vd. <code>demo-client</code>)</td><td>API (vd. <code>demo-api</code>)</td><td>—</td></tr>
+<tr><td>Claims đặc trưng</td><td><code>nonce</code>, <code>auth_time</code>, <code>acr</code>, <code>amr</code>, <code>azp</code>, <code>at_hash</code></td><td><code>scope</code>, <code>client_id</code>/<code>azp</code>, roles…</td><td>—</td></tr>
+<tr><td>Ai validate</td><td>RP: chữ ký, <code>iss</code>, <code>aud</code>=client_id, <code>exp</code>, <code>nonce</code>, <code>azp</code></td><td>API: chữ ký, <code>iss</code>, <code>aud</code>=API, <code>exp</code>, scope (hoặc introspection)</td><td>AS</td></tr>
+<tr><td>Gửi đi đâu</td><td><b>Không</b> gửi tới API làm bearer token. (Ngoại lệ hợp lệ: <code>id_token_hint</code> khi logout.)</td><td>Header <code>Authorization: Bearer</code> tới API</td><td>Chỉ tới token endpoint</td></tr>
+<tr><td>Thời hạn điển hình</td><td>Ngắn (phút) — chỉ cần lúc đăng nhập</td><td>Ngắn (5–60 phút)</td><td>Dài hơn (giờ–ngày), nên rotation</td></tr>
+<tr><td>Dùng thay nhau?</td><td colspan="3"><b>Không bao giờ.</b> API nhận ID token sẽ bị đánh lừa (aud là client, không có scope). Client “đọc” access token để biết user là dựa vào chi tiết không được đảm bảo.</td></tr>
+</tbody></table></div>
+<div class="callout example"><span class="callout-title">💡 Cùng một lần đăng nhập, hai <code>aud</code> khác nhau</span>
+Trong <a href="lab-3-pkce-client.html#lab3">Lab 3</a>: ID token có <code>aud = "demo-client"</code>, <code>azp = "demo-client"</code>. Access token có <code>aud = "demo-api"</code> (nhờ Audience mapper ở <a href="lab-1-keycloak.html#lab1">Lab 1</a>), <code>azp = "demo-client"</code>, <code>scope = "openid profile email orders.read"</code>. → <code>azp</code> cho API biết “client nào đã xin token này”, <code>aud</code> cho biết “token này dành cho ai”.</div>
+
+<div class="callout example"><span class="callout-title">🧪 Ví dụ: gửi nhầm ID token cho API thì sao?</span>
+<p>Dev mới viết web gọi <code>demo-api</code> nhưng lấy nhầm <code>id_token</code> thay vì <code>access_token</code>:</p>
+<pre><code class="language-plaintext">GET /orders HTTP/1.1
+Host: localhost:5005
+Authorization: Bearer &lt;ID token: aud="demo-client", typ="ID", không có scope&gt;
+
+HTTP/1.1 401 Unauthorized
+WWW-Authenticate: Bearer error="invalid_token", error_description="The audience 'demo-client' is invalid"</code></pre>
+<ul>
+<li><b>API cấu hình đúng</b> (kiểm tra <code>aud = demo-api</code>) → 401 như trên. Tốt: lỗi lộ ra ngay khi dev test (thử ở <a href="lab-2-api-jwt.html#lab2">Lab 2</a>).</li>
+<li><b>API quên kiểm tra <code>aud</code></b> → chữ ký đúng, issuer đúng, còn hạn → API chấp nhận. Lúc này <b>bất kỳ</b> ID token nào của realm (kể cả do app Wiki kém quan trọng nhận được) đều mở được API đơn hàng, và API cũng không có <code>scope</code> để kiểm tra quyền. Đó là lỗ hổng “token substitution”.</li>
+</ul></div>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Gửi ID token lên API cho tiện, vì nó cũng là JWT có chữ ký.</span><span class="f-label">Thực tế</span><span>ID token có <code>aud</code> = client, không có scope. API cấu hình đúng sẽ trả <code>401 invalid_token</code> (“audience is invalid”); API quên kiểm tra <code>aud</code> thì bị lừa như ví dụ trên (thử ở <a href="lab-2-api-jwt.html#lab2">Lab 2</a>).</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Client nên decode access token để lấy tên, email người dùng.</span><span class="f-label">Thực tế</span><span>Access token có thể là opaque, và nội dung của nó là “hợp đồng” giữa AS và API, có thể đổi bất cứ lúc nào. Client lấy thông tin người dùng từ <b>ID token</b> hoặc <b>UserInfo</b>.</span></div>
+
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: ID token vs UserInfo response</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>ID token</th><th>UserInfo response</th></tr></thead>
+<tbody>
+<tr><td>Nhận khi nào</td><td>Ngay ở token endpoint, cùng lúc với access token</td><td>Khi RP chủ động gọi <code>/userinfo</code> bằng access token</td></tr>
+<tr><td>Định dạng</td><td>JWT có chữ ký — RP phải validate</td><td>Thường là JSON thường (có thể cấu hình trả JWT ký)</td></tr>
+<tr><td>Nói về</td><td><b>Sự kiện đăng nhập</b> (<code>auth_time</code>, <code>nonce</code>, <code>acr</code>…) + một số thông tin người dùng</td><td>Chỉ <b>thông tin người dùng</b> (tên, email…), mới nhất tại thời điểm gọi</td></tr>
+<tr><td>Cần kiểm tra</td><td>Checklist ở trên</td><td><code>sub</code> phải trùng <code>sub</code> của ID token</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> Để giữ ID token nhỏ, admin Keycloak tắt “Add to ID token” cho claim <code>phone_number</code>. Web cần số điện thoại để gửi OTP → gọi UserInfo bằng access token để lấy, sau khi so <code>sub</code> khớp.</p>
+<span class="rule">ID token = “biên bản đăng nhập” có chữ ký. UserInfo = “hỏi thêm hồ sơ” khi cần.</span>
+</div>
+
+<div class="callout tip"><span class="callout-title">✅ Tự kiểm tra nhanh</span><ul>
+<li>Request OAuth thiếu scope <code>openid</code> thì có nhận được ID token không?</li>
+<li>ID token của web đặt hàng có <code>aud</code> là gì? Access token gửi cho <code>demo-api</code> có <code>aud</code> là gì?</li>
+<li>Vì sao RP vẫn phải kiểm tra <code>nonce</code> dù chữ ký ID token đã hợp lệ?</li>
+</ul></div>
+
+<h2 id="quiz-bai">Quiz nhanh — Bài 3.5</h2>
+<div id="quiz"></div>
+
+</main>
+<script>
+window.QUIZ = [
+  { q: "Dev cấu hình web gửi <code>scope=profile email</code> (quên <code>openid</code>) tới Keycloak. Theo OIDC Core, điều gì đúng?",
+    options: ["Vẫn là request OIDC vì gửi tới một OpenID Provider", "Request trở thành OAuth thuần: không phải authentication request của OIDC, không nên trông đợi ID token", "Keycloak tự thêm <code>openid</code> nên kết quả như nhau", "Chỉ nhận ID token, không nhận access token"],
+    answer: 1,
+    why: ["Gửi tới OP không đủ: chính scope <code>openid</code> mới biến request thành authentication request của OIDC.", "Thiếu <code>openid</code> thì hành vi OIDC không được đặc tả; bạn chỉ có OAuth thuần với access token, không có ID token để biết người dùng là ai.", "Không có quy định nào bắt OP tự thêm <code>openid</code>; dựa vào hành vi ngầm như vậy là đoán mò.", "Ngược lại: access token vẫn được cấp (đó là phần OAuth), cái bị thiếu là ID token."],
+    explain: "Scope <code>openid</code> là “công tắc” bật OIDC. Xem <a href='m03-5-oidc.html#scopes-userinfo'>bảng scope OIDC</a>." },
+  { q: "Web đặt hàng đã kiểm tra <code>state</code> ở callback khớp giá trị trong cookie tạm. Web cũng đã gửi <code>nonce</code> trong authorization request. Có còn phải kiểm tra <code>nonce</code> trong ID token không?",
+    options: ["Không — <code>state</code> khớp là đã chống được mọi tấn công", "Không — PKCE đã thay thế nonce", "Có — <code>state</code> bảo vệ authorization response ở callback, còn <code>nonce</code> gắn chính ID token với đúng authentication request này", "Chỉ cần khi dùng Implicit flow"],
+    answer: 2,
+    why: ["<code>state</code> chỉ chứng minh response quay về đúng phiên trình duyệt đã gửi request (chống CSRF); nó không nằm trong ID token nên không nói gì về ID token.", "PKCE ràng buộc <b>code</b> với client instance, không kiểm tra ID token. Và OIDC Core quy định: đã gửi nonce thì RP <b>phải</b> kiểm tra.", "Hai tham số bảo vệ hai đối tượng khác nhau; OIDC Core yêu cầu RP so nonce trong ID token với giá trị đã gửi để chống replay/injection ID token.", "Nonce quan trọng nhất với Implicit/hybrid, nhưng quy tắc “đã gửi thì phải kiểm tra” áp dụng cho mọi flow, kể cả Authorization Code."],
+    explain: "state ≠ nonce: khác đối tượng bảo vệ, khác nơi kiểm tra. Xem <a href='m03-4-state-nonce-redirect.html#state-nonce'>Bài 3.4</a> và <a href='m03-5-oidc.html#id-token-validation'>checklist</a>." },
+  { q: "Trang “Đổi mật khẩu” yêu cầu An phải nhập mật khẩu trong vòng 5 phút gần nhất. Web gửi <code>max_age=300</code>. Khi nhận ID token, web phải so claim nào với thời gian hiện tại?",
+    options: ["<code>iat</code>", "<code>exp</code>", "<code>auth_time</code>", "<code>nbf</code>"],
+    answer: 2,
+    why: ["<code>iat</code> là lúc phát token; với SSO token có thể vừa phát xong trong khi An nhập mật khẩu từ 2 giờ trước.", "<code>exp</code> cho biết token còn hạn hay không, không cho biết lần xác thực gần nhất là khi nào.", "<code>auth_time</code> là thời điểm người dùng thật sự xác thực; khi request có <code>max_age</code>, OP bắt buộc phải trả claim này.", "<code>nbf</code> (not before) là thời điểm token bắt đầu có hiệu lực, không liên quan lần nhập mật khẩu (và cũng không nằm trong danh sách claim ID token của OIDC Core §2)."],
+    explain: "<code>iat</code> = lúc phát token, <code>auth_time</code> = lúc người dùng xác thực. Xem <a href='m03-5-oidc.html#id-token'>ví dụ iat vs auth_time</a>." },
+  { q: "Web gọi UserInfo bằng access token hợp lệ, nhận về JSON có <code>sub</code> <b>khác</b> <code>sub</code> trong ID token vừa validate. Web nên làm gì?",
+    options: ["Dùng dữ liệu UserInfo vì access token hợp lệ", "Không dùng dữ liệu UserInfo đó (OIDC Core yêu cầu <code>sub</code> phải trùng)", "Cập nhật <code>sub</code> của user nội bộ theo UserInfo vì đó là dữ liệu mới nhất", "Gọi lại UserInfo bằng ID token thay cho access token"],
+    answer: 1,
+    why: ["Access token hợp lệ chỉ cho phép gọi endpoint; nó không đảm bảo response nói về đúng người vừa đăng nhập (có thể là token bị tráo).", "OIDC Core: nếu <code>sub</code> trong UserInfo không khớp ID token thì RP không được dùng dữ liệu UserInfo — có thể đang bị tráo token hoặc response.", "<code>sub</code> không bao giờ đổi với cùng một người; ghi đè theo response lạ là gắn tài khoản cho người khác.", "UserInfo chỉ nhận access token; ID token không dùng làm Bearer cho bất kỳ endpoint nào."],
+    explain: "UserInfo luôn phải được đối chiếu <code>sub</code> với ID token. Xem <a href='m03-5-oidc.html#scopes-userinfo'>UserInfo</a>." },
+  { q: "Những kiểm tra nào RP <b>phải</b> làm khi validate ID token (chọn tất cả)?",
+    options: ["<code>aud</code> chứa <code>client_id</code> của chính RP", "<code>nonce</code> khớp giá trị đã gửi (khi có gửi nonce)", "Claim <code>scope</code> có chứa <code>orders.read</code>", "<code>iss</code> khớp chính xác issuer trong Discovery"],
+    answer: [0, 1, 3],
+    why: ["ID token dành cho RP; thiếu bước này thì ID token cấp cho app khác (vd. Wiki) cũng đăng nhập được vào app của bạn.", "Đã gửi nonce thì phải so; đây là cách chống ID token cũ bị chèn lại.", "ID token không mang scope cho API; kiểm tra scope là việc của <b>API</b> với <b>access token</b>.", "Chỉ khớp chính xác mới loại được token từ realm/OP khác, dù cùng server Keycloak."],
+    explain: "Checklist đầy đủ ở <a href='m03-5-oidc.html#id-token-validation'>OIDC Core §3.1.3.7</a>." },
+  { q: "Web đặt hàng validate ID token của An <b>đầy đủ</b>: chữ ký đúng, <code>iss</code> đúng, <code>aud = demo-client</code>, còn hạn, <code>nonce</code> khớp. Dev bảo: “Token đã hợp lệ 100%, gửi luôn nó cho <code>demo-api</code> làm Bearer token.” Phát biểu nào đúng?",
+    tricky: true,
+    options: ["ID token này hợp lệ — nhưng hợp lệ <b>đối với web (RP)</b>, không phải đối với <code>demo-api</code>", "<code>demo-api</code> nên chấp nhận vì cùng issuer và chữ ký đúng", "<code>demo-api</code> cấu hình đúng sẽ trả 401 vì <code>aud = demo-client</code> không phải <code>demo-api</code>", "Không sao, vì ID token cũng chứa scope <code>orders.read</code>"],
+    answer: [0, 2],
+    why: ["“Hợp lệ” luôn gắn với người nhận: ID token được validate theo góc nhìn của RP (<code>aud</code> = client_id của RP).", "Cùng issuer và chữ ký đúng chỉ chứng minh nguồn gốc; API còn phải kiểm tra <code>aud</code> là chính nó — đây là bẫy “chữ ký đúng là đủ”.", "API kiểm tra <code>aud</code> đúng cách sẽ thấy token dành cho người nhận khác và trả <code>401 invalid_token</code>.", "ID token không có claim <code>scope</code>; scope nằm trong access token. API không có gì để kiểm tra quyền."],
+    explain: "Bẫy: “hợp lệ” không có nghĩa “dùng được ở mọi nơi”. Mỗi token một người nhận — ID token cho RP, access token cho API. Xem <a href='m03-5-oidc.html#id-vs-access'>bảng ID vs Access token</a>." }
+];
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="assets/pages.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

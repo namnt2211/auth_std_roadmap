@@ -4,22 +4,25 @@ Website tĩnh tổng hợp kiến thức theo lộ trình **Authentication Stand
 
 ## Nội dung
 
-| Trang | Nội dung |
-|---|---|
-| [`site/index.html`](site/index.html) | Tổng quan lộ trình, thứ tự học, nhãn ưu tiên Must / Should / Nice |
-| [`site/m01-fundamentals.html`](site/m01-fundamentals.html) | M01 — Identity & Authentication Fundamentals |
-| [`site/m02-crypto-session-token.html`](site/m02-crypto-session-token.html) | M02 — Cryptography, Session, Token & HTTP Auth Schemes |
-| [`site/m03-oauth-oidc.html`](site/m03-oauth-oidc.html) | M03 — OAuth 2.0 / 2.1 & OpenID Connect |
-| [`site/lab.html`](site/lab.html) | Lab — Hands-on OAuth/OIDC với ASP.NET Core + Keycloak |
-| [`site/m04-saml.html`](site/m04-saml.html) | M04 — SAML 2.0 & Enterprise SSO |
-| [`site/m05-enterprise-passwordless.html`](site/m05-enterprise-passwordless.html) | M05 — Enterprise Authentication & Passwordless |
-| [`site/m06-authz-security.html`](site/m06-authz-security.html) | M06 — Authorization & Authentication Security |
-| [`site/m07-architecture.html`](site/m07-architecture.html) | M07 — Authentication Architecture & Practical Cases |
-| [`site/appendix.html`](site/appendix.html) | Phụ lục — ánh xạ .NET, chủ đề nâng cao, rubric tự đánh giá, tài liệu tham khảo, glossary |
+Mỗi module được chia thành **trang tổng quan** (mục tiêu, input, danh sách bài) → **các bài ngắn** (~10–30 phút, vừa một lần ngồi học) → trang **Ôn tập & Quiz**:
 
-Mỗi module có:
+| Module | Trang tổng quan | Bài học | Ôn tập |
+|---|---|---|---|
+| M01 — Identity & Authentication Fundamentals | [`m01-fundamentals.html`](site/m01-fundamentals.html) | 1.1–1.2 | [`m01-quiz.html`](site/m01-quiz.html) |
+| M02 — Cryptography, Session, Token & HTTP Auth | [`m02-crypto-session-token.html`](site/m02-crypto-session-token.html) | 2.1 Crypto · 2.2 Session/Cookie · 2.3 Token & JWT · 2.4 Vòng đời token · 2.5 HTTP auth & API key | [`m02-quiz.html`](site/m02-quiz.html) |
+| M03 — OAuth 2.0 / 2.1 & OpenID Connect | [`m03-oauth-oidc.html`](site/m03-oauth-oidc.html) | 3.1 Cơ bản · 3.2 Code + PKCE · 3.3 Grant khác & 2.1 · 3.4 state/nonce/redirect · 3.5 OIDC · 3.6 Discovery & Logout · 3.7 Định danh user | [`m03-quiz.html`](site/m03-quiz.html) |
+| Lab — OAuth/OIDC với ASP.NET Core + Keycloak | [`lab.html`](site/lab.html) | Lab 1–5 (mỗi lab một trang) | [`lab-quiz.html`](site/lab-quiz.html) |
+| M04 — SAML 2.0 & Enterprise SSO | [`m04-saml.html`](site/m04-saml.html) | 4.1 Thành phần · 4.2 Assertion · 4.3 Flow & binding · 4.4 Bảo mật | [`m04-quiz.html`](site/m04-quiz.html) |
+| M05 — Enterprise Auth & Passwordless | [`m05-enterprise-passwordless.html`](site/m05-enterprise-passwordless.html) | 5.1 LDAP/AD · 5.2 Kerberos… · 5.3 WebAuthn · 5.4 Passkey | [`m05-quiz.html`](site/m05-quiz.html) |
+| M06 — Authorization & Auth Security | [`m06-authz-security.html`](site/m06-authz-security.html) | 6.1 Mô hình phân quyền · 6.2 AuthZ trong API · 6.3 CSRF/XSS · 6.4 MFA fatigue/AiTM · 6.5 Mật khẩu & token storage | [`m06-quiz.html`](site/m06-quiz.html) |
+| M07 — Architecture & Practical Cases | [`m07-architecture.html`](site/m07-architecture.html) | 7.1 Web/SPA/BFF · 7.2 Native/S2S · 7.3 Provisioning & WPF · 7.4 Cases · 7.5 Decision matrix | [`m07-quiz.html`](site/m07-quiz.html) |
+| Phụ lục | [`appendix.html`](site/appendix.html) (.NET) | [`appendix-2-resources.html`](site/appendix-2-resources.html) · [`appendix-3-glossary.html`](site/appendix-3-glossary.html) | — |
 
-- **Sau bài này bạn sẽ…** và **Tóm tắt nhanh** để nắm ý chính;
+Trang chủ [`site/index.html`](site/index.html) có bản đồ toàn bộ bài học. Mỗi trang có thanh điều hướng các bài trong module, sidebar mở rộng theo module đang học và nút Trước / Tiếp theo.
+
+Nội dung học gồm:
+
+- **Sau module này bạn sẽ…** (trang tổng quan) và **Tóm tắt nhanh** (trang ôn tập) để nắm ý chính;
 - khối **Nói đơn giản** giải thích khái niệm bằng ví dụ đời thường;
 - sơ đồ (Mermaid), bảng so sánh, ví dụ HTTP / JSON / C#;
 - **Output / Deliverables** dạng checklist và **Knowledge Check** có đáp án gợi ý;
@@ -50,7 +53,12 @@ Thư mục [`lab/`](lab/) chứa solution `AuthLab` hoàn chỉnh cho bài lab: 
 authentication_standards_15h_roadmap.md   # đề cương gốc
 lab/                                      # code mẫu Lab (.NET 10): DemoApi, DemoClient, DemoClientBrowser
 site/
-  index.html, m0x-*.html, lab.html, appendix.html
+  index.html                      # trang chủ + bản đồ bài học
+  m0x-<chủ đề>.html, lab.html     # trang tổng quan module (giữ tên cũ)
+  m0x-<n>-*.html, lab-<n>-*.html  # từng bài học
+  m0x-quiz.html, lab-quiz.html    # ôn tập, deliverables, quiz
+  appendix*.html                  # phụ lục
+  assets/pages.js    # cấu trúc module → bài (sidebar, pager, tiến độ quiz)
   assets/style.css   # giao diện dùng chung (light / dark)
   assets/app.js      # sidebar, mục lục, quiz engine, checklist, render Mermaid
 ```

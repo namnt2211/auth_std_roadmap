@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M06 · Bài 6.4 · MFA fatigue, AiTM, JWT confusion &amp; enumeration</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<main class="content">
+
+<div class="page-head">
+  <div class="breadcrumb"><a href="index.html">Lộ trình</a> / <a href="m06-authz-security.html">Module 06</a> / Bài 6.4</div>
+  <h1>Bài 6.4 — MFA fatigue, AiTM, JWT confusion &amp; enumeration</h1>
+  <p class="lead">Có mật khẩu và MFA chưa phải là an toàn tuyệt đối. Bài này xem kẻ gian vượt MFA thế nào (spam push, trang proxy AiTM), lợi dụng API kiểm tra JWT lỏng lẻo ra sao, và dò tài khoản qua màn hình login hay “quên mật khẩu” — kèm cách chặn từng kiểu.</p>
+  <div class="meta-row">
+    <span class="chip">⏱ ~15 phút</span>
+    <span class="chip">📘 <a href="m06-authz-security.html">Module 06 · Authorization &amp; Auth Security</a></span>
+  </div>
+</div>
+
+<div class="terms"><span class="terms-title">📖 Thuật ngữ trong bài</span><dl>
+<dt>Push MFA</dt><dd>Bước xác thực thứ hai bằng thông báo bật lên trên app điện thoại, người dùng bấm Approve/Deny.</dd>
+<dt>MFA fatigue</dt><dd>Spam push liên tục tới khi nạn nhân bấm Approve cho xong.</dd>
+<dt>Number matching</dt><dd>Người dùng phải gõ con số đang hiện trên màn hình login vào app điện thoại.</dd>
+<dt>AiTM</dt><dd>Adversary-in-the-Middle: trang phishing làm “người trung gian”, chuyển tiếp trang login thật và lấy session sau MFA.</dd>
+<dt>Phishing-resistant MFA</dt><dd>MFA không thể bị “gõ nhầm” vào trang giả, vì chữ ký gắn với domain thật (FIDO2/passkey).</dd>
+<dt><code>alg</code></dt><dd>Trường trong header JWT cho biết thuật toán ký (RS256, HS256…).</dd>
+<dt>Account enumeration</dt><dd>Dò xem email/username nào có tài khoản dựa vào phản hồi khác nhau của hệ thống.</dd>
+<dt>Recovery flow</dt><dd>Luồng lấy lại tài khoản (quên mật khẩu, mất điện thoại) — “cửa sau” của login.</dd>
+</dl></div>
+
+<h3 id="mfa-fatigue">C.4. MFA fatigue (push bombing) và number matching</h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Kẻ gian đã có chìa khóa nhà bạn (mật khẩu), chỉ còn thiếu chuông cửa — hắn <b>bấm chuông liên tục lúc nửa đêm</b> đến khi bạn bực mình bấm “mở cửa” cho yên. <b>Number matching</b> giống việc bạn chỉ mở cửa khi người bấm chuông <b>đọc đúng mã số</b> đang hiện trên màn hình trước mặt bạn — kẻ gian ở xa không biết mã đó.</div>
+<p>Kẻ tấn công đã có mật khẩu (qua phishing/stuffing) và liên tục kích hoạt đăng nhập → điện thoại nạn nhân nhận hàng loạt push “Bạn có đang đăng nhập?”. Mệt mỏi hoặc nhầm lẫn, nạn nhân bấm <b>Approve</b>.</p>
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  participant H as Kẻ tấn công (có mật khẩu)
+  participant IdP as IdP
+  participant P as Điện thoại nạn nhân
+  loop Lặp lại nhiều lần lúc nửa đêm
+    H->>IdP: Đăng nhập bằng mật khẩu đúng
+    IdP->>P: Push: Approve sign-in?
+    P-->>IdP: Deny
+  end
+  H->>IdP: Đăng nhập lần thứ N
+  IdP->>P: Push: Approve sign-in?
+  P-->>IdP: Approve (bấm cho yên) ❌
+  IdP-->>H: Đăng nhập thành công
+  Note over IdP,P: Number matching: màn hình login hiện số 47,<br/>user phải gõ 47 vào app.<br/>Nạn nhân không thấy màn hình login → không biết số
+</pre>
+</div>
+<p><b>Phòng vệ:</b> <b>number matching</b> (người dùng phải nhập số hiển thị trên màn hình đăng nhập — kẻ tấn công không thể khiến nạn nhân nhìn thấy số đó), hiển thị <b>ngữ cảnh</b> (ứng dụng, vị trí, IP), <b>giới hạn số push</b>/khóa tạm, nút “Báo cáo không phải tôi”, cảnh báo SOC khi nhiều push bị từ chối. Microsoft Authenticator đã bật number matching mặc định cho push MFA từ 2023. Lưu ý: number matching chặn fatigue nhưng <b>không</b> chặn AiTM (trang proxy hiển thị đúng số cho nạn nhân).</p>
+
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Bật number matching cho push MFA là chặn được phishing.</span><span class="f-label">Thực tế</span><span>Number matching chặn <b>MFA fatigue</b>. Với <b>AiTM</b>, trang proxy hiển thị đúng con số cho nạn nhân, nên vẫn bị vượt.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Nạn nhân bấm Deny hết các push là xong chuyện.</span><span class="f-label">Thực tế</span><span>Mỗi push nghĩa là ai đó đã nhập <b>đúng mật khẩu</b>. Cần báo IT/SOC, đổi mật khẩu và rà soát đăng nhập — nếu không kẻ gian sẽ thử lại hoặc chuyển sang AiTM.</span></div>
+
+<h3 id="aitm">C.5. AiTM phishing — Adversary-in-the-Middle</h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Kẻ gian mở một <b>quầy giao dịch giả</b> ngay trước cửa ngân hàng, nhân viên giả chuyển mọi giấy tờ của bạn vào quầy thật và chuyển kết quả ra. Bạn đưa CCCD, đọc mã OTP — mọi thứ đều “thật”, nên ngân hàng đưa thẻ ra vào cho… nhân viên giả. <b>Passkey</b> giống tấm thẻ chỉ hoạt động khi <b>chính nó nhìn thấy</b> đúng địa chỉ ngân hàng thật — đứng ở quầy giả thì thẻ không chịu ký.</div>
+<p>Trang phishing không còn là form giả đơn giản mà là một <b>reverse proxy</b>: mọi thứ nạn nhân thấy là trang login <b>thật</b> được chuyển tiếp. Nạn nhân nhập mật khẩu, nhập OTP/bấm push như bình thường; IdP thật phát hành session cookie — và proxy <b>lấy luôn cookie đó</b>.</p>
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  participant V as Nạn nhân
+  participant P as login-micros0ft.example (proxy AiTM)
+  participant IdP as IdP thật (login.microsoftonline.com)
+  V->>P: Bấm link trong email phishing
+  P->>IdP: Chuyển tiếp request
+  IdP-->>P: Trang login thật
+  P-->>V: Hiển thị y hệt trang thật
+  V->>P: Mật khẩu
+  P->>IdP: Mật khẩu
+  IdP-->>P: Yêu cầu MFA
+  P-->>V: Yêu cầu MFA
+  V->>P: Mã OTP / số matching / approve push
+  P->>IdP: Chuyển tiếp OTP
+  IdP-->>P: Set-Cookie session (đã qua MFA)
+  Note over P: Proxy lưu lại session cookie ❌
+  P-->>V: Chuyển nạn nhân tới trang thật như không có gì
+  P->>IdP: Dùng cookie đánh cắp → vào tài khoản
+</pre>
+<div class="caption">OTP và push đều bị chuyển tiếp “trong thời gian thực”, nên không chặn được AiTM.</div>
+</div>
+<div class="callout tip"><span class="callout-title">✅ Vì sao passkey/FIDO2 chặn được AiTM?</span>
+Khi đăng nhập WebAuthn, <b>browser</b> (không phải trang web) đưa <b>origin thực tế</b> mà nó đang truy cập vào dữ liệu được ký (<code>clientDataJSON.origin</code>), và authenticator chỉ dùng credential gắn với <b>RP ID</b> khớp domain.
+<ul>
+<li>Nạn nhân đang ở <code>login-micros0ft.example</code> → browser không tìm thấy passkey cho domain đó, hoặc chữ ký mang origin sai → IdP thật từ chối.</li>
+<li>Người dùng không thể “gõ nhầm” chữ ký vào trang giả như với OTP — không có bí mật nào để chuyển tiếp.</li>
+</ul>
+Chi tiết ở <a href="m05-3-webauthn.html#webauthn">M05 — WebAuthn</a>.</div>
+<p><b>Biện pháp bổ sung</b> (khi chưa thể passkey cho mọi người): conditional access (chỉ cho thiết bị được quản lý/compliant), ràng buộc session/token với thiết bị (token binding, DPoP, cơ chế riêng của IdP), phát hiện đăng nhập bất thường (impossible travel, IP của hạ tầng proxy), session lifetime ngắn cho tài nguyên nhạy cảm và thu hồi session khi phát hiện.</p>
+
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Đã có MFA (OTP/push) thì miễn nhiễm phishing.</span><span class="f-label">Thực tế</span><span>AiTM chuyển tiếp OTP/push và lấy session cookie sau MFA. Chỉ phishing-resistant MFA (FIDO2/passkey) chặn được.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Nhìn ổ khóa HTTPS trên thanh địa chỉ là nhận ra trang AiTM.</span><span class="f-label">Thực tế</span><span>Proxy AiTM có chứng chỉ TLS hợp lệ cho domain của chính nó (vd <code>login-micros0ft.example</code>). Ổ khóa chỉ nói kết nối tới domain đó được mã hóa, không nói domain đó là thật.</span></div>
+
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: MFA fatigue vs AiTM phishing vs Credential stuffing vs Password spraying</span>
+<p>Bốn tấn công này hay xuất hiện cùng nhau trong một chiến dịch, nhưng nhắm vào những điểm khác nhau:</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Credential stuffing</th><th>Password spraying</th><th>MFA fatigue</th><th>AiTM phishing</th></tr></thead>
+<tbody>
+<tr><td>Kẻ gian bắt đầu với</td><td>Danh sách email + mật khẩu bị lộ từ <b>dịch vụ khác</b></td><td>Danh sách username, và <b>vài mật khẩu phổ biến</b></td><td>Mật khẩu <b>đúng</b> của nạn nhân</td><td>Một trang proxy giả + email dụ bấm link</td></tr>
+<tr><td>Cách làm</td><td>Thử từng cặp đã lộ trên app của bạn</td><td>Thử 1 mật khẩu (vd <code>Kaopiz@2026</code>) cho <b>rất nhiều</b> tài khoản, chậm rãi để né khóa</td><td>Đăng nhập liên tục để spam push</td><td>Nạn nhân tự nhập mật khẩu + MFA qua proxy</td></tr>
+<tr><td>Vượt được</td><td>Mật khẩu (không vượt MFA)</td><td>Mật khẩu (không vượt MFA)</td><td>Push MFA không có number matching</td><td>Mật khẩu, OTP, push, cả number matching</td></tr>
+<tr><td>Chặn chính</td><td>MFA, blocklist mật khẩu đã lộ, phát hiện bất thường</td><td>Blocklist mật khẩu phổ biến, MFA, rate limit theo IP/toàn hệ thống</td><td>Number matching, hiển thị ngữ cảnh, giới hạn push</td><td>Passkey/FIDO2, conditional access</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ (Kaopiz HR):</b> Mật khẩu cũ của An lộ từ một diễn đàn và An dùng lại nó cho tài khoản công ty → stuffing thành công bước mật khẩu. Kẻ gian tiếp tục spam push lúc 2h sáng → fatigue. Nếu push có number matching, hắn chuyển sang gửi email “Cập nhật bảng lương” dẫn tới trang proxy → AiTM. Chỉ passkey chặn được cả chuỗi.</p>
+<span class="rule">Stuffing: nhiều cặp đã lộ. Spraying: một mật khẩu, nhiều tài khoản. Fatigue: làm phiền tới khi bấm. AiTM: nạn nhân tự làm hết, kẻ gian chỉ đứng giữa.</span>
+</div>
+
+<h3 id="jwt-confusion">C.6. JWT algorithm/key confusion và lỗi validation</h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Một tờ giấy tự ghi “<b>giấy này không cần con dấu</b>” (<code>alg: none</code>), hoặc tự ghi “<b>hãy kiểm tra tôi bằng cách khác</b>” (đổi thuật toán). Bảo vệ cẩn thận <b>không bao giờ</b> để chính tờ giấy quyết định cách kiểm tra nó — bảo vệ tự biết con dấu hợp lệ trông thế nào.</div>
+<p><b>JWT</b> (JSON Web Token) có header chứa <code>alg</code> — tên thuật toán ký. Lỗi xảy ra khi thư viện/ứng dụng <b>tin</b> giá trị <code>alg</code> do chính token khai báo.</p>
+<div class="grid cols-2">
+<div class="card bad"><h4><code>alg: none</code></h4><p>Kẻ tấn công sửa header thành <code>{"alg":"none"}</code>, bỏ chữ ký, đổi <code>roles</code> thành Admin. Thư viện lỏng lẻo chấp nhận token “không ký”.</p></div>
+<div class="card bad"><h4>RS256 → HS256</h4><p>API dùng <b>public key</b> RSA để verify. Kẻ tấn công ký token bằng HMAC (HS256) với <b>chính public key đó làm secret</b> (public key thì ai cũng có). Thư viện “chọn thuật toán theo header” sẽ verify HMAC bằng public key → khớp!</p></div>
+</div>
+<div class="jwt"><span class="h">eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0</span><span class="dot">.</span><span class="p">eyJzdWIiOiJjaGkiLCJyb2xlcyI6WyJBZG1pbiJdfQ</span><span class="dot">.</span><span class="s"></span></div>
+<p class="small muted">Header giải mã: <code>{"alg":"none","typ":"JWT"}</code>; payload: <code>{"sub":"chi","roles":["Admin"]}</code>; phần chữ ký rỗng.</p>
+
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: <code>alg=none</code> vs RS/HS key confusion</span>
+<p>Nhắc nhanh: <b>RS256</b> ký bằng private key (chỉ IdP có), kiểm tra bằng public key (ai cũng lấy được). <b>HS256</b> dùng <b>một</b> secret chung cho cả ký lẫn kiểm tra (<a href="m02-1-crypto.html#signature">M02 — chữ ký số</a>, <a href="m02-1-crypto.html#hmac">HMAC</a>).</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th><code>alg=none</code></th><th>RS256 → HS256 (key confusion)</th></tr></thead>
+<tbody>
+<tr><td>Kẻ gian làm gì với chữ ký</td><td><b>Bỏ hẳn</b> chữ ký</td><td><b>Tự ký</b> bằng HMAC, dùng public key của IdP làm secret</td></tr>
+<tr><td>Kẻ gian cần có</td><td>Không cần gì</td><td>Public key của IdP (công khai trên JWKS)</td></tr>
+<tr><td>Lỗi phía server</td><td>Thư viện chấp nhận token “không ký”</td><td>Server lấy thuật toán từ header token và dùng <b>cùng một khóa</b> cho cả RSA lẫn HMAC</td></tr>
+<tr><td>Chặn bằng</td><td colspan="2">Server tự quyết thuật toán: allowlist <code>alg</code> (<code>ValidAlgorithms = { "RS256" }</code>), mỗi khóa gắn với đúng một thuật toán, dùng thư viện chuẩn</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ (Kaopiz HR):</b> Chi chặn được token của mình, sửa payload thành <code>"roles":["Admin"]</code>. Cách 1: đặt <code>alg</code> = <code>none</code>, xóa chữ ký. Cách 2: tải public key từ JWKS của realm <code>kaopiz</code>, ký lại bằng HS256 với public key đó. Nếu <code>hr-api</code> chỉ chấp nhận RS256, cả hai token giả đều bị trả <code>401</code>.</p>
+<span class="rule">none = “không có chữ ký”. Key confusion = “chữ ký giả bằng khóa công khai”. Cùng một thuốc chữa: server chọn thuật toán, không phải token.</span>
+</div>
+<p><b>Phòng vệ:</b> server quyết định thuật toán, không phải token: allowlist <code>alg</code> (<code>ValidAlgorithms</code>), khóa gắn với một thuật toán (khóa RSA chỉ dùng cho RS256), lấy khóa theo <code>kid</code> từ JWKS của issuer tin cậy, luôn kiểm tra <code>iss</code>, <code>aud</code>, <code>exp</code>, <code>nbf</code>, và loại token (<code>typ</code>, ví dụ <code>at+jwt</code> theo RFC 9068) để không nhận nhầm ID token. Dùng thư viện chuẩn (<code>Microsoft.IdentityModel</code>) thay vì tự parse. Xem checklist ở <a href="m02-3-token-jwt.html#jwt-validation">M02 — JWT validation</a>.</p>
+
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>JWT được mã hóa nên kẻ gian không đọc hay sửa được payload.</span><span class="f-label">Thực tế</span><span>JWT ký (JWS) chỉ là base64url — ai cũng giải mã đọc được, và sửa được; chỉ là chữ ký sẽ không còn khớp. An toàn phụ thuộc hoàn toàn vào việc server <b>verify đúng</b>.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Chữ ký hợp lệ là đủ để tin token.</span><span class="f-label">Thực tế</span><span>Còn phải kiểm tra <code>iss</code>, <code>aud</code>, <code>exp</code>/<code>nbf</code> và loại token. ID token cấp cho client khác cũng mang chữ ký thật của cùng IdP.</span></div>
+
+<h3 id="enum-recovery">C.7. Account enumeration và recovery flow <span class="badge should">Should</span></h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+<b>Account enumeration</b> (dò tài khoản): lễ tân trả lời “anh An <i>không làm ở đây</i>” khác với “anh An <i>đang bận</i>” — kẻ gian biết ngay ai là nhân viên. <b>Recovery flow yếu</b>: cửa chính có khóa vân tay, nhưng <b>cửa sau</b> (quên mật khẩu) chỉ cần nói tên con mèo.</div>
+<div class="table-wrap"><table>
+<thead><tr><th>Điểm lộ</th><th>❌ Lộ thông tin</th><th>✅ Nên làm</th></tr></thead>
+<tbody>
+<tr><td>Login</td><td>“Email không tồn tại” vs “Sai mật khẩu”</td><td>“Email hoặc mật khẩu không đúng”</td></tr>
+<tr><td>Quên mật khẩu</td><td>“Không tìm thấy tài khoản với email này”</td><td>“Nếu email tồn tại, chúng tôi đã gửi hướng dẫn”</td></tr>
+<tr><td>Đăng ký</td><td>“Email đã được dùng”</td><td>Gửi email thông báo tới địa chỉ đó thay vì báo trên UI (tùy yêu cầu UX)</td></tr>
+<tr><td>Thời gian phản hồi</td><td>Email tồn tại → hash mật khẩu (chậm); không tồn tại → trả ngay</td><td>Vẫn chạy hash giả để thời gian tương đương</td></tr>
+</tbody></table></div>
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: Account enumeration qua login vs qua reset password</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Qua màn hình login</th><th>Qua “Quên mật khẩu”</th></tr></thead>
+<tbody>
+<tr><td>Kẻ gian gửi gì</td><td>Email + một mật khẩu bất kỳ</td><td>Chỉ cần email</td></tr>
+<tr><td>Rò rỉ qua đâu</td><td>Thông báo lỗi khác nhau; thời gian phản hồi (có/không chạy hash mật khẩu); thông báo “tài khoản bị khóa”</td><td>Thông báo “không tìm thấy email”; thời gian phản hồi (có/không gửi email)</td></tr>
+<tr><td>Chặn bằng</td><td>Thông báo chung, chạy hash giả, rate limit</td><td>Luôn trả cùng một câu, gửi email <b>bất đồng bộ</b> (xếp hàng gửi sau) để thời gian như nhau, rate limit</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ (Kaopiz HR):</b> Màn hình login đã trả “Email hoặc mật khẩu không đúng”, nhưng trang quên mật khẩu lại báo “Không tìm thấy <code>chi@kaopiz.com</code>”. Kẻ gian chỉ cần chạy danh sách email qua trang reset là biết ai đang làm ở công ty — rồi dùng danh sách đó để spraying hoặc phishing.</p>
+<span class="rule">Mọi cửa nhận email (login, reset, đăng ký) phải trả lời giống nhau cả về <b>nội dung</b> lẫn <b>thời gian</b>.</span>
+</div>
+
+<p><b>Recovery flow</b> là “cửa sau” của login: nếu login cần passkey nhưng “quên mật khẩu” chỉ cần trả lời “tên thú cưng đầu tiên” hoặc OTP SMS, kẻ tấn công sẽ đi cửa sau. Nguyên tắc:</p>
+<ul>
+<li>Recovery phải mạnh <b>tương đương</b> login.</li>
+<li>Link/mã reset dùng <b>một lần</b> và hết hạn nhanh.</li>
+<li>Thông báo cho người dùng qua kênh đã đăng ký mỗi khi có reset.</li>
+<li>Thu hồi session/refresh token cũ sau khi reset.</li>
+<li>Có quy trình xác minh danh tính thủ công (helpdesk) chống social engineering (lừa đảo qua điện thoại/chat để nhờ reset hộ).</li>
+</ul>
+
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Thông báo lỗi giống nhau là hết account enumeration.</span><span class="f-label">Thực tế</span><span>Vẫn lộ qua <b>thời gian phản hồi</b>, trang đăng ký (“email đã được dùng”) hay thông báo “tài khoản bị khóa”. Mọi cửa nhận email phải giống nhau cả nội dung lẫn thời gian.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Câu hỏi bảo mật là cách khôi phục tài khoản an toàn.</span><span class="f-label">Thực tế</span><span>Câu trả lời thường dễ đoán hoặc tra được trên mạng xã hội; NIST SP 800-63B-4 không cho dùng KBA. Recovery phải mạnh ngang login.</span></div>
+
+<div class="callout tip"><span class="callout-title">✅ Tự kiểm tra nhanh</span><ul>
+<li>Number matching chặn được MFA fatigue. Vì sao nó không chặn được AiTM?</li>
+<li>Vì sao kẻ tấn công chỉ cần public key của IdP để thực hiện key confusion?</li>
+<li>Trang “Quên mật khẩu” nên trả lời thế nào khi email không tồn tại?</li>
+</ul></div>
+
+<h2 id="quiz-bai">Quiz nhanh — Bài 6.4</h2>
+<div id="quiz"></div>
+
+</main>
+<script>
+window.QUIZ = [
+  { q: "Kaopiz đã bật number matching cho push MFA. An bấm link trong email “Cập nhật bảng lương”, nhập mật khẩu, trang hiện số 47 và An gõ 47 vào app Authenticator. Hôm sau tài khoản An bị dùng từ nước ngoài. Chuyện gì đã xảy ra?",
+    tricky: true,
+    options: ["Không thể xảy ra — number matching chặn được phishing", "MFA fatigue — kẻ gian spam push tới khi An gõ số", "AiTM — trang proxy chuyển tiếp màn hình login thật (kể cả số 47) và lấy session cookie sau khi MFA hoàn tất", "Credential stuffing — mật khẩu của An bị lộ từ dịch vụ khác"],
+    answer: 2,
+    why: ["Number matching chỉ đảm bảo người duyệt đang nhìn màn hình login; ở đây An đúng là đang nhìn màn hình login — qua proxy.", "Không có spam push; An chủ động đăng nhập một lần và nhập số do chính trang hiển thị.", "Proxy hiển thị đúng con số từ IdP thật, nên MFA “thành công” và cookie session rơi vào tay kẻ gian.", "Stuffing chỉ vượt bước mật khẩu, không vượt được number matching; ở đây An tự hoàn tất MFA."],
+    explain: "Bẫy: number matching chặn fatigue chứ không chặn AiTM. Chỉ passkey/FIDO2 gắn với origin mới chặn được. Xem <a href='m06-4-identity-attacks.html#aitm'>C.5</a>." },
+  { q: "Biện pháp nào thực sự làm giảm rủi ro AiTM phishing? (chọn nhiều)",
+    options: ["Passkey/FIDO2 — chữ ký gắn với origin/RP ID của site thật", "Conditional access chỉ cho phép thiết bị được quản lý/compliant", "Chuyển OTP từ app sang SMS", "Bật number matching cho push"],
+    answer: [0, 1],
+    why: ["Trên domain proxy, browser không tìm thấy credential cho RP ID đó, hoặc origin trong dữ liệu ký sai → IdP thật từ chối.", "Phiên đăng nhập đi qua proxy hoặc cookie dùng từ máy kẻ gian không đạt điều kiện thiết bị nên bị chặn (hiệu quả cụ thể tùy IdP).", "SMS OTP bị chuyển tiếp y như OTP từ app, lại thêm rủi ro SIM swap.", "Proxy hiển thị đúng con số cho nạn nhân; number matching chỉ chặn MFA fatigue."],
+    explain: "Phishing resistance đến từ việc gắn với origin; các lớp bổ sung giới hạn nơi session được dùng. Xem <a href='m06-4-identity-attacks.html#aitm'>C.5</a>." },
+  { q: "<code>hr-api</code> nhận một <b>ID token</b> (do cùng realm <code>kaopiz</code> phát hành cho client <code>hr-web</code>) gửi trong header Bearer và chấp nhận nó. Chữ ký, <code>iss</code>, <code>exp</code> đều đúng. Kiểm tra nào lẽ ra phải chặn? (chọn nhiều)",
+    options: ["<code>aud</code> — ID token có aud là client_id của <code>hr-web</code>, không phải <code>hr-api</code>", "Loại token (vd header <code>typ</code> = <code>at+jwt</code> theo RFC 9068, hoặc dấu hiệu loại token riêng của IdP)", "Allowlist thuật toán <code>alg</code>", "Kiểm tra <code>kid</code> có trong JWKS của issuer"],
+    answer: [0, 1],
+    why: ["<code>aud</code> cho biết token phát hành cho ai; API chỉ được nhận token có aud là chính nó.", "Kiểm tra loại token phân biệt access token với ID token kể cả khi các claim khác trùng hợp.", "Token được IdP thật ký bằng RS256 hợp lệ — allowlist alg không phân biệt được loại token.", "<code>kid</code> hợp lệ vì đúng là khóa của realm; chữ ký không có vấn đề gì."],
+    explain: "Chữ ký đúng chỉ chứng minh “IdP này phát hành”, không chứng minh “phát hành cho tôi, để làm access token”. Xem <a href='m06-4-identity-attacks.html#jwt-confusion'>C.6</a> và <a href='m02-3-token-jwt.html#jwt-validation'>JWT validation</a>." },
+  { q: "Trang login của Kaopiz HR đã trả cùng câu “Email hoặc mật khẩu không đúng”. Nhưng đo thời gian: email có tồn tại → ~300 ms, không tồn tại → ~5 ms. Cách sửa phù hợp?",
+    options: ["Không cần sửa vì nội dung thông báo đã giống nhau", "Khi email không tồn tại vẫn chạy hash mật khẩu giả để thời gian tương đương, kèm rate limit", "Bỏ password hashing để mọi request đều nhanh như nhau", "Trả 404 khi email không tồn tại"],
+    answer: 1,
+    why: ["Chênh lệch 300 ms so với 5 ms đủ để script phân biệt — rò rỉ qua thời gian.", "Cân bằng thời gian xóa tín hiệu; rate limit làm việc dò hàng loạt chậm và dễ phát hiện.", "Bỏ hash là thảm họa: lộ DB là lộ mật khẩu; và không cần thiết để sửa rò rỉ này.", "Mã lỗi khác nhau lại tạo thêm một tín hiệu enumeration."],
+    explain: "Phải giống nhau cả nội dung lẫn thời gian. Xem <a href='m06-4-identity-attacks.html#enum-recovery'>C.7</a>." },
+  { q: "Login của Kaopiz HR yêu cầu passkey, nhưng luồng “Mất quyền truy cập” chỉ cần OTP gửi qua SMS. Kẻ gian SIM swap số điện thoại của An và chiếm được tài khoản. Nguyên tắc nào bị vi phạm?",
+    options: ["Recovery phải mạnh tương đương login", "Deny by default", "Least privilege", "Link reset phải hết hạn nhanh"],
+    answer: 0,
+    why: ["Kẻ gian đi cửa sau: SMS yếu hơn passkey nhiều, nên độ mạnh thực tế của tài khoản bằng độ mạnh của luồng recovery.", "Deny by default nói về quyết định phân quyền khi không có rule cho phép, không về độ mạnh của recovery.", "Least privilege là cấp ít quyền nhất; vấn đề ở đây là xác thực yếu.", "Hết hạn nhanh không giúp gì: kẻ gian nhận OTP ngay lập tức trên SIM mới."],
+    explain: "Recovery là cửa sau của login. Xem <a href='m06-4-identity-attacks.html#enum-recovery'>C.7</a>." }
+];
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="assets/pages.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

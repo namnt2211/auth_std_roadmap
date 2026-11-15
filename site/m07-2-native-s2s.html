@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M07 · Bài 7.2 · Desktop, Mobile &amp; Service-to-Service</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<main class="content">
+
+<div class="page-head">
+  <div class="breadcrumb"><a href="index.html">Lộ trình</a> / <a href="m07-architecture.html">Module 07</a> / Bài 7.2</div>
+  <h1>Bài 7.2 — Desktop, Mobile &amp; Service-to-Service</h1>
+  <p class="lead">Bài 7.1 nói về app chạy trong browser. Bài này đi tiếp các loại client còn lại: app <b>desktop</b> và <b>mobile</b> (cài trên máy người dùng, không giữ được bí mật), <b>service gọi service</b> (không có người dùng nào bấm nút), và mạng nội bộ <b>Windows domain</b>.</p>
+  <div class="meta-row">
+    <span class="chip">⏱ ~20 phút</span>
+    <span class="chip">📘 <a href="m07-architecture.html">Module 07 · Architecture &amp; Practical Cases</a></span>
+  </div>
+</div>
+
+<div class="terms"><span class="terms-title">📖 Thuật ngữ trong bài</span><dl>
+<dt>System browser</dt><dd>Trình duyệt thật của máy (Edge, Chrome, Safari) mà app mở ra để người dùng đăng nhập.</dd>
+<dt>Embedded WebView</dt><dd>Khung trình duyệt <i>nhúng bên trong</i> app; app kiểm soát được mọi thứ trong khung đó.</dd>
+<dt>Loopback redirect</dt><dd>IdP trả kết quả về <code>http://127.0.0.1:port/</code> — một “cổng tạm” trên chính máy, app đang lắng nghe ở đó.</dd>
+<dt>Token exchange</dt><dd>Đổi token đang có lấy token mới cho API khác (RFC 8693); Entra ID có biến thể on-behalf-of (OBO).</dd>
+<dt>API gateway</dt><dd>Cổng vào chung đứng trước nhiều microservice.</dd>
+<dt>IWA</dt><dd>Integrated Windows Authentication: web app nội bộ tự nhận ra user Windows (qua Kerberos), không hỏi mật khẩu.</dd>
+</dl></div>
+
+<h3 id="desktop">B.4. Desktop / Native Application <span class="badge must">Must</span></h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+App desktop giống <b>một chiếc xe bán cho mọi người</b>: ai mua cũng tháo ra xem được từng con ốc, nên giấu “mật khẩu ứng dụng” trong xe là vô nghĩa. Khi cần đăng nhập, app <b>mở trình duyệt thật</b> (như dẫn khách tới quầy chính thức) thay vì tự vẽ ô nhập mật khẩu, và lắng nghe kết quả ở một <b>cổng tạm trên chính máy</b> (loopback <code>127.0.0.1</code>).</div>
+<ul>
+<li>Dùng <b>external/system browser</b>. <a href="https://www.rfc-editor.org/rfc/rfc8252">RFC 8252</a> (OAuth for Native Apps) §8.12: native app <b>MUST NOT</b> dùng embedded user-agent (WebView nhúng) cho authorization request (lý do: xem bảng so sánh ngay dưới).</li>
+<li><b>Authorization Code + PKCE</b>; không nhúng client secret như thể nó là bí mật.</li>
+<li><b>Redirect URI</b> theo platform: loopback <code>http://127.0.0.1:{port}/</code> (RFC 8252 §7.3 — AS phải chấp nhận <b>port bất kỳ</b> tại thời điểm request; §8.3: <code>localhost</code> là NOT RECOMMENDED, dùng IP literal), private-use URI scheme (<code>com.example.app:/callback</code>), hoặc HTTPS claimed URL. Một số IdP (vd Entra ID với MSAL) có quy ước riêng như <code>http://localhost</code> — theo hướng dẫn của nhà cung cấp.</li>
+<li>Lưu token bằng <b>secure OS storage</b>; hạn chế lifetime và scope.</li>
+<li>API vẫn xác minh access token và thực hiện authorization — app desktop không phải nơi quyết định quyền.</li>
+</ul>
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: System browser vs Embedded WebView</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>System browser (hoặc broker của OS)</th><th>Embedded WebView</th></tr></thead>
+<tbody>
+<tr><td>App đọc được mật khẩu?</td><td>Không — chạy ở process khác</td><td>Có thể — app chèn được script, đọc được form</td></tr>
+<tr><td>Người dùng kiểm tra domain?</td><td>Có (thanh địa chỉ, ổ khóa HTTPS)</td><td>Không thấy URL → dễ bị giả mạo</td></tr>
+<tr><td>SSO với phiên có sẵn</td><td>Có, dùng chung cookie của browser</td><td>Không, phải đăng nhập lại</td></tr>
+<tr><td>RFC 8252</td><td>Khuyến nghị</td><td><b>MUST NOT</b> dùng cho authorization request</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> app WPF chấm công của Kaopiz mở Edge tới <code>sso.kaopiz.local</code>. An đã đăng nhập Keycloak trên Edge từ sáng nên vào thẳng, không gõ lại mật khẩu. Với WebView, An phải gõ mật khẩu vào một ô mà app đọc được.</p>
+<span class="rule">Người dùng gõ mật khẩu thì phải gõ vào trình duyệt thật, không phải vào app.</span>
+</div>
+<div class="table-wrap"><table>
+<thead><tr><th>Nơi lưu token trên Windows</th><th>Cơ chế</th><th>Ghi chú</th></tr></thead>
+<tbody>
+<tr><td><b>DPAPI</b> (Data Protection API)</td><td><code>ProtectedData.Protect(..., DataProtectionScope.CurrentUser)</code> mã hóa bằng khóa gắn với tài khoản Windows của user.</td><td>Process khác chạy cùng user vẫn giải mã được → chống đánh cắp file, không chống malware cùng user.</td></tr>
+<tr><td><b>Windows Credential Manager</b></td><td>Kho credential của Windows (Credential Locker), cũng bảo vệ theo user.</td><td>Giới hạn kích thước mỗi mục; hợp với refresh token hơn là cả cache lớn.</td></tr>
+<tr><td><b>MSAL token cache</b></td><td>Thư viện <code>Microsoft.Identity.Client.Extensions.Msal</code> (<code>MsalCacheHelper</code>): cache đa nền tảng, mã hóa bằng DPAPI trên Windows, Keychain trên macOS, keyring trên Linux.</td><td>Microsoft khuyến nghị cho desktop app dùng MSAL. Có chế độ plaintext fallback — tránh dùng trừ khi bắt buộc.</td></tr>
+<tr><td>❌ File JSON / <code>app.config</code> / registry dạng rõ</td><td>—</td><td>Ai đọc được ổ đĩa (backup, malware, máy dùng chung) là lấy được token.</td></tr>
+</tbody></table></div>
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  participant App as WPF app
+  participant L as Loopback 127.0.0.1:port
+  participant B as System browser
+  participant I as IdP
+  App->>App: Tạo code_verifier, state, nonce
+  App->>L: Mở listener port ngẫu nhiên
+  App->>B: Mở URL /authorize (code_challenge)
+  B->>I: Đăng nhập + MFA (có thể đã SSO)
+  I-->>B: 302 tới 127.0.0.1:port/?code&amp;state
+  B->>L: GET /?code=...&amp;state=...
+  L-->>App: Nhận code, đóng listener
+  App->>I: POST /token (code + code_verifier)
+  I-->>App: ID token + access + refresh token
+  App->>App: Kiểm tra ID token, lưu token (DPAPI)
+</pre>
+<div class="caption">Desktop + system browser + loopback redirect (RFC 8252). Không có client secret.</div>
+</div>
+<h4>Checklist desktop</h4>
+<ul class="checklist">
+<li><span>System browser (hoặc broker của OS như WAM trên Windows), không WebView nhúng.</span></li>
+<li><span>Code + PKCE; client đăng ký là public client.</span></li>
+<li><span>Redirect loopback IP / custom scheme đăng ký đúng.</span></li>
+<li><span>Token cache mã hóa (DPAPI/MSAL cache); không file plaintext.</span></li>
+<li><span>Access token ngắn, refresh token rotation; logout xóa cache + revoke.</span></li>
+<li><span>Không log token; không gửi role/permission từ app lên API.</span></li>
+</ul>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Nhúng client secret vào WPF rồi obfuscate là an toàn.</span><span class="f-label">Thực tế</span><span>Mọi thứ trong app phân phối cho người dùng đều có thể trích xuất: dịch ngược, đọc bộ nhớ lúc chạy, hoặc đơn giản là bắt request <code>/token</code> qua proxy debug. Mọi bản cài dùng chung một secret nên nó không chứng minh được gì. Đăng ký public client + PKCE.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Dùng WebView trong app để login cho “mượt”, đằng nào cũng có PKCE.</span><span class="f-label">Thực tế</span><span>RFC 8252: native app MUST NOT dùng embedded user-agent. PKCE chỉ bảo vệ authorization code; nó không ngăn app đọc mật khẩu người dùng gõ vào WebView. WebView còn không dùng chung phiên SSO với trình duyệt, và hỗ trợ passkey/WebAuthn trong WebView thường hạn chế tùy nền tảng. Dùng system browser hoặc broker của OS.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Token đã mã hóa bằng DPAPI thì malware trên máy không lấy được.</span><span class="f-label">Thực tế</span><span>DPAPI (CurrentUser) gắn với tài khoản Windows: chống được việc chép file sang máy khác, nhưng process nào chạy dưới cùng user (kể cả malware) vẫn giải mã được. Vì vậy vẫn cần access token ngắn hạn và refresh token rotation.</span></div>
+
+<h3 id="mobile">B.5. Mobile Application <span class="badge should">Should</span></h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Giống desktop: app mobile là “xe bán cho mọi người”, không giấu được bí mật. Khác biệt là trên điện thoại, app mở một <b>tab trình duyệt an toàn của hệ điều hành</b> để đăng nhập (app không nhìn được vào trong), và cất token vào <b>két sắt của điện thoại</b> (Keychain/Keystore).</div>
+<ul>
+<li><b>Authorization Code + PKCE</b>, không hardcode secret.</li>
+<li>Dùng <b>system browser hoặc secure browser session</b> của platform: iOS <code>ASWebAuthenticationSession</code> (kế nhiệm <code>SFAuthenticationSession</code>), Android <b>Custom Tabs</b>. Đây là “in-app browser tab” mà RFC 8252 (Phụ lục B) mô tả: chạy trong process browser, app không đọc được nội dung, có chia sẻ cookie SSO. Thư viện tham khảo: AppAuth (iOS/Android), MSAL.</li>
+<li>Redirect: <b>claimed HTTPS link</b> (iOS Universal Links, Android App Links) an toàn hơn custom scheme vì app khác khó chiếm — OS chỉ giao link cho app khi domain xác nhận app đó là của mình.</li>
+<li><b>Secure storage</b>: iOS <b>Keychain</b>, Android <b>Keystore</b> (khóa trong phần cứng khi có) để mã hóa token.</li>
+<li>Có quy trình <b>revoke và mất thiết bị</b>: user/IT thu hồi refresh token, phiên trên thiết bị đó.</li>
+</ul>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>iOS</th><th>Android</th></tr></thead>
+<tbody>
+<tr><td>Browser session cho login</td><td><code>ASWebAuthenticationSession</code></td><td>Custom Tabs</td></tr>
+<tr><td>Redirect an toàn</td><td>Universal Links (hoặc custom scheme)</td><td>App Links (hoặc custom scheme)</td></tr>
+<tr><td>Lưu token</td><td>Keychain</td><td>Keystore (khóa AES trong Keystore để mã hóa token rồi lưu file/DataStore). Lưu ý: thư viện Jetpack <code>EncryptedSharedPreferences</code> đã bị <b>deprecated</b> (security-crypto 1.1.0) — dự án mới nên dùng Keystore trực tiếp hoặc thư viện như Tink.</td></tr>
+</tbody></table></div>
+<div class="compare" id="redirect-desktop-mobile"><span class="compare-title">Phân biệt dễ nhầm: redirect của Desktop vs Mobile (loopback vs custom scheme vs claimed HTTPS link)</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Loopback <code>http://127.0.0.1:port/</code></th><th>Custom scheme <code>com.kaopiz.hr:/callback</code></th><th>Claimed HTTPS <code>https://hr.example.com/app/callback</code></th></tr></thead>
+<tbody>
+<tr><td>Dùng nhiều ở</td><td>Desktop (WPF, CLI)</td><td>Mobile và desktop</td><td>Mobile (Universal Links / App Links)</td></tr>
+<tr><td>Cách app nhận code</td><td>App mở một HTTP listener tạm trên máy, browser gọi vào</td><td>OS thấy scheme lạ → mở app đã đăng ký scheme đó</td><td>OS kiểm tra domain đã “nhận” app → mở app</td></tr>
+<tr><td>App khác chiếm được không?</td><td>Khó (port ngẫu nhiên, chỉ trên máy đó)</td><td><b>Có thể</b> — app độc đăng ký cùng scheme</td><td>Rất khó — cần kiểm soát domain</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> trong realm <code>kaopiz</code>, client <code>hr-desktop</code> đăng ký redirect <code>http://127.0.0.1/</code>; client <code>hr-mobile</code> đăng ký link HTTPS trên domain công khai của công ty (OS phải tải được file xác minh từ domain đó, nên <code>.local</code> không dùng được). Cả hai là public client + PKCE: code có lọt sang app khác thì app đó cũng không đổi được thành token.</p>
+<span class="rule">Desktop → loopback IP. Mobile → claimed HTTPS link (custom scheme chỉ là phương án dự phòng). Luôn kèm PKCE.</span>
+</div>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Custom scheme như <code>com.kaopiz.hr:/callback</code> an toàn vì app khác không biết tên scheme.</span><span class="f-label">Thực tế</span><span>Scheme nằm trong file cài đặt, ai cũng đọc được, và OS không ngăn app khác đăng ký trùng. Thứ cứu bạn khi code lọt sang app độc là <b>PKCE</b> (app độc không có <code>code_verifier</code>). Ưu tiên claimed HTTPS link khi có thể.</span></div>
+
+<h3 id="s2s">B.6. Service-to-Service / Microservices <span class="badge must">Must</span></h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Không có người dùng nào bấm nút — đây là <b>xe giao hàng tự động</b> ra vào kho. Mỗi xe cần <b>thẻ riêng</b> ghi rõ được vào kho nào (client credentials + scope). Đừng phát <b>một thẻ chung</b> cho cả đội xe: mất một thẻ là mất hết, và không biết xe nào đã vào.</div>
+<ul>
+<li><b>Client Credentials</b> (<a href="m03-3-other-grants.html#client-credentials">M03</a>) hoặc <b>workload identity</b> phù hợp.</li>
+<li><b>Mỗi service có identity riêng</b>; least privilege (chỉ cấp scope thật sự cần).</li>
+<li>Quản lý secret/certificate bằng <b>secret manager</b> (Azure Key Vault, AWS Secrets Manager, HashiCorp Vault…) hoặc tốt hơn là <b>workload identity</b> — không có secret dài hạn để lộ.</li>
+<li>Resource server xác minh <b>audience và scope</b>.</li>
+<li><b>mTLS</b> có thể bổ sung xác thực ở tầng kết nối; <b>không</b> tự động thay thế authorization nghiệp vụ.</li>
+<li>Tránh dùng chung một client credential cho toàn bộ hệ thống.</li>
+</ul>
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  participant W as worker service
+  participant I as IdP (token endpoint)
+  participant A as Order API
+  W->>I: POST /token grant_type=client_credentials
+  Note over W,I: Xác thực client bằng secret,<br/>private_key_jwt hoặc mTLS
+  I-->>W: access token (sub = client, scope=orders.sync)
+  W->>A: POST /orders/sync + Bearer token
+  A->>A: Kiểm tra iss, aud, scope orders.sync
+  A-->>W: 200 OK
+</pre>
+<div class="caption">Client Credentials: không có user; <code>sub</code> là chính service. Cache token đến gần hết hạn rồi xin mới.</div>
+</div>
+<div class="callout example"><span class="callout-title">🧪 Ví dụ: <code>payroll-batch</code> của Kaopiz HR</span>
+Mỗi đêm, job <code>payroll-batch</code> tính lương và ghi vào <code>hr-api</code> — không ai bấm nút. Nó có client riêng trong realm <code>kaopiz</code>, chỉ có scope <code>payroll.write</code>. Token của nó có <code>sub</code> là chính service, nên log của <code>hr-api</code> ghi rõ “payroll-batch đã ghi”, không lẫn với người dùng.</div>
+<p>Request xin token: không có <code>code</code>, không redirect — service chỉ tự giới thiệu (<code>client_id</code> + bí mật) và xin scope.</p>
+<pre data-title="Token request (Client Credentials)"><code class="language-plaintext">POST /realms/demo/protocol/openid-connect/token HTTP/1.1
+Host: idp.example.com
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=client_credentials&amp;client_id=worker&amp;client_secret=...&amp;scope=orders.sync</code></pre>
+<div class="table-wrap"><table>
+<thead><tr><th>Cách xác thực service</th><th>Ý tưởng</th><th>Ghi chú</th></tr></thead>
+<tbody>
+<tr><td>Client secret</td><td>Chuỗi bí mật gửi kèm token request.</td><td>Đơn giản nhất; phải lưu trong secret manager và rotate.</td></tr>
+<tr><td><code>private_key_jwt</code> (RFC 7523)</td><td>Service ký một JWT bằng private key để chứng minh danh tính.</td><td>Không gửi bí mật qua mạng; key có thể trong HSM/Key Vault.</td></tr>
+<tr><td>mTLS (RFC 8705)</td><td>Service trình certificate khi bắt tay TLS; token có thể được “gắn” với certificate (certificate-bound token).</td><td>Token bị lấy cắp không dùng được nếu thiếu private key của cert.</td></tr>
+<tr><td><b>Workload identity</b></td><td>Nền tảng (Azure Managed Identity, Kubernetes service account token, SPIFFE/SPIRE, workload identity federation của cloud) cấp danh tính cho workload, không cần secret do người quản lý.</td><td>Ưu tiên khi chạy trên cloud/K8s; giảm rủi ro lộ secret.</td></tr>
+</tbody></table></div>
+<div class="callout warn"><span class="callout-title">⚠️ mTLS không thay thế authorization</span>
+mTLS (mutual TLS — cả hai phía trình certificate) trả lời “<i>kết nối này đến từ service nào</i>”. Nó không trả lời “<i>service <code>reporting</code> có được xóa đơn hàng không</i>”. API vẫn phải kiểm tra scope/permission của service đó — và nếu request mang danh nghĩa user (token exchange/on-behalf-of), vẫn kiểm tra quyền của user.</div>
+
+<h4 id="s2s-user-context">Khi service gọi service <i>trong lúc xử lý request của người dùng</i></h4>
+<p>Thường gặp hơn: An bấm “Xem bảng lương” → <code>hr-api</code> gọi tiếp <code>payroll-service</code>. Lúc này <code>payroll-service</code> cần biết <b>đang phục vụ ai</b>. Có ba cách hay bị trộn lẫn:</p>
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: Client Credentials vs Token exchange / OBO vs Chuyển tiếp token người dùng</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Client Credentials</th><th>Token exchange (RFC 8693) / OBO</th><th>Chuyển tiếp nguyên token của user</th></tr></thead>
+<tbody>
+<tr><td>Cách làm</td><td><code>hr-api</code> xin token cho <i>chính nó</i></td><td><code>hr-api</code> đưa token của An cho IdP, xin token <i>mới</i> dành cho <code>payroll-service</code></td><td><code>hr-api</code> gửi luôn token An đã gửi cho nó</td></tr>
+<tr><td><code>payroll-service</code> biết user là ai?</td><td>Không — chỉ thấy <code>hr-api</code></td><td>Có (An), và thường biết cả <code>hr-api</code> đang gọi hộ</td><td>Có (An)</td></tr>
+<tr><td><code>aud</code> của token</td><td><code>payroll-service</code></td><td><code>payroll-service</code> (đúng đích)</td><td>Vẫn là <code>hr-api</code> → <code>payroll-service</code> đúng ra phải <b>từ chối</b></td></tr>
+<tr><td>Rủi ro</td><td>Service có quyền rộng hơn user → dễ lộ dữ liệu người khác</td><td>Phức tạp hơn; IdP phải hỗ trợ</td><td>Phải nới <code>aud</code> cho nhiều service; lộ một token = gọi được mọi service</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> với Client Credentials, <code>payroll-service</code> trả lương của <i>bất kỳ ai</i> <code>hr-api</code> hỏi — quên lọc một chỗ là An xem được lương đồng nghiệp. Với token exchange, <code>payroll-service</code> nhận token có <code>sub</code> = An và tự kiểm tra được.</p>
+<span class="rule">Không có user → Client Credentials. Có user và service sau cần biết → token exchange/OBO. Chuyển tiếp nguyên token → hạn chế dùng.</span>
+</div>
+
+<h4 id="gateway-vs-service">Ai kiểm tra token: API gateway hay từng service?</h4>
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: API gateway validate vs Mỗi service tự validate</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Chỉ gateway kiểm tra token</th><th>Mỗi service tự kiểm tra token</th></tr></thead>
+<tbody>
+<tr><td>Cách làm</td><td>Gateway xác minh chữ ký, <code>iss</code>, <code>aud</code>, <code>exp</code>; service phía sau tin request đã qua gateway</td><td>Mỗi service tự xác minh token (dùng JWKS của IdP) và tự kiểm tra scope</td></tr>
+<tr><td>Ưu điểm</td><td>Cấu hình tập trung một chỗ; service đơn giản</td><td>Không phụ thuộc mạng nội bộ “sạch”; mỗi service tự bảo vệ mình</td></tr>
+<tr><td>Rủi ro</td><td>Ai vào được mạng nội bộ gọi thẳng service, <b>bỏ qua gateway</b>; service tin header như <code>X-User-Id</code> thì bị giả mạo. Gateway cũng không biết “bảng lương này của ai”</td><td>Lặp cấu hình ở nhiều service; phải cập nhật thư viện đồng đều</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> gateway của Kaopiz HR chặn sớm request không có token hợp lệ. Nhưng <code>payroll-service</code> vẫn tự kiểm tra token và <code>aud</code>, vì <code>payroll-batch</code> chạy cùng mạng và gọi thẳng nó, không qua gateway.</p>
+<span class="rule">Gateway là lớp chặn đầu tiên, không phải lớp duy nhất. Service nào giữ dữ liệu thì service đó tự kiểm tra.</span>
+</div>
+<h4>Checklist service-to-service</h4>
+<ul class="checklist">
+<li><span>Mỗi service một client/identity; không chia sẻ credential.</span></li>
+<li><span>Ưu tiên workload identity / <code>private_key_jwt</code> / mTLS hơn shared secret.</span></li>
+<li><span>Secret trong secret manager, có lịch rotation; không trong appsettings/git.</span></li>
+<li><span>Scope tối thiểu; API kiểm tra <code>aud</code> + scope.</span></li>
+<li><span>Cache access token; không xin token cho mỗi request.</span></li>
+</ul>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Có mTLS rồi thì không cần authorization.</span><span class="f-label">Thực tế</span><span>mTLS chỉ cho biết <i>service nào</i> đang gọi; quyền (scope/permission, và quyền của user nếu gọi thay user) vẫn phải được kiểm tra.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Một client credential cho tất cả microservice cho đơn giản.</span><span class="f-label">Thực tế</span><span>Mất một là mất hết, không phân quyền được, không audit được (log chỉ thấy “ai đó trong hệ thống”). Mỗi service một identity với scope tối thiểu.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>API gateway đã kiểm tra token rồi, service phía sau không cần kiểm tra nữa.</span><span class="f-label">Thực tế</span><span>Ai vào được mạng nội bộ có thể gọi thẳng service, bỏ qua gateway (như <code>payroll-batch</code> ở ví dụ trên), và header kiểu <code>X-User-Id</code> thì giả được. Service giữ dữ liệu vẫn tự kiểm tra token, <code>aud</code> và quyền.</span></div>
+
+<h3 id="enterprise-network">B.7. Windows Domain / Enterprise Network <span class="badge nice">Nice</span></h3>
+<p>Trong công ty dùng Windows domain, <b>một nguồn danh tính</b> (Active Directory) phục vụ nhiều loại tài nguyên — mỗi loại dùng một giao thức phù hợp:</p>
+<ul>
+<li><b>AD + Kerberos</b> (<a href="m05-2-kerberos-enterprise.html#kerberos">M05</a>) cho xác thực trong Windows domain (đăng nhập máy, file share, IIS với Windows Authentication).</li>
+<li><b>LDAP/LDAPS</b> (<a href="m05-1-ldap-ad.html#ldap">M05</a>) để truy vấn directory; dùng LDAPS (TLS, thường port 636) thay vì LDAP rõ, và tránh dùng LDAP bind làm “cơ chế đăng nhập” cho app web mới.</li>
+<li><b>RADIUS/TACACS+</b> (<a href="m05-2-kerberos-enterprise.html#radius">M05</a>) cho network access (Wi-Fi 802.1X, VPN) và quản trị thiết bị mạng.</li>
+<li><b>SAML/OIDC</b> cho federation tới ứng dụng (IdP như AD FS hoặc Entra ID dùng AD làm nguồn danh tính).</li>
+<li><b>FIDO2/passkey/MFA</b> (Windows Hello for Business, security key) để tăng cường đăng nhập.</li>
+</ul>
+<div class="diagram">
+<pre class="mermaid">
+flowchart TD
+  U["👤 Nhân viên + laptop domain-joined"]
+  AD[("Active Directory<br/>KDC + LDAP")]
+  IDP["IdP (AD FS / Entra ID)<br/>SAML + OIDC"]
+  NPS["RADIUS server (NPS)"]
+  U -- "Kerberos: đăng nhập máy,<br/>file share, app IWA" --> AD
+  U -- "802.1X Wi-Fi / VPN" --> NPS
+  NPS -- "kiểm tra user/nhóm" --> AD
+  U -- "SSO tới SaaS / app web" --> IDP
+  IDP -- "đồng bộ / xác thực" --> AD
+  IDP -- "SAML / OIDC" --> SaaS["SaaS, app nội bộ mới"]
+</pre>
+<div class="caption">Enterprise: một nguồn danh tính (AD), nhiều giao thức theo loại tài nguyên.</div>
+</div>
+<div class="compare" id="iwa-vs-oidc"><span class="compare-title">Phân biệt dễ nhầm: Kerberos/IWA vs OIDC cho web app trong mạng nội bộ</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>Kerberos / IWA</th><th>OIDC qua IdP (Keycloak, AD FS, Entra ID)</th></tr></thead>
+<tbody>
+<tr><td>Người dùng thấy gì</td><td>Không thấy gì — vào thẳng app, không redirect</td><td>Redirect tới trang IdP (có thể tự đăng nhập luôn nhờ SSO)</td></tr>
+<tr><td>Điều kiện</td><td>Máy domain-joined, trong mạng tới được KDC (domain controller), browser cấu hình tin site nội bộ</td><td>Chỉ cần browser + kết nối tới IdP; chạy cả ngoài công ty, trên điện thoại</td></tr>
+<tr><td>Cơ chế trên HTTP</td><td>Header <code>Authorization: Negotiate ...</code> mang Kerberos ticket</td><td>Authorization Code flow → ID token + session cookie</td></tr>
+<tr><td>Gọi API thay user</td><td>Khó (cần cấu hình Kerberos delegation)</td><td>Có sẵn access token có scope</td></tr>
+<tr><td>MFA, conditional access</td><td>Chỉ ở bước đăng nhập Windows</td><td>IdP áp dụng theo từng app</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> trang danh bạ nội bộ trên IIS, chỉ dùng trong văn phòng → IWA là đủ. Kaopiz HR cần cho An xem lương từ điện thoại ở nhà, có MFA → OIDC qua Keycloak. Có thể kết hợp: IdP (vd AD FS) dùng Kerberos để đăng nhập khi máy ở trong mạng, rồi phát token OIDC cho app.</p>
+<span class="rule">Chỉ máy domain trong văn phòng → Kerberos/IWA được. Có người dùng ngoài mạng, mobile hay API → OIDC.</span>
+</div>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Trang IIS đã bật Windows Authentication thì nhân viên ở đâu cũng được SSO trong suốt.</span><span class="f-label">Thực tế</span><span>SSO Kerberos chỉ chạy khi máy domain-joined, user đã đăng nhập domain (có TGT) và tới được domain controller. Laptop cá nhân ở nhà không có vé Kerberos → không có SSO trong suốt (browser hỏi mật khẩu hoặc không vào được).</span></div>
+
+<div class="callout tip"><span class="callout-title">✅ Tự kiểm tra nhanh</span><ul>
+<li>Vì sao app WPF không được dùng WebView nhúng để hiện form đăng nhập?</li>
+<li>App mobile nên đăng ký redirect URI dạng nào, và vì sao custom scheme kém an toàn hơn?</li>
+<li><code>hr-api</code> cần gọi <code>payroll-service</code> để lấy lương của An. Chuyển tiếp nguyên token của An có ổn không?</li>
+</ul></div>
+
+<h2 id="quiz-bai">Quiz nhanh — Bài 7.2</h2>
+<div id="quiz"></div>
+
+</main>
+<script>
+window.QUIZ = [
+  { q: "Team WPF nhúng client secret vào app, chạy Dotfuscator để obfuscate, và chỉ phát hành nội bộ công ty. Nhận định nào đúng?",
+    tricky: true,
+    options: ["Đủ an toàn, vì chỉ nhân viên công ty có bản cài", "Không an toàn: secret vẫn lấy được (đọc bộ nhớ lúc chạy, bắt request <code>/token</code> qua proxy debug); mọi bản cài cùng secret nên nó không chứng minh được gì — đăng ký public client + PKCE", "An toàn nếu installer mã hóa secret bằng DPAPI khi cài", "Đổi sang <code>private_key_jwt</code>, nhúng private key vào app là giải quyết xong"],
+    answer: 1,
+    why: ["Nhân viên cũng là người dùng không tin cậy hoàn toàn (và máy họ có thể nhiễm malware); “nội bộ” không biến app thành confidential client.", "Obfuscate chỉ làm chậm việc dịch ngược; lúc gửi lên token endpoint, secret vẫn phải xuất hiện ở dạng rõ. Bí mật dùng chung cho mọi bản cài không còn là bí mật.", "Installer phải mang secret dạng rõ để mã hóa, nên secret vẫn nằm trong gói cài; DPAPI chỉ chống chép file sang máy khác.", "Private key nhúng trong app cũng là bí mật phân phối cho mọi người, lộ y như client secret — chỉ đổi tên vấn đề."],
+    explain: "Code chạy trên máy người dùng → public client + PKCE, không có secret. Xem <a href='m07-2-native-s2s.html#desktop'>B.4. Desktop</a>." },
+  { q: "App WPF chấm công dùng WebView2 nhúng để hiện trang login Keycloak (vẫn dùng Authorization Code + PKCE). Hậu quả nào xảy ra? (chọn nhiều)",
+    tricky: true,
+    options: ["App có thể chèn script đọc mật khẩu An gõ vào form", "An không thấy thanh địa chỉ để kiểm tra mình đang ở đúng <code>sso.kaopiz.local</code>", "An đã đăng nhập Keycloak trên Edge từ sáng nhưng vẫn phải gõ lại mật khẩu", "Không ảnh hưởng gì, vì PKCE đã bảo vệ luồng đăng nhập"],
+    answer: [0, 1, 2],
+    why: ["App kiểm soát WebView nhúng, nên đọc được form/DOM — người dùng phải tin app thay vì tin IdP.", "WebView nhúng không có thanh địa chỉ/ổ khóa, người dùng không tự kiểm tra domain được và dễ quen với việc gõ mật khẩu vào app.", "WebView2 dùng thư mục dữ liệu riêng của app, không dùng chung cookie với profile Edge, nên mất SSO có sẵn.", "Bẫy: PKCE chỉ chống đánh cắp authorization code; nó không bảo vệ mật khẩu người dùng gõ vào một khung mà app đọc được."],
+    explain: "RFC 8252 §8.12: native app MUST NOT dùng embedded user-agent. Xem <a href='m07-2-native-s2s.html#desktop'>so sánh System browser vs WebView</a>." },
+  { q: "App mobile <code>hr-mobile</code> dùng redirect custom scheme <code>com.kaopiz.hr:/callback</code>. Một app độc đăng ký trùng scheme và nhận được authorization code. Điều gì ngăn app độc đổi code lấy token?",
+    options: ["Tham số <code>state</code>", "PKCE: app độc không có <code>code_verifier</code> mà <code>hr-mobile</code> đã tạo", "Client secret của <code>hr-mobile</code>", "HTTPS giữa app và IdP"],
+    answer: 1,
+    why: ["<code>state</code> giúp client gốc chống CSRF; app độc thấy <code>state</code> ngay trong URL redirect và cũng không cần nó để gọi <code>/token</code>.", "Token endpoint đòi <code>code_verifier</code> khớp với <code>code_challenge</code> đã gửi; chỉ <code>hr-mobile</code> giữ giá trị đó trong bộ nhớ.", "App mobile là public client, không có secret — và nếu có nhúng thì app độc cũng trích xuất được.", "HTTPS bảo vệ đường truyền; ở đây code bị giao nhầm cho app khác ngay trên thiết bị, không phải bị nghe lén trên mạng."],
+    explain: "PKCE là lớp bảo vệ chính cho public client. Xem <a href='m07-2-native-s2s.html#redirect-desktop-mobile'>Redirect Desktop vs Mobile</a>." },
+  { q: "<code>hr-api</code> cần gọi <code>payroll-service</code> để lấy lương của An, và <code>payroll-service</code> phải tự đảm bảo An chỉ xem lương của mình. Cách nào phù hợp nhất?",
+    options: ["<code>hr-api</code> dùng Client Credentials xin token cho chính nó", "<code>hr-api</code> chuyển tiếp nguyên access token An đã gửi", "Token exchange (RFC 8693) / OBO: đổi token của An lấy token mới có <code>aud</code> = <code>payroll-service</code>, <code>sub</code> = An", "<code>hr-api</code> gửi kèm header <code>X-User-Id: an</code>"],
+    answer: 2,
+    why: ["Token Client Credentials chỉ mang danh tính <code>hr-api</code>; <code>payroll-service</code> không biết đang phục vụ An nên không tự kiểm tra được.", "Token đó có <code>aud</code> = <code>hr-api</code>; <code>payroll-service</code> kiểm tra đúng thì phải từ chối, còn nới <code>aud</code> thì lộ một token là gọi được mọi service.", "Token mới đúng đích (<code>aud</code>) và vẫn mang <code>sub</code> = An, nên <code>payroll-service</code> tự kiểm tra quyền của An được.", "Header tự đặt không có chữ ký; ai gọi được <code>payroll-service</code> cũng giả được <code>X-User-Id</code>."],
+    explain: "Có user và service sau cần biết user → token exchange/OBO. Xem <a href='m07-2-native-s2s.html#s2s-user-context'>Service gọi service trong request của user</a>." },
+  { q: "Gateway của Kaopiz HR đã xác minh token. <code>payroll-service</code> phía sau chỉ đọc header <code>X-User-Id</code> do gateway thêm vào, không tự kiểm tra gì. Rủi ro nào có thật? (chọn nhiều)",
+    options: ["Ai vào được mạng nội bộ (hoặc service bị chiếm quyền) gọi thẳng <code>payroll-service</code>, tự đặt <code>X-User-Id</code> tùy ý", "Không có rủi ro, vì gateway là cửa vào duy nhất từ Internet", "<code>payroll-service</code> không kiểm tra được token có dành cho chính nó (<code>aud</code>) và có đủ scope không", "Câu hỏi “bảng lương này có phải của user này không” vẫn phải trả lời ở service, vì gateway không biết dữ liệu"],
+    answer: [0, 2, 3],
+    why: ["Gateway chỉ chặn đường từ Internet; mọi thứ đã ở trong mạng (như <code>payroll-batch</code>) đi vòng qua nó được, và header không có chữ ký.", "“Cửa vào từ Internet” không phải đường duy nhất — mạng nội bộ không phải trust boundary đủ tin cậy.", "Khi chỉ nhận header, service mất khả năng tự kiểm tra <code>aud</code>/scope; token cấp cho API khác cũng lọt qua nếu gateway kiểm tra lỏng.", "Ownership là quyết định theo dữ liệu (resource-based authorization), chỉ service giữ dữ liệu mới làm được."],
+    explain: "Gateway là lớp chặn đầu tiên, không phải lớp duy nhất. Xem <a href='m07-2-native-s2s.html#gateway-vs-service'>Gateway hay từng service</a>." },
+  { q: "Trang danh bạ nội bộ trên IIS dùng Windows Authentication (IWA). Ở văn phòng An vào thẳng; ở nhà, trên laptop cá nhân, An không được SSO tự động. Vì sao?",
+    options: ["IWA chỉ chạy trên Internet Explorer", "Laptop cá nhân không domain-joined, không có vé Kerberos (TGT) và không tới được domain controller", "Trang IIS chặn mọi IP ngoài công ty", "Phải bật PKCE cho IWA"],
+    answer: 1,
+    why: ["Edge, Chrome, Firefox đều hỗ trợ <code>Negotiate</code> khi được cấu hình; vấn đề không nằm ở browser.", "Kerberos cần máy domain, user đăng nhập domain để có TGT, và đường tới KDC; thiếu các điều kiện đó thì không có SSO trong suốt.", "Câu hỏi không nói có chặn IP; kể cả vào được mạng, máy không có vé Kerberos vẫn không SSO được.", "PKCE là cơ chế của OAuth Authorization Code; IWA/Kerberos không dùng PKCE."],
+    explain: "Người dùng ngoài mạng/thiết bị cá nhân → OIDC qua IdP. Xem <a href='m07-2-native-s2s.html#iwa-vs-oidc'>Kerberos/IWA vs OIDC</a>." }
+];
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="assets/pages.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M07 · Bài 7.5 · Decision matrix</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<main class="content">
+
+<div class="page-head">
+  <div class="breadcrumb"><a href="index.html">Lộ trình</a> / <a href="m07-architecture.html">Module 07</a> / Bài 7.5</div>
+  <h1>Bài 7.5 — Decision matrix</h1>
+  <p class="lead">Bảng “chọn khóa theo cửa”: so sánh các giao thức (OIDC, SAML, Kerberos, FIDO2, RADIUS, API key) theo cùng tiêu chí, chọn theo từng use case, và checklist kiến trúc để rà lại thiết kế trước khi triển khai.</p>
+  <div class="meta-row">
+    <span class="chip">⏱ ~15 phút</span>
+    <span class="chip">📘 <a href="m07-architecture.html">Module 07 · Architecture &amp; Practical Cases</a></span>
+  </div>
+</div>
+
+<!-- ===================================================== -->
+<h2 id="decision-matrix">G. Decision matrix <span class="badge must">Must</span></h2>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Không có “khóa tốt nhất” — chỉ có khóa <b>hợp với cửa</b>. Khóa vân tay rất tốt cho cửa nhà, nhưng không dùng cho cổng xe tải tự động. Bảng dưới là “bảng chọn khóa theo cửa”.</div>
+<div class="terms"><span class="terms-title">📖 Thuật ngữ trong bài</span><dl>
+<dt>Decision matrix</dt><dd>Bảng đặt các lựa chọn cạnh nhau theo cùng tiêu chí để chọn nhanh và giải thích được vì sao.</dd>
+<dt>Use case</dt><dd>Một bài toán cụ thể: ai cần truy cập cái gì, bằng thiết bị nào.</dd>
+<dt>Phishing resistant</dt><dd>Không thể bị lừa nhập credential vào trang giả (passkey gắn với đúng domain nên trang giả không dùng được).</dd>
+<dt>Federation</dt><dd>Hai tổ chức tin nhau để người của bên này đăng nhập vào app của bên kia.</dd>
+<dt>AAA</dt><dd>Authentication, Authorization, Accounting — bộ ba của RADIUS cho truy cập mạng.</dd>
+<dt>Key rotation</dt><dd>Thay khóa ký/secret định kỳ mà không làm gián đoạn hệ thống.</dd>
+<dt>Secret manager</dt><dd>Kho lưu secret có kiểm soát truy cập và audit (Key Vault, Vault…).</dd>
+</dl></div>
+
+<h3 id="matrix-protocols">G.1. So sánh theo giao thức (deliverable 1)</h3>
+<p>Mỗi cột là một giao thức, mỗi hàng là một câu hỏi. Đọc theo <b>hàng</b> để so sánh: ví dụ hàng “Gọi API thay user” cho thấy chỉ OIDC/OAuth làm tốt việc này. Hàng “Không nên dùng khi” quan trọng không kém — nó giúp bạn loại trừ nhanh.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>OIDC</th><th>SAML 2.0</th><th>Kerberos</th><th>FIDO2 / Passkey</th><th>RADIUS</th><th>API key</th></tr></thead>
+<tbody>
+<tr><td>Là gì</td><td>Lớp danh tính trên OAuth 2.0</td><td>Chuẩn XML trao đổi assertion</td><td>Giao thức vé (ticket) trong domain</td><td>Credential khóa công khai gắn với RP</td><td>Giao thức AAA cho truy cập mạng</td><td>Chuỗi bí mật định danh ứng dụng</td></tr>
+<tr><td>Subject điển hình</td><td>User (+ app qua OAuth)</td><td>User</td><td>User, máy, service trong domain</td><td>User</td><td>User/thiết bị vào mạng</td><td>Ứng dụng/đối tác</td></tr>
+<tr><td>Client phù hợp</td><td>Web, SPA, mobile, desktop</td><td>Web app trong browser</td><td>Máy Windows domain-joined, app nội bộ</td><td>Browser/OS hỗ trợ WebAuthn</td><td>Access point, VPN, switch</td><td>Server-to-server</td></tr>
+<tr><td>Token / dữ liệu</td><td>JWT (ID token), access token</td><td>XML assertion có chữ ký</td><td>Ticket (TGT, service ticket)</td><td>Chữ ký trên challenge</td><td>Access-Accept/Reject (+ EAP)</td><td>Chính chuỗi key</td></tr>
+<tr><td>Gọi API thay user</td><td>✅ (OAuth)</td><td>❌ (không thiết kế cho API)</td><td>⚠️ Nội bộ (delegation)</td><td>❌ (chỉ xác thực)</td><td>❌</td><td>❌ (chỉ định danh app)</td></tr>
+<tr><td>Phishing resistant</td><td>Tùy authenticator ở IdP</td><td>Tùy authenticator ở IdP</td><td>Trong mạng nội bộ</td><td>✅ Có</td><td>Tùy EAP method</td><td>❌</td></tr>
+<tr><td>Federation xuyên tổ chức</td><td>✅</td><td>✅ (rất phổ biến trong enterprise)</td><td>⚠️ Trust giữa forest/realm</td><td>Không áp dụng</td><td>⚠️ Proxy RADIUS (vd eduroam)</td><td>❌</td></tr>
+<tr><td>Không nên dùng khi</td><td>Thiết bị mạng, SaaS chỉ hỗ trợ SAML</td><td>Mobile/SPA gọi API, app mới không cần SAML</td><td>Internet, client ngoài domain</td><td>Service-to-service</td><td>Đăng nhập web app</td><td>Dữ liệu user nhạy cảm, cần delegated access</td></tr>
+<tr><td>Xem thêm</td><td><a href="m03-5-oidc.html#oidc">M03</a></td><td><a href="m04-4-security.html#oidc-vs-saml">M04</a></td><td><a href="m05-2-kerberos-enterprise.html#kerberos">M05</a></td><td><a href="m05-4-passkey.html#passkey">M05</a></td><td><a href="m05-2-kerberos-enterprise.html#radius">M05</a></td><td><a href="m02-5-http-auth.html#api-key">M02</a></td></tr>
+</tbody></table></div>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Dùng OIDC/SAML là chống được phishing, vì người dùng không gõ mật khẩu vào app.</span><span class="f-label">Thực tế</span><span>OIDC/SAML chỉ chuyển việc đăng nhập sang IdP. Nếu IdP vẫn dùng mật khẩu + OTP, trang giả mạo IdP vẫn lừa được người dùng. Mức chống phishing do <b>authenticator</b> ở IdP quyết định — passkey/FIDO2 gắn với domain thật thì mới chống được.</span></div>
+
+<h3 id="matrix-usecases">G.2. Chọn theo use case</h3>
+<p>Bảng G.1 so sánh theo giao thức; bảng này đi ngược lại — bắt đầu từ bài toán. Cột <b>Tránh</b> liệt kê những lựa chọn hay gặp trong code cũ nhưng không nên dùng cho thiết kế mới.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Use case</th><th>Lựa chọn chính</th><th>Thay thế / bổ sung</th><th>Tránh</th></tr></thead>
+<tbody>
+<tr><td>App web mới của công ty, SSO nhân viên</td><td>OIDC code flow</td><td>SAML nếu IdP/chính sách bắt buộc</td><td>Tự quản lý mật khẩu riêng</td></tr>
+<tr><td>Tích hợp SaaS doanh nghiệp (Salesforce, ServiceNow…)</td><td>SAML hoặc OIDC (theo SaaS hỗ trợ) + SCIM</td><td>—</td><td>Chia sẻ tài khoản chung</td></tr>
+<tr><td>SPA gọi API</td><td>OIDC + code + PKCE qua BFF</td><td>Code + PKCE, token trong memory</td><td>Implicit flow, token trong localStorage</td></tr>
+<tr><td>Desktop/mobile gọi API</td><td>OIDC + code + PKCE, system browser</td><td>Broker OS (WAM), MSAL</td><td>ROPC, WebView nhúng, secret nhúng</td></tr>
+<tr><td>Service ↔ service</td><td>Client Credentials / workload identity</td><td>mTLS bổ sung</td><td>Dùng tài khoản user làm service account, credential chung</td></tr>
+<tr><td>App nội bộ trên máy Windows domain</td><td>Kerberos (IWA)</td><td>OIDC qua IdP liên kết AD</td><td>NTLM khi có thể tránh</td></tr>
+<tr><td>Website công khai muốn passwordless</td><td>Passkey (WebAuthn)</td><td>Mật khẩu + TOTP làm dự phòng</td><td>SMS OTP làm yếu tố chính</td></tr>
+<tr><td>Admin, tài khoản đặc quyền</td><td>FIDO2 security key/passkey + conditional access</td><td>Smart card</td><td>OTP/push đơn thuần</td></tr>
+<tr><td>Wi-Fi/VPN doanh nghiệp</td><td>RADIUS + EAP (ưu tiên certificate-based EAP-TLS)</td><td>Tích hợp MFA tại VPN</td><td>Pre-shared key dùng chung</td></tr>
+<tr><td>Đối tác gọi API dữ liệu ít nhạy cảm, có quota</td><td>API key</td><td>Client Credentials khi cần scope</td><td>API key trong query string</td></tr>
+<tr><td>Thiết bị không có bàn phím (TV, CLI trên server)</td><td>Device Authorization flow (<a href="m03-3-other-grants.html#device-flow">M03</a>)</td><td>—</td><td>Gõ mật khẩu vào thiết bị</td></tr>
+</tbody></table></div>
+
+<div class="callout example"><span class="callout-title">🧪 Ví dụ: dùng bảng để chọn cho toàn bộ Kaopiz HR</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Thành phần</th><th>Dòng trong bảng</th><th>Lựa chọn</th></tr></thead>
+<tbody>
+<tr><td><code>hr-web</code> (web, nhân viên đăng nhập)</td><td>App web mới của công ty</td><td>OIDC code flow qua Keycloak realm <code>kaopiz</code>, cookie session</td></tr>
+<tr><td>App chấm công WPF</td><td>Desktop gọi API</td><td>Code + PKCE, system browser, loopback</td></tr>
+<tr><td><code>payroll-batch</code> ghi vào <code>hr-api</code></td><td>Service ↔ service</td><td>Client Credentials, scope <code>payroll.write</code></td></tr>
+<tr><td>Tài khoản admin HR</td><td>Admin, tài khoản đặc quyền</td><td>Passkey/security key bắt buộc</td></tr>
+<tr><td>Phần mềm bảo hiểm (SaaS) chỉ hỗ trợ SAML</td><td>Tích hợp SaaS doanh nghiệp</td><td>SAML + SCIM nếu SaaS hỗ trợ</td></tr>
+</tbody></table></div>
+Một hệ thống thường dùng <b>nhiều</b> giao thức cùng lúc — mỗi thành phần chọn theo đúng “cửa” của nó.</div>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Nên chọn <b>một</b> giao thức cho cả hệ thống cho thống nhất.</span><span class="f-label">Thực tế</span><span>Mỗi loại subject/client cần cơ chế khác: nhân viên dùng OIDC, job đêm dùng Client Credentials, SaaS chỉ hỗ trợ SAML, Wi-Fi dùng RADIUS. Thứ nên thống nhất là <b>nguồn danh tính và IdP</b>, không phải giao thức.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>API key đơn giản nhất nên dùng cho mọi tích hợp với đối tác.</span><span class="f-label">Thực tế</span><span>API key chỉ định danh ứng dụng, thường dài hạn, không có scope chuẩn. Hợp với dữ liệu ít nhạy cảm cần quota; dữ liệu nhạy cảm thì Client Credentials, còn truy cập thay mặt user thì Authorization Code.</span></div>
+
+<h3 id="oidc-vs-saml-summary">G.3. OIDC vs SAML — tóm tắt (gộp từ M04)</h3>
+<div class="table-wrap"><table>
+<thead><tr><th></th><th>OIDC</th><th>SAML 2.0</th></tr></thead>
+<tbody>
+<tr><td>Định dạng</td><td>JSON/JWT</td><td>XML + XML Signature</td></tr>
+<tr><td>Mạnh ở</td><td>App hiện đại, mobile, SPA, API (đi cùng OAuth)</td><td>Enterprise SSO, SaaS lâu đời, hệ sinh thái federation có sẵn</td></tr>
+<tr><td>Native/mobile</td><td>Hỗ trợ tốt (RFC 8252)</td><td>Kém (dựa vào browser POST)</td></tr>
+<tr><td>Gọi API</td><td>Access token chuẩn</td><td>Không thiết kế cho mục đích này</td></tr>
+<tr><td>Khi chọn SAML</td><td colspan="2">Ứng dụng/SaaS chỉ hỗ trợ SAML, IdP/đối tác federation yêu cầu SAML, hệ thống cũ đã đầu tư SAML. Chi tiết ở <a href="m04-4-security.html#oidc-vs-saml">M04</a>.</td></tr>
+</tbody></table></div>
+
+<p><b>Mẹo nhớ:</b> app mới, có mobile/SPA hay cần gọi API → OIDC. Chỉ chọn SAML khi bên kia (SaaS, đối tác, IdP) bắt buộc.</p>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>SAML đã cũ và kém an toàn, nên thay hết bằng OIDC.</span><span class="f-label">Thực tế</span><span>SAML vẫn là chuẩn chính của enterprise SSO và nhiều SaaS; triển khai đúng (kiểm tra chữ ký, Audience, Destination, thời hạn) thì an toàn. Không chọn SAML cho app mới cần mobile/API, nhưng cũng không cần “gỡ” SAML đang chạy tốt chỉ vì nó cũ.</span></div>
+
+<h3 id="arch-checklist">G.4. Checklist kiến trúc — bổ sung vào security checklist master (deliverable 4)</h3>
+<p>Bổ sung vào <a href="m06-quiz.html#security-checklist">checklist master ở M06</a>. Mỗi nhóm dưới ứng với một phần đã học trong module này — dùng để rà lại thiết kế trước khi triển khai, đánh dấu từng mục:</p>
+<h4>BFF</h4>
+<ul class="checklist">
+<li><span>Token chỉ ở server; cookie <code>__Host-</code>, HttpOnly, Secure, SameSite.</span></li>
+<li><span>Chống CSRF (custom header bắt buộc / antiforgery) cho mọi endpoint của BFF.</span></li>
+<li><span>Proxy chỉ chuyển tiếp tới API trong allowlist; không thành open proxy.</span></li>
+<li><span>Logout xóa session server + revoke refresh token.</span></li>
+</ul>
+<h4>CORS</h4>
+<ul class="checklist">
+<li><span>Allowlist origin cụ thể; không phản chiếu mọi Origin khi <code>Allow-Credentials: true</code>.</span></li>
+<li><span>Không xem CORS là authentication/authorization; API vẫn xác minh token.</span></li>
+<li><span><code>UseCors</code> đặt trước authentication/authorization để preflight không bị 401.</span></li>
+</ul>
+<h4>mTLS / service identity</h4>
+<ul class="checklist">
+<li><span>Mỗi service một identity/certificate; certificate ngắn hạn, tự động gia hạn.</span></li>
+<li><span>mTLS chỉ xác thực kết nối; API vẫn kiểm tra scope/permission.</span></li>
+<li><span>Cân nhắc certificate-bound token (RFC 8705) hoặc DPoP cho token nhạy cảm.</span></li>
+</ul>
+<h4>Key rotation</h4>
+<ul class="checklist">
+<li><span>IdP rotate signing key theo lịch; JWKS công bố key mới trước khi dùng, giữ key cũ đến khi token cũ hết hạn.</span></li>
+<li><span>API lấy JWKS tự động theo <code>kid</code> (không hardcode public key).</span></li>
+<li><span>Theo dõi ngày hết hạn certificate SAML/TLS; có runbook rollover.</span></li>
+<li><span>Runbook khi lộ khóa: rotate ngay, thu hồi token/phiên liên quan.</span></li>
+</ul>
+<h4>Secret management</h4>
+<ul class="checklist">
+<li><span>Secret trong secret manager (Key Vault, Vault…), không trong git/appsettings/image.</span></li>
+<li><span>Ưu tiên workload identity / managed identity để không có secret dài hạn.</span></li>
+<li><span>Secret có chủ sở hữu, hạn dùng, lịch rotation; quét secret trong repo (secret scanning).</span></li>
+<li><span>Không nhúng secret trong SPA/desktop/mobile.</span></li>
+</ul>
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Đưa client secret của app desktop vào Key Vault, app đọc lúc chạy, là hết lo lộ secret.</span><span class="f-label">Thực tế</span><span>Để đọc Key Vault, app lại cần một credential nhúng trong app — bài toán chỉ chuyển sang chỗ khác, và secret vẫn về tới máy người dùng. Secret manager dành cho code chạy trên server của bạn; app trên máy người dùng thì không có secret (public client + PKCE).</span></div>
+
+<div class="callout tip"><span class="callout-title">✅ Tự kiểm tra nhanh</span><ul>
+<li>Vì sao không dùng API key cho app cần truy cập dữ liệu <i>thay mặt</i> người dùng?</li>
+<li>Một SaaS chỉ hỗ trợ SAML, nhưng app mobile của bạn cũng cần đăng nhập. Bạn chọn gì cho từng bên?</li>
+<li>Kerberos có hợp cho nhân viên làm việc từ xa qua Internet không?</li>
+</ul></div>
+
+<h2 id="quiz-bai">Quiz nhanh — Bài 7.5</h2>
+<div id="quiz"></div>
+
+</main>
+<script>
+window.QUIZ = [
+  { q: "Kaopiz cần: (a) nhân viên đăng nhập một SaaS bảo hiểm chỉ hỗ trợ SAML; (b) app mobile gọi <code>hr-api</code> thay mặt nhân viên. Lựa chọn hợp lý?",
+    options: ["SAML cho cả hai, để thống nhất", "OIDC cho cả hai, vì OIDC hiện đại hơn", "SAML cho SaaS; OIDC + Authorization Code + PKCE (system browser) cho mobile", "Kerberos cho cả hai, vì đã có AD"],
+    answer: 2,
+    why: ["SAML không thiết kế để cấp access token gọi API và hỗ trợ native/mobile kém.", "SaaS chỉ hỗ trợ SAML thì không thể bắt nó nói OIDC; lựa chọn phụ thuộc bên kia.", "Mỗi thành phần chọn theo “cửa” của nó; cùng một IdP có thể phát cả SAML assertion lẫn OIDC token.", "Kerberos cần máy domain-joined trong mạng nội bộ; không hợp với SaaS trên Internet hay điện thoại."],
+    explain: "Một hệ thống thường dùng nhiều giao thức. Xem <a href='m07-5-decision-matrix.html#matrix-usecases'>G.2</a> và <a href='m07-5-decision-matrix.html#oidc-vs-saml-summary'>G.3</a>." },
+  { q: "Cấu hình nào sau đây <b>chống được phishing</b>? (chọn nhiều)",
+    tricky: true,
+    options: ["OIDC, IdP dùng mật khẩu + TOTP", "OIDC, IdP bắt buộc passkey", "SAML, IdP dùng mật khẩu + push MFA", "SAML, IdP bắt buộc FIDO2 security key"],
+    answer: [1, 3],
+    why: ["Trang giả mạo IdP lấy được mật khẩu và mã TOTP rồi chuyển tiếp ngay (adversary-in-the-middle); giao thức OIDC không cứu được.", "Passkey ký challenge gắn với domain thật của IdP; trang giả khác domain thì không dùng được credential.", "Push MFA vẫn bị lừa: kẻ giả mạo nhập mật khẩu thật, người dùng bấm “Chấp nhận” trên điện thoại vì tưởng đang đăng nhập thật.", "Bẫy: SAML không “kém” hơn ở điểm này — chống phishing do authenticator quyết định, và FIDO2 gắn với domain nên chống được."],
+    explain: "Hàng “Phishing resistant” của OIDC/SAML ghi “Tùy authenticator ở IdP”. Xem <a href='m07-5-decision-matrix.html#matrix-protocols'>G.1</a> và <a href='m05-4-passkey.html#passkey'>M05 — Passkey</a>." },
+  { q: "Team WPF chuyển client secret vào Azure Key Vault; app WPF đọc secret từ Key Vault lúc khởi động. Nhận định nào đúng?",
+    tricky: true,
+    options: ["Đã an toàn, vì secret không còn nằm trong mã nguồn", "An toàn nếu app dùng managed identity để đọc Key Vault", "Vẫn không an toàn: app cần credential để đọc Key Vault (lại nhúng trong app), và secret vẫn về tới máy người dùng — WPF nên là public client + PKCE", "An toàn nếu rotate secret mỗi ngày"],
+    answer: 2,
+    why: ["Secret không nằm trong mã nguồn nhưng vẫn về tới bộ nhớ của app trên máy người dùng, nơi ai cũng đọc được.", "Managed identity chỉ có cho workload chạy trên hạ tầng Azure, không cấp cho app trên laptop của nhân viên.", "Bẫy là tưởng secret manager giải quyết mọi thứ: nó chỉ có ý nghĩa với code chạy trên server bạn kiểm soát. Code trên máy người dùng không giữ được bí mật.", "Rotate rút ngắn thời gian dùng được của secret bị lộ, nhưng mỗi bản secret mới vẫn lộ y như cũ."],
+    explain: "Checklist Secret management: không nhúng secret trong SPA/desktop/mobile. Xem <a href='m07-5-decision-matrix.html#arch-checklist'>G.4</a>." },
+  { q: "IdP chuẩn bị rotate signing key. Cách làm nào không làm API từ chối token đang lưu hành?",
+    options: ["Đổi key ngay, xóa key cũ khỏi JWKS cùng lúc", "Công bố key mới trong JWKS trước khi dùng để ký; giữ key cũ trong JWKS đến khi mọi token ký bằng nó hết hạn", "Gửi public key mới cho các team để hardcode vào API", "Bắt mọi user đăng nhập lại sau khi đổi key"],
+    answer: 1,
+    why: ["Token đã ký bằng key cũ sẽ không tìm thấy <code>kid</code> trong JWKS → 401 hàng loạt.", "API chọn key theo <code>kid</code> từ JWKS; có cả hai key trong giai đoạn chuyển thì token cũ và mới đều kiểm tra được.", "Hardcode khiến mỗi lần rotate lại phải deploy API; API nên tự lấy JWKS theo <code>kid</code>.", "Đăng nhập lại không cần thiết nếu rotate đúng quy trình, và vẫn không cứu các API đã mất key cũ."],
+    explain: "Xem nhóm Key rotation trong <a href='m07-5-decision-matrix.html#arch-checklist'>G.4</a>." },
+  { q: "Công cụ CLI chạy trên server không có browser, cần gọi API <b>thay mặt admin</b>. Chọn gì?",
+    options: ["ROPC: CLI hỏi username/password của admin", "Client Credentials", "Device Authorization flow: admin mở URL và nhập mã trên máy khác", "Admin tạo API key cá nhân không hết hạn, dán vào CLI"],
+    answer: 2,
+    why: ["ROPC cho app chạm vào mật khẩu, không hỗ trợ MFA/passkey tốt và đã bị loại bỏ trong OAuth 2.1.", "Client Credentials không có user — API sẽ thấy CLI chứ không thấy admin.", "Device flow dành cho thiết bị không có browser: đăng nhập (kèm MFA) diễn ra trên điện thoại/laptop, CLI nhận token thay mặt admin.", "API key dài hạn không có scope chuẩn, dễ lộ, và không gắn với một phiên đăng nhập có MFA."],
+    explain: "Xem dòng “Thiết bị không có bàn phím” trong <a href='m07-5-decision-matrix.html#matrix-usecases'>G.2</a> và <a href='m03-3-other-grants.html#device-flow'>M03 — Device flow</a>." }
+];
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="assets/pages.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

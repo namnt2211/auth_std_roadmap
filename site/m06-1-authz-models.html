@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M06 · Bài 6.1 · Mô hình phân quyền</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+<main class="content">
+
+<div class="page-head">
+  <div class="breadcrumb"><a href="index.html">Lộ trình</a> / <a href="m06-authz-security.html">Module 06</a> / Bài 6.1</div>
+  <h1>Bài 6.1 — Mô hình phân quyền</h1>
+  <p class="lead">Sau khi biết “bạn là ai”, hệ thống phải quyết định “bạn được làm gì”. Bài này giới thiệu các “viên gạch” để mô tả quyền (permission, role, policy, scope, claim), bốn cách tổ chức quyền phổ biến (RBAC, ABAC, ACL, ReBAC) và khi nào cần đến một policy engine riêng.</p>
+  <div class="meta-row">
+    <span class="chip">⏱ ~25 phút</span>
+    <span class="chip">📘 <a href="m06-authz-security.html">Module 06 · Authorization &amp; Auth Security</a></span>
+  </div>
+</div>
+
+<!-- ===================================================== -->
+<h2 id="authz-models">A. Authorization models</h2>
+<p><b>Authorization model</b> (mô hình phân quyền) là cách bạn <i>tổ chức</i> và <i>lưu</i> thông tin “ai được làm gì”, để code có thể hỏi và nhận câu trả lời có/không một cách nhất quán.</p>
+
+<div class="terms"><span class="terms-title">📖 Thuật ngữ trong bài</span><dl>
+<dt>Permission</dt><dd>Một quyền cụ thể: được làm <i>hành động</i> gì trên <i>loại dữ liệu</i> nào (vd <code>order:approve</code>).</dd>
+<dt>Role</dt><dd>“Gói quyền” đặt tên theo chức danh, gán cho người (vd Manager).</dd>
+<dt>Policy</dt><dd>Quy tắc ra quyết định cho phép/từ chối, có thể xét nhiều điều kiện cùng lúc.</dd>
+<dt>Scope</dt><dd>Giới hạn những việc một <b>ứng dụng (client)</b> được làm thay người dùng, ghi trong access token.</dd>
+<dt>Claim</dt><dd>Một mẩu thông tin dạng tên–giá trị trong token (vd <code>department: "Sales-HN"</code>).</dd>
+<dt>RBAC / ABAC</dt><dd>Phân quyền theo vai trò / theo thuộc tính (phòng ban, giờ, thiết bị…).</dd>
+<dt>ACL / ReBAC</dt><dd>Danh sách quyền dán trên từng tài nguyên / quyền suy ra từ quan hệ (owner, member, manager…).</dd>
+<dt>PEP / PDP</dt><dd>Nơi <i>chặn</i> request (Enforcement) / nơi <i>ra quyết định</i> (Decision).</dd>
+</dl></div>
+
+<h3 id="building-blocks">A.1. Permission, Role, Policy, Scope, Claim <span class="badge must">Must</span></h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Nghĩ tới thẻ ra vào công ty. <b>Claim</b> là thông tin in trên thẻ (tên, phòng ban). <b>Permission</b> là “được mở cửa kho”. <b>Role</b> là “gói quyền” theo chức danh (thẻ Trưởng phòng mở được nhiều cửa hơn). <b>Policy</b> là nội quy (“kho chỉ mở trong giờ hành chính”). <b>Scope</b> giống <b>giấy ủy quyền</b> bạn đưa cho người giao hàng: “chỉ được lấy bưu kiện ở lễ tân” — dù bạn là Trưởng phòng, người cầm giấy cũng chỉ làm được đúng việc ghi trên giấy.</div>
+
+<p>Năm khái niệm này hay bị dùng lẫn lộn. Cách nhớ: <b>claim</b> là <i>dữ kiện</i>, <b>permission</b> là <i>quyền</i>, <b>role</b> là <i>gói quyền</i>, <b>scope</b> là <i>giới hạn của client</i>, <b>policy</b> là <i>quy tắc ra quyết định</i>.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Khái niệm</th><th>Định nghĩa</th><th>Ví dụ trong Order API</th><th>Ai/cái gì quản lý</th></tr></thead>
+<tbody>
+<tr><td><b>Permission</b></td><td>Quyền thực hiện một <i>hành động</i> trên một <i>loại tài nguyên</i>.</td><td><code>order:read</code>, <code>order:approve</code></td><td>Ứng dụng định nghĩa</td></tr>
+<tr><td><b>Role</b></td><td>Tập hợp permission, gán cho user hoặc group.</td><td><code>Manager</code> = {order:read, order:approve}; <code>Employee</code> = {order:read, order:create}</td><td>Admin ứng dụng / IdP (group → role)</td></tr>
+<tr><td><b>Policy</b></td><td>Quy tắc cho phép/từ chối dựa trên subject, action, resource và context.</td><td>“Manager chỉ duyệt đơn <i>cùng phòng ban</i>, không duyệt đơn của chính mình, tối đa 50 triệu”</td><td>Code ứng dụng hoặc policy engine</td></tr>
+<tr><td><b>Scope</b></td><td>Phạm vi quyền mà <b>client</b> được cấp (thường với sự đồng ý của user) trong OAuth.</td><td>Access token có <code>scope="orders.read"</code> → client này chỉ được <i>đọc</i> đơn thay mặt user</td><td>Authorization Server cấp theo cấu hình client + consent</td></tr>
+<tr><td><b>Claim</b></td><td>Một mẩu thông tin (cặp tên–giá trị) trong token/assertion.</td><td><code>sub</code>, <code>department: "Sales-HN"</code>, <code>roles: ["Manager"]</code>, <code>exp</code></td><td>IdP phát hành; API đọc</td></tr>
+</tbody></table></div>
+
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: Permission vs Role vs Policy vs Scope vs Claim — cùng một việc “xem bảng lương”</span>
+<p>Đặt cả năm khái niệm vào <b>một</b> yêu cầu trong Kaopiz HR: <i>“Trưởng phòng Bình mở <code>hr-web</code> để xem bảng lương của An (cùng phòng Dev)”</i>. Mỗi khái niệm trả lời một câu hỏi khác nhau:</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Khái niệm</th><th>Trả lời câu hỏi</th><th>Trong ví dụ “xem bảng lương”</th><th>Nằm ở đâu</th></tr></thead>
+<tbody>
+<tr><td><b>Claim</b></td><td>“Người này có những thông tin gì?”</td><td><code>sub: "binh"</code>, <code>department: "Dev"</code>, <code>roles: ["Manager"]</code></td><td>Trong token do Keycloak (realm <code>kaopiz</code>) phát hành</td></tr>
+<tr><td><b>Permission</b></td><td>“Có tồn tại quyền làm việc này không?”</td><td><code>payroll:read</code> (xem bảng lương)</td><td>Do <code>hr-api</code> định nghĩa</td></tr>
+<tr><td><b>Role</b></td><td>“Người này thuộc nhóm nào, nhóm đó có những quyền gì?”</td><td><code>Manager</code> = {<code>payroll:read</code>, <code>leave:approve</code>}; <code>Employee</code> = {<code>payroll:read-own</code>}</td><td>Gán trong IdP / admin ứng dụng</td></tr>
+<tr><td><b>Scope</b></td><td>“Ứng dụng này được làm thay Bình những loại việc gì?”</td><td>Token của <code>hr-web</code> có <code>scope="hr.read"</code> → được <i>đọc</i> dữ liệu HR, không được sửa</td><td>Authorization Server cấp cho client</td></tr>
+<tr><td><b>Policy</b></td><td>“Ghép tất cả lại: lần này cho hay không?”</td><td>“Cho xem nếu là bảng lương của chính mình, <b>hoặc</b> là Manager <b>và</b> nhân viên đó cùng phòng”</td><td>Code <code>hr-api</code> hoặc policy engine</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> cũng Bình, nhưng muốn xem lương của Chi (phòng Sales). Claim, role, permission, scope đều y hệt — chỉ có <b>policy</b> thấy <code>department</code> khác nhau và trả về <b>từ chối</b>. Ngược lại, nếu Bình dùng một app thống kê chỉ được cấp scope <code>profile</code>, thì dù role là Manager, request vẫn bị chặn ngay ở bước kiểm tra scope.</p>
+<span class="rule">Claim = dữ kiện · Permission = một quyền · Role = gói quyền của người · Scope = giới hạn của app · Policy = luật ghép tất cả để ra quyết định.</span>
+</div>
+
+<div class="callout warn"><span class="callout-title">⚠️ Scope không thay thế authorization nghiệp vụ</span>
+Scope trả lời <b>“client này được phép làm thay user những loại việc gì?”</b>, không trả lời <b>“user này có quyền với đơn hàng #1024 không?”</b>.
+<ul>
+<li>Token của An có <code>orders.read</code> → SPA được gọi <code>GET /orders/{id}</code> thay An. Nhưng An vẫn <b>không</b> được đọc đơn của phòng HCM — đó là quyết định của API dựa trên ownership/department.</li>
+<li>Role <code>Manager</code> của Bình nói lên <b>Bình là ai trong tổ chức</b>. Nếu Bình đăng nhập vào một app “đọc báo cáo” chỉ được cấp <code>orders.read</code>, app đó vẫn <b>không</b> được duyệt đơn thay Bình dù Bình là Manager.</li>
+<li><b>Ownership</b> (“đơn này do An tạo”) không nằm trong token — API phải tra dữ liệu tài nguyên.</li>
+</ul>
+Quyền hiệu lực ≈ <b>(scope của client) ∩ (quyền của user) ∩ (rule trên tài nguyên cụ thể)</b>.</div>
+
+<div class="diagram">
+<pre class="mermaid">
+flowchart TD
+  T["Access token<br/>sub=an, scope=orders.read<br/>roles=Employee, department=Sales-HN"]
+  T --> S{"Scope có<br/>orders.read?"}
+  S -- "không" --> D1["403"]
+  S -- "có" --> R{"Role/permission<br/>cho phép đọc đơn?"}
+  R -- "không" --> D2["403"]
+  R -- "có" --> O{"Order 1024: OwnerId=an<br/>hoặc cùng phòng + Manager?"}
+  O -- "không" --> D3["403 hoặc 404"]
+  O -- "có" --> OK["200 OK"]
+</pre>
+<div class="caption">Ba lớp kiểm tra khác nhau: scope (client được ủy quyền gì) → role (user là ai) → ownership/business rule (tài nguyên cụ thể).</div>
+</div>
+
+<div class="callout tip"><span class="callout-title">✅ Không phải claim nào cũng là quyền</span>
+<code>email</code>, <code>name</code>, <code>locale</code> là thông tin mô tả. Đừng viết policy “email kết thúc bằng <code>@company.com</code> thì là nhân viên” — email có thể thay đổi, có thể chưa xác minh, có thể bị IdP khác phát hành. Chỉ dùng claim làm căn cứ phân quyền khi bạn biết <b>ai phát hành</b>, <b>có được xác minh</b> và <b>ý nghĩa ổn định</b> của nó (xem <a href="m03-7-user-identity.html#iss-sub">định danh bằng iss + sub</a>).</div>
+
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Có scope <code>orders.read</code> là đọc được mọi đơn.</span><span class="f-label">Thực tế</span><span>Scope chỉ giới hạn việc <b>client</b> được làm thay user. Quyền trên từng đơn do API quyết định theo user và dữ liệu: An có <code>orders.read</code> vẫn bị chặn khi đọc đơn của phòng HCM.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>User có role Manager thì app nào Manager đăng nhập cũng làm được mọi việc của Manager.</span><span class="f-label">Thực tế</span><span>Role nói <b>user là ai</b>; scope nói <b>app được ủy quyền gì</b>. App báo cáo chỉ có <code>orders.read</code> thì không duyệt đơn thay Bình được, dù Bình là Manager — quyền hiệu lực là <b>giao</b> của hai thứ.</span></div>
+
+<h3 id="rbac">A.2. RBAC — Role-Based Access Control <span class="badge must">Must</span></h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+RBAC (phân quyền theo vai trò) giống <b>thẻ màu</b> ở công ty: thẻ xanh = nhân viên, thẻ vàng = trưởng phòng, thẻ đỏ = admin. Cửa nào cũng chỉ hỏi “thẻ màu gì?”. Dễ quản lý — nhưng cửa không biết bạn thuộc <i>phòng nào</i> hay đang <i>mấy giờ</i>.</div>
+<p>Quyền gắn với <b>role</b>; user (hoặc group) được gán role. Khi kiểm tra, hệ thống hỏi “user có role X không?” hoặc tốt hơn “role của user có permission Y không?”.</p>
+<div class="diagram">
+<pre class="mermaid">
+flowchart LR
+  subgraph Users
+    An["👤 An"]
+    Binh["👤 Bình"]
+    Admin1["👤 Dũng"]
+  end
+  subgraph Roles
+    E["Employee"]
+    M["Manager"]
+    A["Admin"]
+  end
+  subgraph Permissions
+    P1["order:create"]
+    P2["order:read"]
+    P3["order:approve"]
+    P4["user:manage"]
+  end
+  An --> E
+  Binh --> M
+  Admin1 --> A
+  E --> P1
+  E --> P2
+  M --> P2
+  M --> P3
+  A --> P4
+</pre>
+<div class="caption">RBAC: User → Role → Permission. Thay đổi quyền của cả nhóm chỉ cần sửa role.</div>
+</div>
+<div class="grid cols-2">
+<div class="card ok"><h4>👍 Ưu điểm</h4><p>Dễ hiểu, dễ audit (“ai có role Admin?”), khớp với cơ cấu tổ chức rõ ràng; hầu hết IdP (Entra app roles, Keycloak realm/client roles) và framework (<code>[Authorize(Roles="Manager")]</code>) hỗ trợ sẵn.</p></div>
+<div class="card bad"><h4>👎 Nhược điểm</h4><p><b>Role explosion</b>: khi cần điều kiện theo context, số role phình ra (<code>Manager_SalesHN</code>, <code>Manager_SalesHCM</code>, <code>Manager_SalesHN_Under50M</code>…). Không biểu diễn được “chỉ đơn của chính mình” hay “trong giờ làm việc”.</p></div>
+</div>
+<div class="callout tip"><span class="callout-title">💡 Mẹo thiết kế</span>
+Trong code, nên kiểm tra <b>permission</b> (<code>order:approve</code>) thay vì kiểm tra trực tiếp tên role ở khắp nơi. Khi tổ chức thêm role “Deputy Manager”, bạn chỉ sửa ánh xạ role → permission, không sửa code.</div>
+
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Với RBAC, yêu cầu phân quyền mới nào cũng giải quyết được bằng cách thêm role.</span><span class="f-label">Thực tế</span><span>Điều kiện theo context (cùng phòng, hạn mức, giờ làm việc) hay “chỉ đơn của chính mình” khiến role phình ra (<b>role explosion</b>). Dùng role cho “user là ai”, còn thuộc tính và ownership để policy xử lý.</span></div>
+
+<h3 id="abac">A.3. ABAC — Attribute-Based Access Control <span class="badge should">Should</span></h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+ABAC (phân quyền theo thuộc tính) giống một <b>bảo vệ đọc nội quy</b> chứ không chỉ nhìn màu thẻ: “Người của phòng Sales, vào kho của phòng Sales, trong giờ hành chính, đi cùng thiết bị công ty → cho vào”. Linh hoạt hơn nhiều, nhưng nội quy càng dài thì càng khó kiểm tra ai thực sự vào được đâu.</div>
+<p>Quyết định dựa trên <b>thuộc tính</b> của 4 nhóm: <b>subject</b> (phòng ban, cấp bậc), <b>resource</b> (phòng ban sở hữu, mức nhạy cảm), <b>action</b> (read/approve) và <b>environment</b> (giờ, IP, thiết bị, mức rủi ro).</p>
+<div class="diagram">
+<pre class="mermaid">
+flowchart LR
+  S["Subject attributes<br/>department=Sales-HN<br/>title=Employee"]
+  R["Resource attributes<br/>order.department=Sales-HN<br/>classification=internal"]
+  A["Action<br/>read"]
+  E["Environment<br/>time=10:30, device=managed"]
+  S --> P{"Policy ABAC"}
+  R --> P
+  A --> P
+  E --> P
+  P --> D["Permit / Deny"]
+</pre>
+<div class="caption">ABAC: policy là một biểu thức trên thuộc tính, không phải danh sách cứng.</div>
+</div>
+<pre data-title="Policy ABAC (pseudo-code)"><code class="language-plaintext">PERMIT action == "read" ON Order
+  WHEN subject.department == resource.department
+   AND environment.hour BETWEEN 8 AND 18
+   AND environment.deviceCompliant == true</code></pre>
+<p><b>Ưu:</b> rất linh hoạt, một policy thay cho hàng chục role. <b>Nhược:</b> policy phức tạp, khó trả lời câu hỏi audit “ai có thể đọc đơn #1024?”, phụ thuộc chất lượng thuộc tính (thuộc tính <code>department</code> sai/lỗi thời → quyết định sai).</p>
+
+<h3 id="acl">A.4. ACL — Access Control List <span class="badge should">Should</span></h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+ACL (danh sách kiểm soát truy cập) giống <b>tờ danh sách dán trên cửa từng phòng</b>: “Phòng họp 3: An, Bình được vào”. Muốn biết ai vào được phòng nào thì phải đi đọc từng cửa.</div>
+<p>Danh sách quyền gắn <b>trực tiếp với từng tài nguyên</b>: “trên tài nguyên X, chủ thể Y được làm Z”. Đây là mô hình của file system NTFS, Google Drive “chia sẻ với…”, S3 bucket ACL.</p>
+<div class="diagram">
+<pre class="mermaid">
+flowchart LR
+  F1["📄 Báo cáo Q3.xlsx"] --> L1["ACL<br/>An: read, write<br/>Nhóm Sales-HN: read"]
+  F2["📁 Folder Hợp đồng"] --> L2["ACL<br/>Nhóm Legal: modify<br/>Bình: read"]
+</pre>
+<div class="caption">ACL: mỗi tài nguyên mang danh sách (chủ thể → quyền) của riêng nó.</div>
+</div>
+<p><b>Ưu:</b> phù hợp khi quyền khác nhau theo <i>từng</i> tài nguyên cụ thể, dễ hiểu với người dùng cuối (“chia sẻ file”). <b>Nhược:</b> khó quản lý ở quy mô lớn (hàng triệu entry), khó trả lời “An có quyền gì trên toàn hệ thống?”, dễ sót khi offboarding.</p>
+
+<h3 id="rebac">A.5. ReBAC — Relationship-Based Access Control <span class="badge should">Should</span></h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+ReBAC (phân quyền theo quan hệ) giống câu “<b>bạn của bạn tôi</b> thì được vào nhà”: quyền suy ra từ chuỗi quan hệ (sếp của nhóm → nhóm sở hữu tài liệu → được xem tài liệu). Đó là cách Google Drive cho bạn mở file nằm trong folder được chia sẻ.</div>
+<p>Quyền suy ra từ <b>quan hệ</b> giữa các thực thể trong một đồ thị: owner, member, manager, parent folder… Ví dụ: “Bình được duyệt đơn vì Bình là <i>manager</i> của <i>team</i> mà An là <i>member</i>, và An là <i>owner</i> của đơn”.</p>
+<div class="diagram">
+<pre class="mermaid">
+flowchart LR
+  Binh["👤 Bình"] -- "manager of" --> Team["🏢 team:sales-hn"]
+  An["👤 An"] -- "member of" --> Team
+  An -- "owner of" --> O["🧾 order:1024"]
+  O -- "belongs to" --> Team
+  Q["❓ Bình approve order:1024?"] -.-> R["✅ Có: Bình là manager<br/>của team sở hữu đơn"]
+</pre>
+<div class="caption">ReBAC: duyệt đồ thị quan hệ để trả lời câu hỏi phân quyền.</div>
+</div>
+<p>Mô hình nổi tiếng là <b>Google Zanzibar</b> (hệ thống phân quyền dùng cho Drive, YouTube…), lưu quan hệ dạng <i>tuple</i> kiểu <code>order:1024#owner@user:an</code>. <b>Ưu:</b> tự nhiên cho ứng dụng cộng tác, chia sẻ, phân cấp folder/tổ chức. <b>Nhược:</b> cần hạ tầng lưu và truy vấn đồ thị, phải đồng bộ quan hệ từ dữ liệu nghiệp vụ.</p>
+
+<h3 id="policy-based">A.6. Policy-based access và policy engine <span class="badge should">Should</span> <span class="badge nice">Nice</span></h3>
+<div class="eli5"><span class="eli5-title">Nói đơn giản</span>
+Thay vì mỗi bảo vệ tự nhớ nội quy, công ty đặt <b>một phòng pháp chế</b>: bảo vệ ở cửa (PEP) gọi điện hỏi “cho người này vào kho không?”, phòng pháp chế (PDP) tra bộ nội quy chung và trả lời “có/không”. Sửa nội quy một chỗ, mọi cửa đều áp dụng.</div>
+<p><b>Policy-based access control</b>: quyết định được đưa ra bởi các policy <b>tập trung</b>, tách khỏi code nghiệp vụ, có thể phối hợp RBAC/ABAC/ReBAC. Kiến trúc thường gặp tách hai vai trò:</p>
+<ul>
+<li><b>PEP</b> (Policy Enforcement Point): nơi <i>thực thi</i> — middleware/endpoint của API.</li>
+<li><b>PDP</b> (Policy Decision Point): nơi <i>ra quyết định</i> — policy engine trả về permit/deny.</li>
+</ul>
+<div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+  participant C as Client
+  participant API as Order API (PEP)
+  participant PDP as Policy engine (PDP)
+  participant DB as Order DB
+  C->>API: POST /orders/1024/approve + access token
+  API->>API: Xác minh token (authN)
+  API->>DB: Tải order 1024
+  API->>PDP: Bình có được approve order 1024?
+  Note over API,PDP: Gửi kèm subject, action,<br/>thuộc tính đơn (dept, amount, owner)
+  PDP-->>API: deny (vượt hạn mức)
+  API-->>C: 403 Forbidden
+</pre>
+<div class="caption">PEP hỏi PDP. Code nghiệp vụ không chứa if/else phân quyền rải rác.</div>
+</div>
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: PEP vs PDP</span>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>PEP — Policy Enforcement Point</th><th>PDP — Policy Decision Point</th></tr></thead>
+<tbody>
+<tr><td>Việc chính</td><td><b>Chặn hoặc cho qua</b> request</td><td><b>Tính toán</b> câu trả lời permit/deny</td></tr>
+<tr><td>Biết gì</td><td>Request, token, tài nguyên đang được truy cập</td><td>Bộ policy; nhận dữ kiện do PEP gửi sang</td></tr>
+<tr><td>Ở đâu trong thực tế</td><td>Middleware / endpoint của API, API gateway</td><td>Policy engine (OPA, Cedar, OpenFGA) hoặc chính <code>AuthorizationHandler</code> trong cùng process</td></tr>
+<tr><td>Nhầm thì hỏng gì</td><td>Quên gọi PEP ở một endpoint → endpoint đó <b>không được bảo vệ</b>, dù PDP đúng</td><td>Policy sai → PEP thực thi đúng một quyết định sai</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> trong <code>hr-api</code>, endpoint <code>GET /payroll/{employeeId}</code> là PEP: nó tải bảng lương, gửi câu hỏi “Bình đọc bảng lương của An?” sang PDP, nhận <code>deny</code> và trả <code>403</code>. PDP không bao giờ tự trả HTTP response.</p>
+<span class="rule">PEP là “bảo vệ ở cửa” (thi hành), PDP là “phòng pháp chế” (quyết định).</span>
+</div>
+<div class="table-wrap"><table>
+<thead><tr><th>Engine <span class="badge nice">Nice</span></th><th>Ý tưởng</th><th>Không phải là</th></tr></thead>
+<tbody>
+<tr><td><b>OPA</b> (Open Policy Agent)</td><td>Policy engine đa dụng, viết policy bằng ngôn ngữ <b>Rego</b>; dùng cho API, Kubernetes admission, CI…</td><td>Không phải IdP, không xác thực người dùng.</td></tr>
+<tr><td><b>Cedar</b></td><td>Ngôn ngữ policy mã nguồn mở do AWS phát triển (dùng trong Amazon Verified Permissions); hỗ trợ cả kiểu RBAC và ABAC.</td><td>Không phải dịch vụ đăng nhập.</td></tr>
+<tr><td><b>OpenFGA</b> / SpiceDB</td><td>Hệ thống ReBAC lấy cảm hứng từ <b>Google Zanzibar</b>: lưu tuple quan hệ, trả lời “user X có quan hệ Y với object Z không?”.</td><td>Không thay thế việc xác minh token.</td></tr>
+</tbody></table></div>
+<p>Trong lộ trình 15 giờ chỉ cần <b>nhận diện use case</b>: khi policy phức tạp, dùng chung giữa nhiều service hoặc cần audit tập trung thì cân nhắc policy engine; còn lại, policy của ASP.NET Core là đủ.</p>
+
+<p class="myth-head">⚠️ Hiểu lầm hay gặp</p>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Có policy engine (OPA, OpenFGA) thì không cần IdP hay xác minh token nữa.</span><span class="f-label">Thực tế</span><span>Policy engine chỉ trả lời permit/deny dựa trên dữ kiện PEP gửi sang. “Ai đang gọi” vẫn phải được xác minh trước bằng token do IdP phát hành — xem cột “Không phải là” ở bảng trên.</span></div>
+<div class="myth"><span class="m-label">Hiểu lầm</span><span>Policy ở PDP đã viết đúng thì mọi endpoint đều được bảo vệ.</span><span class="f-label">Thực tế</span><span>PDP chỉ trả lời khi được hỏi. Endpoint mới quên gọi PDP (thiếu PEP) thì không có kiểm tra nào chạy. Vì vậy cần thêm lớp <a href="m06-2-api-authz.html#deny-by-default">deny by default</a>.</span></div>
+
+<h3 id="authz-compare">A.7. Bảng so sánh RBAC, ABAC, ACL, ReBAC (deliverable 1)</h3>
+<div class="table-wrap"><table>
+<thead><tr><th>Tiêu chí</th><th>RBAC</th><th>ABAC</th><th>ACL</th><th>ReBAC</th></tr></thead>
+<tbody>
+<tr><td>Quyền gắn với</td><td>Role</td><td>Biểu thức trên thuộc tính</td><td>Từng tài nguyên</td><td>Quan hệ trong đồ thị</td></tr>
+<tr><td>Câu hỏi điển hình</td><td>“User có role Manager?”</td><td>“Cùng phòng ban và trong giờ làm việc?”</td><td>“File X có cho An đọc không?”</td><td>“An có phải owner/member của…?”</td></tr>
+<tr><td>Ví dụ Order API</td><td>Manager được duyệt đơn</td><td>Chỉ đọc đơn cùng department, thiết bị được quản lý</td><td>Đơn 1024 chia sẻ cho kế toán Hoa</td><td>Manager của team sở hữu đơn được duyệt</td></tr>
+<tr><td>Độ chi tiết</td><td>Thô (coarse)</td><td>Rất mịn, theo context</td><td>Mịn theo tài nguyên</td><td>Mịn, theo quan hệ, kế thừa</td></tr>
+<tr><td>Ưu điểm</td><td>Đơn giản, dễ audit, hỗ trợ sẵn</td><td>Linh hoạt, ít role</td><td>Trực quan khi chia sẻ tài nguyên</td><td>Tự nhiên cho cộng tác, phân cấp</td></tr>
+<tr><td>Nhược điểm</td><td>Role explosion, không biểu diễn ownership/context</td><td>Policy phức tạp, khó audit, phụ thuộc chất lượng thuộc tính</td><td>Khó quản lý quy mô lớn, khó tổng hợp quyền</td><td>Cần hạ tầng đồ thị, đồng bộ quan hệ</td></tr>
+<tr><td>Phù hợp</td><td>Hệ thống nội bộ, cơ cấu vai trò rõ</td><td>Yêu cầu compliance, điều kiện động</td><td>File system, tài liệu chia sẻ</td><td>SaaS cộng tác (Drive, Notion, GitHub)</td></tr>
+</tbody></table></div>
+<div class="compare"><span class="compare-title">Phân biệt dễ nhầm: RBAC vs ABAC vs ACL vs ReBAC — cùng một yêu cầu</span>
+<p>Bảng trên so sánh tính chất. Bảng này cho thấy <b>cùng một yêu cầu</b> trong Kaopiz HR được “viết ra” theo từng mô hình ra sao: <i>“Trưởng phòng được xem bảng lương của nhân viên trong phòng mình; nhân viên chỉ xem bảng lương của chính mình”</i>.</p>
+<div class="table-wrap"><table>
+<thead><tr><th>Mô hình</th><th>Lưu/viết như thế nào</th><th>Vấn đề gặp phải</th></tr></thead>
+<tbody>
+<tr><td><b>RBAC</b></td><td>Role <code>Manager</code> có permission <code>payroll:read</code>. Muốn giới hạn theo phòng → phải tạo <code>Manager_Dev</code>, <code>Manager_Sales</code>, <code>Manager_HR</code>…</td><td>Role explosion; “chỉ của chính mình” không diễn tả được bằng role.</td></tr>
+<tr><td><b>ABAC</b></td><td><code>PERMIT read ON Payslip WHEN subject.id == resource.employeeId OR (subject.title == "Manager" AND subject.department == resource.department)</code></td><td>Một policy là đủ — nhưng nếu thuộc tính <code>department</code> của An trên IdP sai, quyết định sai theo.</td></tr>
+<tr><td><b>ACL</b></td><td>Mỗi phiếu lương mang danh sách riêng: <code>payslip:an-2026-10 → {an: read, binh: read}</code></td><td>Khi An chuyển phòng hoặc đổi trưởng phòng, phải sửa ACL của <b>mọi</b> phiếu lương liên quan.</td></tr>
+<tr><td><b>ReBAC</b></td><td>Lưu quan hệ: <code>department:dev#manager@user:binh</code>, <code>payslip:an-2026-10#dept@department:dev</code>, <code>payslip:an-2026-10#owner@user:an</code>. Luật: <i>viewer = owner, hoặc manager của dept</i>.</td><td>Cần hệ thống lưu/truy vấn đồ thị (OpenFGA, SpiceDB) và đồng bộ quan hệ từ dữ liệu HR.</td></tr>
+</tbody></table></div>
+<p><b>Ví dụ:</b> Kaopiz đổi trưởng phòng Dev từ Bình sang Dũng. RBAC: gỡ role <code>Manager_Dev</code> của Bình, gán cho Dũng. ABAC: chỉ cần sửa thuộc tính <code>title</code> trên IdP. ACL: sửa hàng trăm phiếu lương. ReBAC: đổi <b>một</b> tuple <code>department:dev#manager</code>.</p>
+<span class="rule">RBAC hỏi “bạn là ai?”, ABAC hỏi “thuộc tính có khớp không?”, ACL hỏi “tên bạn có trên tờ giấy dán ở cửa không?”, ReBAC hỏi “bạn có quan hệ gì với thứ này?”.</span>
+</div>
+
+<div class="callout info"><span class="callout-title">ℹ️ Thực tế: thường kết hợp</span>
+Hệ thống thật hiếm khi dùng một mô hình thuần túy. Order API dùng <b>RBAC</b> (Manager) + <b>ABAC</b> (cùng department, hạn mức) + <b>ownership</b> (một dạng ReBAC đơn giản). Đây cũng là case study “API cần phân quyền theo ownership và department” ở <a href="m07-4-cases-troubleshooting.html#case-studies">Module 07</a>.</div>
+
+<div class="callout tip"><span class="callout-title">✅ Tự kiểm tra nhanh</span><ul>
+<li>Token của An có <code>scope="hr.read"</code>. Vì sao An vẫn không được xem lương của đồng nghiệp?</li>
+<li>Yêu cầu “chỉ duyệt đơn trong giờ hành chính” hợp với RBAC hay ABAC? Vì sao?</li>
+<li>Trong sơ đồ PEP/PDP, nếu một endpoint mới quên gọi PDP thì chuyện gì xảy ra?</li>
+</ul></div>
+
+<h2 id="quiz-bai">Quiz nhanh — Bài 6.1</h2>
+<div id="quiz"></div>
+
+</main>
+<script>
+window.QUIZ = [
+  { q: "An dùng <code>hr-web</code> gọi <code>hr-api</code>. Theo bài, quyền hiệu lực của request là <b>giao</b> của những yếu tố nào? (chọn nhiều)",
+    options: ["Scope mà Authorization Server cấp cho client <code>hr-web</code>", "Quyền của An (role/permission)", "Rule trên tài nguyên cụ thể (owner, phòng ban, hạn mức)", "Claim <code>email</code> có đuôi <code>@kaopiz.com</code>"],
+    answer: [0, 1, 2],
+    why: ["Scope là lớp giới hạn những gì client được làm thay An, dù An có quyền rộng hơn.", "Role/permission mô tả An được làm gì trong tổ chức, độc lập với client đang dùng.", "Ownership, phòng ban, hạn mức chỉ kiểm tra được khi đã có dữ liệu của bản ghi cụ thể.", "Email là thông tin mô tả, có thể đổi hoặc chưa xác minh; bài khuyên không dùng đuôi email làm căn cứ phân quyền."],
+    explain: "Quyền hiệu lực ≈ (scope của client) ∩ (quyền của user) ∩ (rule trên tài nguyên). Xem <a href='m06-1-authz-models.html#building-blocks'>A.1</a>." },
+  { q: "Bình (Manager phòng Dev) mở <code>hr-web</code> và xem được bảng lương của An (phòng Dev). Ngay sau đó, với <b>cùng một access token</b>, Bình mở bảng lương của Chi (phòng Sales) và bị từ chối. Thành phần nào đưa ra quyết định từ chối?",
+    tricky: true,
+    options: ["Scope — token thiếu scope để đọc lương phòng Sales", "Role — Manager không có permission <code>payroll:read</code>", "Policy — so <code>department</code> của Bình với phòng của nhân viên trong bản ghi", "Authentication — token bị coi là không hợp lệ với bản ghi khác"],
+    answer: 2,
+    why: ["Scope không phân biệt phòng ban; cùng token đó vừa đọc được lương An, nên scope đã đủ.", "Role Manager có <code>payroll:read</code> — chính nhờ nó Bình mới xem được lương An.", "Token y hệt ở hai lần gọi; thứ duy nhất khác là dữ liệu bản ghi (phòng Sales), và policy là nơi ghép claim với dữ liệu đó để ra quyết định.", "Xác thực không phụ thuộc bản ghi nào được đọc; nếu token hỏng thì lần gọi đầu cũng đã thất bại (401)."],
+    explain: "Bẫy: lần gọi thứ hai bị từ chối nên dễ nghĩ token “thiếu gì đó”. Nhưng token không đổi, chỉ tài nguyên đổi → quyết định nằm ở policy/rule trên tài nguyên. Xem ví dụ “xem bảng lương” ở <a href='m06-1-authz-models.html#building-blocks'>A.1</a>." },
+  { q: "Code <code>hr-api</code> kiểm tra “role là Manager hoặc Admin” lặp lại ở 40 chỗ để cho duyệt nghỉ phép. Công ty thêm chức danh Deputy Manager cũng được duyệt. Cách sửa bền vững nhất?",
+    options: ["Thêm điều kiện role Deputy Manager vào cả 40 chỗ", "Gán luôn role Admin cho Deputy Manager cho nhanh", "Code chỉ kiểm tra permission <code>leave:approve</code>; ánh xạ role → permission (Manager, Deputy Manager → leave:approve) quản lý ở một nơi", "Bỏ kiểm tra ở API, chỉ ẩn nút “Duyệt” trên UI với nhân viên"],
+    answer: 2,
+    why: ["Chạy được, nhưng lần sau thêm role lại phải sửa 40 chỗ và rất dễ sót một chỗ.", "Vi phạm least privilege: Deputy Manager nhận cả quyền quản trị không liên quan.", "Code chỉ hỏi “có quyền này không”, nên thêm role mới chỉ là sửa ánh xạ, không đụng tới code.", "Ẩn nút là trải nghiệm người dùng; API vẫn bị gọi trực tiếp được bằng curl/DevTools."],
+    explain: "Kiểm tra permission thay vì tên role. Xem mẹo thiết kế ở <a href='m06-1-authz-models.html#rbac'>A.2 RBAC</a>." },
+  { q: "Yêu cầu mới: “Chỉ được duyệt đơn trong giờ hành chính và từ laptop công ty đã được quản lý”. Mô hình nào biểu diễn tự nhiên nhất?",
+    options: ["RBAC — tạo thêm role <code>Manager_GioHanhChinh</code>", "ABAC — policy trên thuộc tính environment (giờ, thiết bị) kết hợp subject/resource", "ACL — ghi khung giờ vào danh sách quyền của từng đơn", "OAuth scope — tạo scope <code>orders.approve.office-hours</code>"],
+    answer: 1,
+    why: ["Role là gán tĩnh, không biết “bây giờ mấy giờ”; cố làm vậy dẫn tới role explosion.", "Giờ và trạng thái thiết bị là thuộc tính <b>environment</b> — đúng nhóm thứ tư mà ABAC xét.", "ACL gắn chủ thể → quyền trên từng tài nguyên, không có chỗ tự nhiên cho điều kiện thời gian/thiết bị.", "Scope được cấp khi phát hành token cho client, không được đánh giá lại theo giờ/thiết bị ở mỗi request."],
+    explain: "Điều kiện động theo context là đất của ABAC. Xem <a href='m06-1-authz-models.html#abac'>A.3</a>." },
+  { q: "Kaopiz dùng OPA làm PDP, policy đã được review kỹ. Dev thêm endpoint <code>GET /payroll/export</code> nhưng quên gọi OPA trong code. Điều gì xảy ra?",
+    options: ["OPA tự phát hiện endpoint mới và chặn", "Endpoint chạy mà không có kiểm tra phân quyền nào (trừ khi có lớp deny by default khác)", "Request bị 403 vì PDP không trả lời", "Không sao — policy đúng thì mọi endpoint đều an toàn"],
+    answer: 1,
+    why: ["PDP chỉ trả lời khi được hỏi; nó không đứng trên đường đi của request.", "PEP là nơi thi hành; thiếu PEP thì quyết định của PDP không bao giờ được áp dụng.", "PDP không hề được gọi, nên không có “không trả lời” nào để biến thành 403.", "Policy đúng vô dụng nếu không ai hỏi nó — đúng hàng “Nhầm thì hỏng gì” trong bảng PEP vs PDP."],
+    explain: "Phòng trường hợp quên PEP bằng <a href='m06-2-api-authz.html#deny-by-default'>deny by default</a> (FallbackPolicy). Xem <a href='m06-1-authz-models.html#policy-based'>A.6</a>." }
+];
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="assets/pages.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>
